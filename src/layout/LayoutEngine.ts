@@ -21,19 +21,25 @@ export class LayoutEngine {
 
     const titleWidthAdjust = config.title?.widthAdjust ?? -44;
     const titleAvailableWidth = chartWidth + titleWidthAdjust;
-    const titleHeight = config.title?.text
-      ? this.estimateWrappedTextHeight(config.title.text, config.title.style, titleAvailableWidth) + (config.title.margin || 15)
+    const titleTextHeight = config.title?.text
+      ? this.estimateWrappedTextHeight(config.title.text, config.title.style, titleAvailableWidth)
       : 0;
-    const subtitleHeight = config.subtitle?.text
-      ? this.estimateWrappedTextHeight(config.subtitle.text, config.subtitle.style, titleAvailableWidth) + 5
+    const titleMargin = config.title?.margin ?? 8;
+    const subtitleTextHeight = config.subtitle?.text
+      ? this.estimateWrappedTextHeight(config.subtitle.text, config.subtitle.style, titleAvailableWidth)
       : 0;
 
-    top += titleHeight + subtitleHeight;
+    if (titleTextHeight > 0) {
+      top = spacing.top + titleTextHeight + titleMargin;
+    }
+    if (subtitleTextHeight > 0) {
+      top += subtitleTextHeight + 2;
+    }
 
-    const legendHeight = this.estimateLegendHeight(config);
+    const legendHeight = this.estimateLegendHeight(config, chartWidth);
     const legendPosition = config.legend?.verticalAlign || 'bottom';
     if (legendPosition === 'bottom') {
-      bottom += legendHeight;
+      bottom = Math.max(bottom, spacing.bottom) + legendHeight;
     } else if (legendPosition === 'top') {
       top += legendHeight;
     }
@@ -55,18 +61,18 @@ export class LayoutEngine {
         x: spacing.left,
         y: spacing.top,
         width: chartWidth - spacing.left - spacing.right,
-        height: titleHeight,
+        height: titleTextHeight + titleMargin,
       },
       subtitleArea: {
         x: spacing.left,
-        y: spacing.top + titleHeight,
+        y: spacing.top + titleTextHeight + titleMargin,
         width: chartWidth - spacing.left - spacing.right,
-        height: subtitleHeight,
+        height: subtitleTextHeight,
       },
       legendArea: {
-        x: left,
+        x: 0,
         y: legendPosition === 'top' ? top - legendHeight : chartHeight - bottom,
-        width: chartWidth - left - right,
+        width: chartWidth,
         height: legendHeight,
       },
     };
@@ -127,16 +133,82 @@ export class LayoutEngine {
     return lineHeight * Math.max(lines, 1);
   }
 
-  private estimateLegendHeight(config: InternalConfig): number {
+  private computeAutoFontSize(_itemCount: number, baseFontSize: string): string {
+    return baseFontSize || '12px';
+  }
+
+  private estimateLegendHeight(config: InternalConfig, chartWidth: number): number {
     if (!config.legend?.enabled) return 0;
-    const numSeries = config.series.filter(s => s.showInLegend !== false).length;
+    const visibleSeries = config.series.filter(s => s.showInLegend !== false);
+    const numSeries = visibleSeries.length;
     if (numSeries === 0) return 0;
 
+    const margin = config.legend.margin ?? 8;
     const layout = config.legend.layout || 'horizontal';
+    const itemStyle = config.legend.itemStyle || {};
+    const baseFontSize = itemStyle.fontSize as string || '12px';
+    const effectiveFontSize = this.computeAutoFontSize(numSeries, baseFontSize);
+    const lineHeight = config.legend.lineHeight ?? 16;
+    const itemMarginBottom = config.legend.itemMarginBottom ?? 2;
+    const itemMarginTop = config.legend.itemMarginTop ?? 0;
+    const rowStep = lineHeight + itemMarginBottom + itemMarginTop;
+
     if (layout === 'horizontal') {
-      return 30 + (config.legend.margin || 15);
+      const padding = config.legend.padding ?? 4;
+      const symbolWidth = config.legend.symbolWidth ?? 10;
+      const symbolPadding = config.legend.symbolPadding ?? 5;
+      const itemDistance = config.legend.itemDistance ?? 20;
+      const spacing = this.getSpacing(config);
+      const availWidth = config.legend.width || (chartWidth - spacing.left - spacing.right - padding * 2);
+
+      const useGrid = numSeries > 8;
+
+      if (useGrid) {
+        const labels = visibleSeries.map((s, i) => s.name || `Series ${i + 1}`);
+        const fontPx = parseInt(effectiveFontSize, 10);
+        let maxTextWidth = 0;
+        for (const label of labels) {
+          const w = label.length * fontPx * 0.58;
+          if (w > maxTextWidth) maxTextWidth = w;
+        }
+
+        let gridItemWidth: number;
+        let columns: number;
+        if (config.legend.itemWidth) {
+          gridItemWidth = config.legend.itemWidth;
+          columns = Math.max(2, Math.floor(availWidth / gridItemWidth));
+        } else {
+          const computed = symbolWidth + symbolPadding + maxTextWidth + 8;
+          columns = Math.max(2, Math.floor(availWidth / computed));
+          gridItemWidth = availWidth / columns;
+        }
+
+        const rows = Math.ceil(numSeries / columns);
+        const height = rows * rowStep + padding * 2;
+        const maxHeight = config.legend.maxHeight;
+        return (maxHeight ? Math.min(height, maxHeight) : height) + margin;
+      }
+
+      let offsetX = padding;
+      let rows = 1;
+      for (let i = 0; i < numSeries; i++) {
+        const name = visibleSeries[i].name || `Series ${i + 1}`;
+        const textWidth = config.legend.itemWidth || name.length * 7;
+        const itemWidth = symbolWidth + symbolPadding + textWidth;
+
+        if (i > 0 && offsetX + itemWidth > availWidth) {
+          rows++;
+          offsetX = padding;
+        }
+        offsetX += itemWidth + itemDistance;
+      }
+
+      const height = rows * rowStep + padding * 2;
+      const maxHeight = config.legend.maxHeight;
+      return (maxHeight ? Math.min(height, maxHeight) : height) + margin;
     }
-    return numSeries * 20 + (config.legend.margin || 15);
+
+    return numSeries * rowStep + (config.legend.padding ?? 8) * 2 + margin;
   }
 
   private estimateAxisWidth(config: InternalConfig, isLeft: boolean): number {
@@ -175,9 +247,27 @@ export class LayoutEngine {
       const hasLabels = axis.labels?.enabled !== false;
       const hasTitle = axis.title?.text;
       const hasExplicitRotation = !!(axis.labels?.rotation);
-      const labelHeight = hasLabels
-        ? (hasExplicitRotation ? 45 : 30)
-        : 0;
+
+      let labelHeight = 30;
+      if (hasLabels) {
+        if (hasExplicitRotation) {
+          labelHeight = 45;
+        } else if (axis.categories && axis.categories.length > 0) {
+          let maxLen = 0;
+          for (const cat of axis.categories) {
+            if (cat.length > maxLen) maxLen = cat.length;
+          }
+          const fontSize = parseInt(axis.labels?.style?.fontSize as string || '11', 10);
+          const wouldOverlap = axis.categories.length > 6 || maxLen > 8;
+          if (wouldOverlap) {
+            const rotatedHeight = Math.min(maxLen * fontSize * 0.4 * Math.sin(Math.PI / 4), 120);
+            labelHeight = Math.max(30, rotatedHeight);
+          }
+        }
+      } else {
+        labelHeight = 0;
+      }
+
       const tickSpace = hasLabels ? (axis.tickLength || 10) : 5;
       height += labelHeight + (hasTitle ? 25 : 0) + tickSpace;
     }

@@ -1,4 +1,4 @@
-import { sankey, sankeyLinkHorizontal, sankeyLeft } from 'd3-sankey';
+import { sankey, sankeyLinkHorizontal, sankeyLeft, sankeyJustify } from 'd3-sankey';
 import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
@@ -17,7 +17,7 @@ export class SankeySeries extends BaseSeries {
     const { nodes, links } = this.buildGraph();
     if (nodes.length === 0) return;
 
-    const nodeWidth = cfg.nodeWidth ?? 15;
+    const nodeWidth = cfg.nodeWidth ?? 20;
     const nodePadding = cfg.nodePadding ?? 10;
     const baseLinkOpacity = cfg.linkOpacity ?? 0.4;
     const colorByPoint = cfg.colorByPoint !== false;
@@ -27,13 +27,13 @@ export class SankeySeries extends BaseSeries {
     const levels: SankeyLevelOptions[] = cfg.levels || [];
     const curveFactor = cfg.curveFactor ?? 0.33;
 
-    const rightPad = 80;
+    const alignMode = cfg.nodeAlignment === 'left' ? sankeyLeft : sankeyJustify;
     const sankeyGen = sankey<any, any>()
       .nodeId((d: any) => d.id)
-      .nodeAlign(sankeyLeft)
+      .nodeAlign(alignMode)
       .nodeWidth(nodeWidth)
       .nodePadding(nodePadding)
-      .extent([[0, 0], [plotArea.width - rightPad, plotArea.height - 25]]);
+      .extent([[0, 0], [plotArea.width - nodeWidth, plotArea.height]]);
 
     const graph = sankeyGen({ nodes: [...nodes], links: [...links] });
 

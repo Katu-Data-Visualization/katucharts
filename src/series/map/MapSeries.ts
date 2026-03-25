@@ -21,7 +21,7 @@ import { timer as d3Timer, type Timer } from 'd3-timer';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
-import { templateFormat } from '../../utils/format';
+import { templateFormat, stripHtmlTags } from '../../utils/format';
 
 const projectionMap: Record<string, () => GeoProjection> = {
   'naturalEarth': geoNaturalEarth1,
@@ -330,11 +330,12 @@ export class MapSeries extends BaseSeries {
           });
         }
         if (dlCfg.format) {
-          return templateFormat(dlCfg.format, {
+          return stripHtmlTags(templateFormat(dlCfg.format, {
             point: point || { name: d.properties?.name },
+            series: { name: this.config.name },
             x: d.properties?.name,
             y: point?.y ?? (point as any)?.value,
-          });
+          }));
         }
         return point?.name || d.properties?.name || '';
       });

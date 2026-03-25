@@ -6,7 +6,7 @@ import { interpolateRgb } from 'd3-interpolate';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, ColorAxisOptions, BorderRadiusOptions } from '../../types/options';
-import { templateFormat } from '../../utils/format';
+import { templateFormat, stripHtmlTags } from '../../utils/format';
 
 function resolveBorderRadius(val: number | BorderRadiusOptions | undefined): number {
   if (val === undefined) return 4;
@@ -416,9 +416,10 @@ export class HeatmapSeries extends BaseSeries {
           });
         }
         if (dlCfg.format) {
-          return templateFormat(dlCfg.format, {
-            point: { ...d, value: val }, x: d.x, y: d.y, value: val,
-          });
+          return stripHtmlTags(templateFormat(dlCfg.format, {
+            point: { ...d, value: val }, series: { name: this.config.name },
+            x: d.x, y: d.y, value: val,
+          }));
         }
         return String(val);
       });

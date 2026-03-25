@@ -105,8 +105,12 @@ export class Chart {
 
   private resolveHeight(configured: number | string | null | undefined, containerHeight: number): number {
     if (typeof configured === 'number') return configured;
-    if (typeof configured === 'string' && configured.endsWith('%')) {
-      return (parseFloat(configured) / 100) * containerHeight;
+    if (typeof configured === 'string') {
+      if (configured.endsWith('%')) {
+        return (parseFloat(configured) / 100) * containerHeight;
+      }
+      const parsed = parseFloat(configured);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
     }
     return containerHeight || 400;
   }
@@ -356,25 +360,31 @@ export class Chart {
 
     for (let ai = 0; ai < this.xAxes.length; ai++) {
       const axis = this.xAxes[ai];
+
+      if (axis.config.type === 'category' || axis.config.categories) {
+        const relatedSeries = this.seriesInstances.filter(
+          (s, si) => s.visible && this.options.series[si]._xAxisIndex === ai && !noAxesTypes.has(s.config._internalType)
+        );
+        const cats = axis.config.categories
+          || (relatedSeries.length > 0 ? relatedSeries[0].getCategories() : undefined);
+        if (cats) axis.updateDomain(cats);
+        continue;
+      }
+
       const relatedSeries = this.seriesInstances.filter(
         (s, si) => s.visible && this.options.series[si]._xAxisIndex === ai && !noAxesTypes.has(s.config._internalType)
       );
 
       if (relatedSeries.length === 0) continue;
 
-      if (axis.config.type === 'category' || axis.config.categories) {
-        const cats = axis.config.categories || relatedSeries[0].getCategories();
-        axis.updateDomain(cats);
-      } else {
-        let xMin = Infinity, xMax = -Infinity;
-        for (const s of relatedSeries) {
-          const ext = s.getDataExtents();
-          xMin = Math.min(xMin, ext.xMin);
-          xMax = Math.max(xMax, ext.xMax);
-        }
-        if (isFinite(xMin) && isFinite(xMax)) {
-          axis.updateDomain({ min: xMin, max: xMax });
-        }
+      let xMin = Infinity, xMax = -Infinity;
+      for (const s of relatedSeries) {
+        const ext = s.getDataExtents();
+        xMin = Math.min(xMin, ext.xMin);
+        xMax = Math.max(xMax, ext.xMax);
+      }
+      if (isFinite(xMin) && isFinite(xMax)) {
+        axis.updateDomain({ min: xMin, max: xMax });
       }
     }
 
@@ -667,7 +677,7 @@ export class Chart {
   private setupSeriesDimming(): void {
     const inactiveOpacity = this.options.plotOptions?.series?.states?.inactive?.opacity ?? 0.2;
 
-    this.events.on('series:mouseenter', (hoveredSeries: BaseSeries) => {
+    const dimOtherSeries = (hoveredSeries: BaseSeries) => {
       for (const s of this.seriesInstances) {
         s['group']?.interrupt?.('seriesDim');
         if (s !== hoveredSeries && s.visible) {
@@ -676,14 +686,19 @@ export class Chart {
           s['group']?.attr?.('opacity', 1);
         }
       }
-    });
+    };
 
-    this.events.on('series:mouseleave', () => {
+    const restoreAllSeries = () => {
       for (const s of this.seriesInstances) {
         s['group']?.interrupt?.('seriesDim');
         s['group']?.transition?.('seriesDim')?.duration?.(200)?.attr?.('opacity', 1);
       }
-    });
+    };
+
+    this.events.on('series:mouseenter', dimOtherSeries);
+    this.events.on('series:mouseleave', restoreAllSeries);
+    this.events.on('legend:itemHover', dimOtherSeries);
+    this.events.on('legend:itemLeave', restoreAllSeries);
   }
 
   private setupReflow(): void {
@@ -942,10 +957,22 @@ export class Chart {
     }
     const parser = new OptionsParser();
     const newConfig = parser.parse(deepMerge(this.optionsToExternal(), options) as KatuChartsOptions);
+    const prevSeriesCount = this.seriesInstances.length;
+    const newSeriesCount = newConfig.series?.length ?? 0;
     this.state.updateConfig(newConfig);
     this.options = this.state.getConfig();
 
-    if (redraw) this.redraw();
+    if (redraw) {
+      if (prevSeriesCount !== newSeriesCount) {
+        this.redraw();
+      } else {
+        try {
+          this.animatedRedraw(300);
+        } catch {
+          this.redraw();
+        }
+      }
+    }
   }
 
   animatedRedraw(duration = 500): void {
@@ -963,6 +990,7 @@ export class Chart {
     const typeIndex = new Map<string, number>();
     const stackCount = new Map<string, number>();
     const stackIdx = new Map<string, number>();
+    const stackAccum = new Map<string, Map<number | string, number>>();
     const buildSK = (cfg: any) => `${cfg._internalType}__${cfg.stack ?? '_default'}`;
     for (const s of this.seriesInstances) {
       if (!s.visible) continue;
@@ -971,6 +999,7 @@ export class Chart {
       if (s.config.stacking) {
         const sk = buildSK(s.config);
         stackCount.set(sk, (stackCount.get(sk) || 0) + 1);
+        if (!stackAccum.has(sk)) stackAccum.set(sk, new Map());
       }
     }
 
@@ -985,11 +1014,13 @@ export class Chart {
 
       let totalOfType: number;
       let idxOfType: number;
+      let stackOffsets: Map<number | string, number> | undefined;
       if (cfg.stacking) {
         const sk = buildSK(cfg);
         totalOfType = stackCount.get(sk) || 1;
         idxOfType = stackIdx.get(sk) || 0;
         stackIdx.set(sk, idxOfType + 1);
+        stackOffsets = new Map(stackAccum.get(sk)!);
       } else {
         totalOfType = typeCount.get(t) || 1;
         idxOfType = idxInType;
@@ -1000,9 +1031,19 @@ export class Chart {
         yAxis: this.yAxes[cfg._yAxisIndex] || this.yAxes[0],
         totalSeriesOfType: totalOfType,
         indexInType: idxOfType,
+        stackOffsets,
       });
 
       series.animateUpdate(duration);
+
+      if (cfg.stacking) {
+        const sk = buildSK(cfg);
+        const accum = stackAccum.get(sk)!;
+        for (const d of series.data) {
+          const xKey = d.x ?? 0;
+          accum.set(xKey, (accum.get(xKey) || 0) + (d.y ?? 0));
+        }
+      }
     }
   }
 

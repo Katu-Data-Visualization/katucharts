@@ -2,7 +2,7 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig } from '../../types/options';
-import { templateFormat } from '../../utils/format';
+import { templateFormat, stripHtmlTags } from '../../utils/format';
 
 export class CandlestickSeries extends BaseSeries {
   private selectedIndices: Set<number> = new Set();
@@ -170,7 +170,9 @@ export class CandlestickSeries extends BaseSeries {
           x: d.x, y: d.y,
         });
       } else if (dlCfg.format) {
-        text = templateFormat(dlCfg.format, { point: d, x: d.x, y: d.y });
+        text = stripHtmlTags(templateFormat(dlCfg.format, {
+          point: d, series: { name: this.config.name }, x: d.x, y: d.y,
+        }));
       } else {
         text = String(d.close ?? d.y ?? '');
       }

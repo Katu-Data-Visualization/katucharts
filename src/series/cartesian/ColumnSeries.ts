@@ -295,6 +295,12 @@ export class ColumnSeries extends BaseSeries {
   }
 
   animateUpdate(duration: number): void {
+    const stacking = this.config.stacking;
+    if (stacking) {
+      this.updateStackedBars(duration);
+      return;
+    }
+
     const { xAxis, yAxis, plotArea } = this.context;
     const color = this.getColor();
     const data = this.data;
@@ -346,6 +352,93 @@ export class ColumnSeries extends BaseSeries {
     this.group.selectAll('.katucharts-data-labels').remove();
     this.attachHoverEffects(this.group.selectAll('.katucharts-column'), data);
     this.renderColumnDataLabels(data, barWidth, barOffset, baseline);
+  }
+
+  private updateStackedBars(duration: number): void {
+    const { xAxis, yAxis, plotArea } = this.context;
+    const color = this.getColor();
+    const data = this.data;
+    const { barWidth, barOffset, baseline } = this.computeBarGeometry();
+    const stacking = this.config.stacking;
+    const stackOffsets = this.context.stackOffsets;
+    const isPercent = stacking === 'percent';
+    const crisp = this.config.crisp !== false;
+    const borderRadius = resolveBorderRadius(this.config.borderRadius);
+    const minPointLength = this.config.minPointLength ?? 0;
+
+    let percentTotals: Map<number | string, number> | undefined;
+    if (isPercent && stackOffsets) {
+      percentTotals = new Map<number | string, number>();
+      for (const d of data) {
+        const xKey = d.x ?? 0;
+        const offset = stackOffsets.get(xKey) || 0;
+        percentTotals.set(xKey, offset + (d.y ?? 0));
+      }
+    }
+
+    const getStackedY = (d: PointOptions): number => {
+      const xKey = d.x ?? 0;
+      const offset = stackOffsets?.get(xKey) || 0;
+      const val = d.y ?? 0;
+      if (isPercent && percentTotals) {
+        const total = percentTotals.get(xKey) || 1;
+        return ((offset + val) / total) * 100;
+      }
+      return offset + val;
+    };
+
+    const getStackedBase = (d: PointOptions): number => {
+      const xKey = d.x ?? 0;
+      const offset = stackOffsets?.get(xKey) || 0;
+      if (isPercent && percentTotals) {
+        const total = percentTotals.get(xKey) || 1;
+        return (offset / total) * 100;
+      }
+      return offset;
+    };
+
+    const totalSeries = this.context.totalSeriesOfType || 1;
+    const seriesIdx = this.context.indexInType || 0;
+    const isTop = seriesIdx === totalSeries - 1;
+    const isBottom = seriesIdx === 0;
+    const r = borderRadius;
+
+    const computePath = (d: PointOptions) => {
+      if (this.isHorizontal) {
+        const groupWidth = plotArea.height / Math.max(data.length, 1);
+        const y = this.crispCoord((d.x ?? data.indexOf(d)) * groupWidth + groupWidth / 2 + barOffset, crisp);
+        const h = crisp ? Math.round(barWidth) : barWidth;
+        const xPos = Math.min(yAxis.getPixelForValue(getStackedY(d)), yAxis.getPixelForValue(getStackedBase(d)));
+        const w = Math.max(Math.abs(yAxis.getPixelForValue(getStackedY(d)) - yAxis.getPixelForValue(getStackedBase(d))), minPointLength);
+        return roundedRectPathH(xPos, y, w, h, r, isTop, isBottom);
+      } else {
+        const x = this.crispCoord(xAxis.getPixelForValue(d.x ?? 0) + barOffset, crisp);
+        const w = crisp ? Math.round(barWidth) : barWidth;
+        const yPos = Math.min(yAxis.getPixelForValue(getStackedY(d)), yAxis.getPixelForValue(getStackedBase(d)));
+        const h = Math.max(Math.abs(yAxis.getPixelForValue(getStackedY(d)) - yAxis.getPixelForValue(getStackedBase(d))), minPointLength);
+        return roundedRectPath(x, yPos, w, h, r, isTop, isBottom);
+      }
+    };
+
+    const bars = this.group.selectAll<SVGPathElement, PointOptions>('.katucharts-column')
+      .data(data);
+
+    bars.transition().duration(duration)
+      .attr('d', (d: PointOptions) => computePath(d))
+      .attr('fill', (d: PointOptions, i: number) => this.getPointColor(d, i, color));
+
+    bars.enter().append('path')
+      .attr('class', 'katucharts-column')
+      .attr('stroke', this.config.borderColor || 'none')
+      .attr('stroke-width', this.config.borderWidth ?? 0)
+      .attr('fill', (d: PointOptions, i: number) => this.getPointColor(d, i, color))
+      .attr('d', (d: PointOptions) => computePath(d));
+
+    bars.exit().transition().duration(duration).attr('opacity', 0).remove();
+
+    this.group.selectAll('.katucharts-data-labels').remove();
+    this.attachHoverEffects(this.group.selectAll('.katucharts-column'), data);
+    this.renderColumnDataLabels(data, barWidth, barOffset, baseline, getStackedY, getStackedBase);
   }
 
   protected computeBarGeometry() {
@@ -466,9 +559,6 @@ export class ColumnSeries extends BaseSeries {
         if (hoverBorderWidth !== undefined) target.style.strokeWidth = String(hoverBorderWidth);
         target.style.filter = 'drop-shadow(0 1px 3px rgba(0,0,0,0.2))';
 
-        this.group.attr('opacity', 0.5);
-        target.style.opacity = '1';
-
         const i = data.indexOf(d);
         const cx = xAxis.getPixelForValue(d.x ?? 0);
         const cy = yAxis.getPixelForValue(d.y ?? 0);
@@ -484,8 +574,6 @@ export class ColumnSeries extends BaseSeries {
         target.style.filter = '';
         target.style.stroke = '';
         target.style.strokeWidth = '';
-        this.group.attr('opacity', null);
-        target.style.opacity = '';
 
         const i = data.indexOf(d);
         this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });

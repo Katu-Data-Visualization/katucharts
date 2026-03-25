@@ -13,6 +13,7 @@ import { Selection, select } from 'd3-selection';
 import 'd3-transition';
 import { timeFormat } from 'd3-time-format';
 import type { InternalAxisConfig, PlotArea, PlotBandOptions, PlotLineOptions } from '../types/options';
+import { siFormat, numberFormat } from '../utils/format';
 
 export type AnyScale = ScaleLinear<number, number> | ScaleLogarithmic<number, number>
   | ScaleTime<number, number> | ScaleBand<string>;
@@ -168,34 +169,69 @@ class BaseAxis {
     const ticks = axisGroup.selectAll('.tick text').nodes() as SVGTextElement[];
     if (ticks.length < 2) return;
 
-    let needsRotation = false;
-    const samplesToCheck = Math.min(ticks.length, 4);
-    for (let i = 1; i < samplesToCheck; i++) {
-      const prev = ticks[i - 1].getBBox();
-      const curr = ticks[i].getBBox();
-      if (prev.x + prev.width + 4 > curr.x) {
-        needsRotation = true;
+    if (this.hasLabelOverlap(ticks)) {
+      for (const rotation of (rotations.length > 0 ? rotations : [-45])) {
+        axisGroup.selectAll('.tick text')
+          .attr('transform', `rotate(${rotation})`)
+          .style('text-anchor', rotation < 0 ? 'end' : 'start');
         break;
       }
     }
+  }
 
-    if (needsRotation && rotations.length > 0) {
-      const rotation = rotations[0];
-      axisGroup.selectAll('.tick text')
-        .attr('transform', `rotate(${rotation})`)
-        .style('text-anchor', rotation < 0 ? 'end' : 'start');
+  /**
+   * Detects whether adjacent tick labels overlap horizontally, using a 4px gap threshold.
+   */
+  protected hasLabelOverlap(ticks: SVGTextElement[], rotated = false): boolean {
+    for (let i = 1; i < ticks.length; i++) {
+      try {
+        const prev = ticks[i - 1].getBoundingClientRect();
+        const curr = ticks[i].getBoundingClientRect();
+        const gap = rotated ? -4 : 2;
+        if (prev.right + gap > curr.left && prev.left < curr.right) {
+          if (rotated) {
+            if (prev.bottom + gap > curr.top && prev.top < curr.bottom) {
+              return true;
+            }
+          } else {
+            return true;
+          }
+        }
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Hides every Nth label until labels no longer overlap, matching
+   * auto-step behavior for extreme ranges.
+   */
+  protected applyAutoStep(
+    axisGroup: Selection<SVGGElement, unknown, null, undefined>,
+    ticks: SVGTextElement[]
+  ): void {
+    const totalTicks = ticks.length;
+    for (let step = 2; step <= totalTicks; step++) {
+      ticks.forEach((t, i) => {
+        select(t).style('display', i % step === 0 ? '' : 'none');
+      });
+      const visible = ticks.filter((_, i) => i % step === 0);
+      if (!this.hasLabelOverlap(visible)) return;
     }
   }
 
   protected renderGridLines(
     group: Selection<SVGGElement, unknown, null, undefined>,
     scale: any,
-    plotArea: PlotArea
+    plotArea: PlotArea,
+    explicitTicks?: number[]
   ): void {
     const gridWidth = this.config.gridLineWidth;
     if (!gridWidth || gridWidth <= 0) return;
 
-    const ticks = scale.ticks ? scale.ticks() : scale.domain();
+    const ticks = explicitTicks || (scale.ticks ? scale.ticks() : scale.domain());
     const gridGroup = group.append('g').attr('class', 'katucharts-grid');
 
     if (this.config.alternateGridColor) {
@@ -462,7 +498,19 @@ class BaseAxis {
 
     if (this.config.isX) {
       const labelsEnabled = this.config.labels?.enabled !== false;
-      const yPos = (labelsEnabled ? 45 : 33) + margin + offset;
+      let yPos = (labelsEnabled ? 45 : 33) + margin + offset;
+
+      if (labelsEnabled) {
+        const ticks = group.selectAll('.tick text').nodes() as SVGTextElement[];
+        if (ticks.length > 0) {
+          try {
+            const axisNode = group.node() as SVGGElement;
+            const axisRect = axisNode.getBBox();
+            yPos = Math.max(yPos, axisRect.height + 10 + margin + offset);
+          } catch { /* fallback to default */ }
+        }
+      }
+
       const el = group.append('text')
         .attr('class', 'katucharts-axis-title')
         .attr('x', plotArea.width / 2)
@@ -501,7 +549,41 @@ class BaseAxis {
     if (!scale) return;
 
     scale.range(this.getRange() as any);
+    this.applyAxisBreaks(scale);
     const axisGen = this.createD3Axis(scale);
+
+    if (this.config.tickPositions) {
+      axisGen.tickValues(this.config.tickPositions);
+    } else if (this.config.tickInterval) {
+      const domain = scale.domain();
+      const ticks: number[] = [];
+      for (let v = domain[0]; v <= domain[1]; v += this.config.tickInterval) {
+        ticks.push(v);
+      }
+      axisGen.tickValues(ticks);
+    } else if (scale.domain && typeof scale.ticks === 'function') {
+      const axisLength = this.config.isX ? plotArea.width : plotArea.height;
+      const tickPixelInterval = this.config.tickPixelInterval ?? (this.config.isX ? 100 : 72);
+      const idealTickCount = Math.min(8, Math.max(2, Math.floor(axisLength / tickPixelInterval)));
+      const domain = scale.domain();
+      if ((this as any).computeNiceTicks) {
+        const tickValues = (this as any).computeNiceTicks(domain[0], domain[1], idealTickCount);
+        axisGen.tickValues(tickValues);
+      } else if ((this as any).computeLogTicks) {
+        const tickValues = (this as any).computeLogTicks(domain, plotArea);
+        axisGen.tickValues(tickValues);
+      }
+    }
+
+    if (this.config.labels?.formatter) {
+      const formatter = this.config.labels.formatter;
+      axisGen.tickFormat((d: any) => formatter.call({ value: d, axis: this }));
+    } else if ((this as any).linearTickFormat) {
+      axisGen.tickFormat((d: any) => (this as any).linearTickFormat(d as number, axisGen));
+    } else {
+      axisGen.tickFormat((d: any) => siFormat(d as number));
+    }
+
     const className = `katucharts-axis-${this.config.isX ? 'x' : 'y'}`;
     const existing = group.select<SVGGElement>(`.${className}`);
 
@@ -559,8 +641,10 @@ export class LinearAxis extends BaseAxis implements AxisInstance {
       ? (this.config.maxPadding || 0.01)
       : (this.config.maxPadding || 0.05);
     const range = max - min || 1;
-    min -= range * (this.config.minPadding || padding);
+    const originalMin = min;
+    min -= range * (this.config.minPadding ?? padding);
     max += range * padding;
+    if (originalMin >= 0 && min < 0) min = 0;
 
     if (this.config.floor !== undefined) min = Math.max(min, this.config.floor);
     if (this.config.ceiling !== undefined) max = Math.min(max, this.config.ceiling);
@@ -605,11 +689,20 @@ export class LinearAxis extends BaseAxis implements AxisInstance {
       axisGen.tickValues(ticks);
     } else if (this.config.tickAmount) {
       axisGen.ticks(this.config.tickAmount);
+    } else {
+      const axisLength = this.config.isX ? plotArea.width : plotArea.height;
+      const tickPixelInterval = this.config.tickPixelInterval ?? (this.config.isX ? 100 : 72);
+      const idealTickCount = Math.min(8, Math.max(2, Math.floor(axisLength / tickPixelInterval)));
+      const domain = this.scale.domain();
+      const tickValues = this.computeNiceTicks(domain[0], domain[1], idealTickCount);
+      axisGen.tickValues(tickValues);
     }
 
     if (this.config.labels?.formatter) {
       const formatter = this.config.labels.formatter;
       axisGen.tickFormat((d: any) => formatter.call({ value: d, axis: this }));
+    } else {
+      axisGen.tickFormat((d: any) => this.linearTickFormat(d as number, axisGen));
     }
 
     const axisGroup = group.append('g')
@@ -636,12 +729,59 @@ export class LinearAxis extends BaseAxis implements AxisInstance {
     // This is a hook point for external callers.
   }
 
+  /**
+   * Computes "nice" round tick values for clean axis labels:
+   * picks intervals from the sequence 1, 2, 2.5, 5 scaled by powers of 10,
+   * choosing the smallest interval that produces at most `maxTicks` ticks.
+   */
+  private computeNiceTicks(min: number, max: number, maxTicks: number): number[] {
+    const range = max - min;
+    if (range <= 0) return [min];
+
+    const rawInterval = range / maxTicks;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(rawInterval)));
+    const residual = rawInterval / magnitude;
+
+    let niceInterval: number;
+    if (residual <= 1) niceInterval = magnitude;
+    else if (residual <= 2) niceInterval = 2 * magnitude;
+    else if (residual <= 2.5) niceInterval = 2.5 * magnitude;
+    else if (residual <= 5) niceInterval = 5 * magnitude;
+    else niceInterval = 10 * magnitude;
+
+    const tickStart = Math.ceil(min / niceInterval) * niceInterval;
+    const ticks: number[] = [];
+    const epsilon = niceInterval * 1e-6;
+
+    for (let v = tickStart; v <= max + epsilon; v += niceInterval) {
+      ticks.push(Math.round(v / niceInterval) * niceInterval);
+      if (ticks.length > maxTicks + 2) break;
+    }
+
+    return ticks;
+  }
+
   getPixelForValue(value: number): number {
     return this.scale(value);
   }
 
   getValueForPixel(pixel: number): number {
     return this.scale.invert(pixel);
+  }
+
+  /**
+   * SI suffixes (k, M, G, T) are applied only when
+   * the tick interval is >= 1000. Below that, plain numbers with thousands separators are used.
+   */
+  private linearTickFormat(value: number, axisGen: D3Axis<any>): string {
+    const tickValues = (axisGen as any).tickValues?.() as number[] | null;
+    if (tickValues && tickValues.length >= 2) {
+      const interval = Math.abs(tickValues[1] - tickValues[0]);
+      if (interval < 1000) {
+        return numberFormat(value, value === Math.floor(value) ? 0 : 2);
+      }
+    }
+    return siFormat(value);
   }
 
   private getTransform(plotArea: PlotArea): string {
@@ -663,9 +803,84 @@ export class LogarithmicAxis extends BaseAxis implements AxisInstance {
   updateDomain(data: { min: number; max: number }): void {
     let { min, max } = data;
     min = Math.max(min, 0.001);
-    if (this.config.min !== undefined && this.config.min !== null) min = Math.max(this.config.min, 0.001);
-    if (this.config.max !== undefined && this.config.max !== null) max = this.config.max;
+    if (this.config.min !== undefined && this.config.min !== null) {
+      min = Math.max(this.config.min, 0.001);
+    }
+    if (this.config.max !== undefined && this.config.max !== null) {
+      max = this.config.max;
+    }
+
+    const logMin = Math.log10(Math.max(min, 1e-10));
+    const logMax = Math.log10(Math.max(max, 1e-10));
+    const logRange = Math.abs(logMax - logMin) || 1;
+    const pad = this.config.isX
+      ? (this.config.minPadding ?? 0.01)
+      : (this.config.minPadding ?? 0.05);
+
+    if (this.config.min === undefined || this.config.min === null) {
+      min = Math.pow(10, logMin - logRange * pad);
+    }
+    if (this.config.max === undefined || this.config.max === null) {
+      max = Math.pow(10, logMax + logRange * pad);
+    }
+
+    if (this.config.startOnTick) {
+      min = Math.pow(10, Math.floor(Math.log10(Math.max(min, 1e-10))));
+    }
+    if (this.config.endOnTick) {
+      max = Math.pow(10, Math.ceil(Math.log10(Math.max(max, 1e-10))));
+    }
+
     this.scale.domain([min, max]).range(this.getRange());
+  }
+
+  /**
+   * Generates tick values at powers of 10 for logarithmic axes.
+   * tickInterval refers to the exponent interval (1 = every decade, 2 = every other decade).
+   * When no tickInterval is set, the axis uses tickPixelInterval to auto-compute the step.
+   */
+  private computeLogTicks(): number[] {
+    const domain = this.scale.domain();
+    const lo = Math.log10(Math.max(domain[0], 1e-10));
+    const hi = Math.log10(Math.max(domain[1], 1e-10));
+
+    if (this.config.tickPositions) {
+      return this.config.tickPositions;
+    }
+
+    let expStep: number;
+    if (this.config.tickInterval) {
+      expStep = this.config.tickInterval;
+    } else {
+      expStep = 1;
+      const totalDecades = Math.abs(hi - lo);
+      if (totalDecades > 12) {
+        const axisLength = this.config.isX ? this.plotArea.width : this.plotArea.height;
+        const minTickSpacing = 20;
+        const maxTicks = Math.max(2, Math.floor(axisLength / minTickSpacing));
+        expStep = Math.max(1, Math.ceil(totalDecades / maxTicks));
+      }
+    }
+
+    const startExp = Math.floor(lo);
+    const endExp = Math.ceil(hi);
+    const ticks: number[] = [];
+
+    for (let exp = startExp; exp <= endExp; exp += expStep) {
+      const val = Math.pow(10, exp);
+      if (val >= domain[0] * 0.999 && val <= domain[1] * 1.001) {
+        ticks.push(val);
+      }
+    }
+
+    if (ticks.length === 0) {
+      ticks.push(domain[0], domain[1]);
+    } else if (ticks.length === 1) {
+      if (ticks[0] > domain[0] * 1.5) ticks.unshift(domain[0]);
+      if (ticks[0] < domain[1] / 1.5) ticks.push(domain[1]);
+    }
+
+    return ticks;
   }
 
   render(group: Selection<SVGGElement, unknown, null, undefined>, plotArea: PlotArea): void {
@@ -673,11 +888,22 @@ export class LogarithmicAxis extends BaseAxis implements AxisInstance {
     this.scale.range(this.getRange());
 
     const axisGen = this.createD3Axis(this.scale);
+
+    const ticks = this.computeLogTicks();
+    axisGen.tickValues(ticks);
+
+    if (this.config.labels?.formatter) {
+      const formatter = this.config.labels.formatter;
+      axisGen.tickFormat((d: any) => formatter.call({ value: d, axis: this }));
+    } else {
+      axisGen.tickFormat((d: any) => siFormat(d as number));
+    }
+
     const axisGroup = group.append('g')
       .attr('class', `katucharts-axis katucharts-axis-${this.config.isX ? 'x' : 'y'}`)
       .attr('transform', this.config.isX ? `translate(0,${plotArea.height})` : '');
 
-    this.renderGridLines(group, this.scale, plotArea);
+    this.renderGridLines(group, this.scale, plotArea, ticks);
     axisGroup.call(axisGen as any);
     this.applyAxisStyles(axisGroup, plotArea);
     this.renderTitle(axisGroup, plotArea);

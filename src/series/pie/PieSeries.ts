@@ -4,13 +4,29 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries, type SeriesContext } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions, DataLabelOptions, BorderRadiusOptions } from '../../types/options';
-import { templateFormat } from '../../utils/format';
+import { templateFormat, stripHtmlTags } from '../../utils/format';
 
 export class PieSeries extends BaseSeries {
   private selectedIndices: Set<number> = new Set();
 
   constructor(config: InternalSeriesConfig) {
     super(config);
+  }
+
+  init(context: SeriesContext): void {
+    if (this.config.dataLabels?.enabled) {
+      this.config.clip = false;
+    }
+    super.init(context);
+
+    if (this.config.dataLabels?.enabled) {
+      const svg = this.group.select(function() {
+        return (this as unknown as SVGElement).ownerSVGElement;
+      }) as any;
+      if (!svg.empty()) {
+        svg.style('overflow', 'visible');
+      }
+    }
   }
 
   render(): void {
@@ -22,13 +38,26 @@ export class PieSeries extends BaseSeries {
       : rawData;
     const animate = this.context.animate;
 
+    const dlCfg = this.config.dataLabels;
+    const labelsEnabled = dlCfg?.enabled && (dlCfg.distance ?? 30) >= 0;
+    const labelMargin = labelsEnabled ? (dlCfg!.distance ?? 30) + 10 : 0;
+
     const center = this.config.center || ['50%', '50%'];
     const cx = this.resolvePercent(center[0], plotArea.width);
     const cy = this.resolvePercent(center[1], plotArea.height);
 
-    const rawOuterDiameter = this.resolvePercent(this.config.size || '75%', Math.min(plotArea.width, plotArea.height));
-    const minSize = this.config.minSize ? this.resolvePercent(this.config.minSize, Math.min(plotArea.width, plotArea.height)) : 0;
-    const outerDiameter = Math.max(rawOuterDiameter, minSize);
+    const availableW = plotArea.width - labelMargin * 2;
+    const availableH = plotArea.height - (labelsEnabled ? labelMargin * 0.8 : 0);
+    const availableSpace = Math.min(availableW, availableH);
+    const minDim = Math.min(plotArea.width, plotArea.height);
+    const hasExplicitSize = this.config.size !== undefined && this.config.size !== null;
+    const rawOuterDiameter = hasExplicitSize
+      ? this.resolvePercent(this.config.size!, minDim)
+      : availableSpace;
+    const minSize = this.config.minSize ? this.resolvePercent(this.config.minSize, minDim) : 0;
+    const outerDiameter = labelsEnabled
+      ? Math.max(Math.min(rawOuterDiameter, availableSpace), minSize)
+      : Math.max(hasExplicitSize ? rawOuterDiameter : minDim, minSize);
     const outerRadius = outerDiameter / 2;
     const innerRadius = this.resolvePercent(this.config.innerSize || 0, outerRadius * 2) / 2;
     const depth = this.config.depth ?? 0;
@@ -68,6 +97,12 @@ export class PieSeries extends BaseSeries {
       .cornerRadius(borderRadiusVal);
 
     const pieData = pieGen(data);
+
+    const totalAngleSpan = endAngle - startAngle;
+    for (const d of pieData) {
+      (d.data as any).percentage = ((d.endAngle - d.startAngle) / totalAngleSpan) * 100;
+      (d.data as any).total = totalValue;
+    }
 
     const g = this.group.append('g')
       .attr('transform', `translate(${cx},${cy})`);
@@ -146,13 +181,9 @@ export class PieSeries extends BaseSeries {
           slices.attr('opacity', self.config.opacity ?? 1);
           slices.filter((o: any) => o !== d).transition('highlight').duration(150).attr('opacity', inactiveOpacity);
 
-          const sliceData = {
-            ...d.data,
-            percentage: ((d.endAngle - d.startAngle) / (endAngle - startAngle)) * 100,
-          };
           const centroid = arcGen.centroid(d);
           self.context.events.emit('point:mouseover', {
-            point: sliceData, index: i, series: self, event,
+            point: d.data, index: i, series: self, event,
             plotX: cx + centroid[0], plotY: cy + centroid[1],
           });
           d.data.events?.mouseOver?.call(d.data, event);
@@ -239,13 +270,24 @@ export class PieSeries extends BaseSeries {
     const fontSize = (dlCfg.style?.fontSize as string) || '11px';
     const fontColor = dlCfg.color || (dlCfg.style?.color as string) || '#333';
     const alignTo = dlCfg.alignTo;
+    const isInside = labelDistance < 0;
 
-    const labelsGroup = g.append('g').attr('class', 'katucharts-pie-labels');
+    const labelHeight = parseFloat(fontSize) * 1.4;
 
-    pieData.forEach((d: any, i: number) => {
-      const percentage = ((d.endAngle - d.startAngle) / totalAngle) * 100;
-      const centroid = arcGen.centroid(d);
+    interface LabelInfo {
+      lx: number; ly: number; text: string; midAngle: number;
+      centroid: [number, number]; percentage: number; data: any;
+      visible: boolean; color: string;
+    }
+    const labels: LabelInfo[] = [];
+
+    const { colors } = this.context;
+    pieData.forEach((d: any, idx: number) => {
+      const percentage = (d.data as any).percentage as number;
+      const centroid = arcGen.centroid(d) as [number, number];
       const midAngle = (d.startAngle + d.endAngle) / 2;
+      const sliceColor = d.data.color
+        || (this.config.colors ? this.config.colors[idx % this.config.colors.length] : colors[idx % colors.length]);
       const labelR = outerRadius + labelDistance;
       let lx = labelR * Math.sin(midAngle);
       let ly = -labelR * Math.cos(midAngle);
@@ -255,10 +297,6 @@ export class PieSeries extends BaseSeries {
         lx = isRight ? plotHalfWidth - 5 : -(plotHalfWidth - 5);
       }
 
-      const pad = 5;
-      lx = Math.max(-(plotHalfWidth - pad), Math.min(plotHalfWidth - pad, lx));
-      ly = Math.max(-(plotHalfHeight - pad), Math.min(plotHalfHeight - pad, ly));
-
       let text: string;
       if (dlCfg.formatter) {
         text = dlCfg.formatter.call({
@@ -266,12 +304,39 @@ export class PieSeries extends BaseSeries {
           x: d.data.x, y: d.data.y, percentage,
         });
       } else if (dlCfg.format) {
-        text = templateFormat(dlCfg.format, {
-          point: d.data, x: d.data.x, y: d.data.y, percentage,
-        });
+        text = stripHtmlTags(templateFormat(dlCfg.format, {
+          point: d.data, series: { name: this.config.name },
+        }));
       } else {
         text = d.data.name || String(d.data.y);
       }
+
+      labels.push({ lx, ly, text, midAngle, centroid, percentage, data: d.data, visible: true, color: sliceColor });
+    });
+
+    if (!isInside && !dlCfg.allowOverlap) {
+      const rightLabels = labels.filter(l => l.midAngle < Math.PI);
+      const leftLabels = labels.filter(l => l.midAngle >= Math.PI);
+      this.distribute(rightLabels, labelHeight, plotHalfHeight, plotHalfWidth, fontSize);
+      this.distribute(leftLabels, labelHeight, plotHalfHeight, plotHalfWidth, fontSize);
+
+      const labelR = outerRadius + labelDistance;
+      for (const l of labels) {
+        if (!l.visible) continue;
+        const clampedLy = Math.max(-labelR, Math.min(labelR, l.ly));
+        const newLx = Math.sqrt(Math.max(0, labelR * labelR - clampedLy * clampedLy));
+        const isRight = l.midAngle < Math.PI;
+        l.lx = isRight ? Math.max(newLx, outerRadius * 0.3) : -Math.max(newLx, outerRadius * 0.3);
+      }
+    }
+
+    const labelsGroup = g.append('g').attr('class', 'katucharts-pie-labels');
+
+    labels.forEach((info) => {
+      if (!info.visible) return;
+      const { lx, ly, text, midAngle, centroid, color: sliceColor } = info;
+      const isRight = midAngle < Math.PI;
+      const lineColor = sliceColor || connectorColor;
 
       if (connectorWidth > 0 && labelDistance >= 0) {
         const edgeR = outerRadius + connectorPadding;
@@ -284,7 +349,7 @@ export class PieSeries extends BaseSeries {
             .attr('class', 'katucharts-pie-connector')
             .attr('x1', centroid[0]).attr('y1', centroid[1])
             .attr('x2', lx).attr('y2', ly)
-            .attr('stroke', connectorColor)
+            .attr('stroke', lineColor)
             .attr('stroke-width', connectorWidth);
         } else if (connectorShape === 'crookedLine') {
           const crookDist = dlCfg.crookDistance ?? '70%';
@@ -297,7 +362,7 @@ export class PieSeries extends BaseSeries {
             .attr('class', 'katucharts-pie-connector')
             .attr('d', `M${centroid[0]},${centroid[1]}L${crookX},${crookY}L${lx},${ly}`)
             .attr('fill', 'none')
-            .attr('stroke', connectorColor)
+            .attr('stroke', lineColor)
             .attr('stroke-width', connectorWidth);
         } else if (typeof connectorShape === 'function') {
           const customPath = connectorShape({
@@ -308,40 +373,26 @@ export class PieSeries extends BaseSeries {
             .attr('class', 'katucharts-pie-connector')
             .attr('d', customPath)
             .attr('fill', 'none')
-            .attr('stroke', connectorColor)
+            .attr('stroke', lineColor)
             .attr('stroke-width', connectorWidth);
         } else {
-          if (softConnector) {
-            const cpx = (centroid[0] + ex) / 2 + (lx - ex) * 0.15;
-            const cpy = (centroid[1] + ey) / 2 + (ly - ey) * 0.15;
-            labelsGroup.append('path')
-              .attr('class', 'katucharts-pie-connector')
-              .attr('d', `M${centroid[0]},${centroid[1]} Q${cpx},${cpy} ${ex},${ey} L${lx},${ly}`)
-              .attr('fill', 'none')
-              .attr('stroke', connectorColor)
-              .attr('stroke-width', connectorWidth);
-          } else {
-            labelsGroup.append('line')
-              .attr('class', 'katucharts-pie-connector')
-              .attr('x1', centroid[0]).attr('y1', centroid[1])
-              .attr('x2', ex).attr('y2', ey)
-              .attr('stroke', connectorColor)
-              .attr('stroke-width', connectorWidth);
-            labelsGroup.append('line')
-              .attr('class', 'katucharts-pie-connector')
-              .attr('x1', ex).attr('y1', ey)
-              .attr('x2', lx).attr('y2', ly)
-              .attr('stroke', connectorColor)
-              .attr('stroke-width', connectorWidth);
-          }
+          const breakR = outerRadius + labelDistance * 0.5;
+          const breakX = breakR * Math.sin(midAngle);
+          const breakY = -breakR * Math.cos(midAngle);
+
+          labelsGroup.append('path')
+            .attr('class', 'katucharts-pie-connector')
+            .attr('d', `M${ex},${ey}L${breakX},${breakY}L${lx},${ly}`)
+            .attr('fill', 'none')
+            .attr('stroke', lineColor)
+            .attr('stroke-width', connectorWidth);
         }
       }
 
-      const isInside = labelDistance < 0;
       const labelEl = labelsGroup.append('text')
         .attr('x', (isInside ? centroid[0] : lx) + (dlCfg.x ?? 0))
         .attr('y', (isInside ? centroid[1] : ly) + (dlCfg.y ?? 0))
-        .attr('text-anchor', isInside ? 'middle' : (midAngle < Math.PI ? 'start' : 'end'))
+        .attr('text-anchor', isInside ? 'middle' : (isRight ? 'start' : 'end'))
         .attr('dominant-baseline', 'middle')
         .attr('font-size', fontSize)
         .attr('fill', fontColor)
@@ -353,6 +404,115 @@ export class PieSeries extends BaseSeries {
       if (dlStyle.fontFamily) labelEl.attr('font-family', dlStyle.fontFamily as string);
       if (dlStyle.textOutline) labelEl.style('text-shadow', dlStyle.textOutline as string);
     });
+  }
+
+  /**
+   * Rank-based label distribution. Uses rank-based priority (higher percentage
+   * = higher rank), greedy placement with relaxation, and iterative space reduction.
+   * Labels that overflow chart boundaries horizontally are hidden.
+   */
+  private distribute(
+    labels: { lx: number; ly: number; text: string; midAngle: number; percentage: number; visible: boolean }[],
+    labelHeight: number,
+    halfHeight: number,
+    plotHalfWidth: number,
+    fontSize: string
+  ): void {
+    const active = labels.filter(l => l.visible);
+    if (active.length <= 1) return;
+
+    const top = -(halfHeight - 5);
+    const bottom = halfHeight - 5;
+    const originalLength = bottom - top;
+
+    interface Box {
+      target: number;
+      size: number;
+      rank: number;
+      pos: number;
+      removed: boolean;
+      label: typeof active[0];
+    }
+
+    const boxes: Box[] = active.map(l => ({
+      target: l.ly - top,
+      size: labelHeight,
+      rank: l.percentage,
+      pos: 0,
+      removed: false,
+      label: l,
+    }));
+
+    this.distributeBoxes(boxes, originalLength, originalLength, originalLength / 4);
+
+    for (const box of boxes) {
+      if (box.removed) {
+        box.label.visible = false;
+      } else {
+        box.label.ly = top + box.pos + labelHeight / 2;
+      }
+    }
+  }
+
+  private distributeBoxes(
+    boxes: { target: number; size: number; rank: number; pos: number; removed: boolean }[],
+    length: number,
+    originalLength: number,
+    maxDistance: number
+  ): void {
+    const remaining = boxes.filter(b => !b.removed);
+    if (remaining.length === 0) return;
+
+    let totalSize = remaining.reduce((s, b) => s + b.size, 0);
+    if (totalSize > length) {
+      const ranked = [...remaining].sort((a, b) => a.rank - b.rank);
+      let i = 0;
+      while (totalSize > length && i < ranked.length) {
+        ranked[i].removed = true;
+        totalSize -= ranked[i].size;
+        i++;
+      }
+    }
+
+    const alive = remaining.filter(b => !b.removed);
+    if (alive.length === 0) return;
+    alive.sort((a, b) => a.target - b.target);
+
+    for (let i = 0; i < alive.length; i++) {
+      alive[i].pos = alive[i].target;
+      if (i > 0) {
+        const minPos = alive[i - 1].pos + alive[i - 1].size;
+        if (alive[i].pos < minPos) alive[i].pos = minPos;
+      }
+    }
+
+    for (let i = alive.length - 1; i >= 0; i--) {
+      const maxPos = (i === alive.length - 1)
+        ? length - alive[i].size
+        : alive[i + 1].pos - alive[i].size;
+      if (alive[i].pos > maxPos) alive[i].pos = Math.max(0, maxPos);
+    }
+
+    for (let pass = 0; pass < 5; pass++) {
+      for (let i = 0; i < alive.length; i++) {
+        const proposed = alive[i].pos + (alive[i].target - alive[i].pos) * 0.3;
+        const minPos = i > 0 ? alive[i - 1].pos + alive[i - 1].size : 0;
+        const maxPos = i < alive.length - 1
+          ? alive[i + 1].pos - alive[i].size
+          : length - alive[i].size;
+        alive[i].pos = Math.max(minPos, Math.min(maxPos, proposed));
+      }
+    }
+
+    const exceeds = alive.some(b => Math.abs(b.pos - b.target) > maxDistance);
+    if (exceeds) {
+      const reducedLength = length * 0.9;
+      if (reducedLength >= originalLength * 0.1) {
+        const lowestRank = [...alive].sort((a, b) => a.rank - b.rank);
+        lowestRank[0].removed = true;
+        this.distributeBoxes(boxes, reducedLength, originalLength, reducedLength / 4);
+      }
+    }
   }
 
   /**
@@ -471,7 +631,9 @@ export class FunnelSeries extends BaseSeries {
             x: d.x, y: d.y,
           });
         } else if (dlCfg.format) {
-          text = templateFormat(dlCfg.format, { point: d, x: d.x, y: d.y });
+          text = stripHtmlTags(templateFormat(dlCfg.format, {
+            point: d, series: { name: this.config.name },
+          }));
         } else {
           text = d.name || String(d.y);
         }

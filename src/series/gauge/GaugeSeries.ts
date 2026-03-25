@@ -5,7 +5,7 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, GaugeDialOptions, GaugePivotOptions, PaneOptions, PlotBandOptions } from '../../types/options';
-import { templateFormat } from '../../utils/format';
+import { templateFormat, stripHtmlTags } from '../../utils/format';
 
 export class GaugeSeries extends BaseSeries {
   constructor(config: InternalSeriesConfig) {
@@ -315,9 +315,10 @@ export class GaugeSeries extends BaseSeries {
         x: this.data[0]?.x, y: value,
       });
     } else if (dlCfg.format) {
-      labelText = templateFormat(dlCfg.format, {
-        point: this.data[0], x: this.data[0]?.x, y: value,
-      });
+      labelText = stripHtmlTags(templateFormat(dlCfg.format, {
+        point: this.data[0], series: { name: this.config.name },
+        x: this.data[0]?.x, y: value,
+      }));
     } else {
       labelText = value.toString();
     }
@@ -651,9 +652,10 @@ export class SolidGaugeSeries extends BaseSeries {
         x: this.data[0]?.x, y: value,
       });
     } else if (dlCfg.format) {
-      labelText = templateFormat(dlCfg.format, {
-        point: this.data[0], x: this.data[0]?.x, y: value,
-      });
+      labelText = stripHtmlTags(templateFormat(dlCfg.format, {
+        point: this.data[0], series: { name: this.config.name },
+        x: this.data[0]?.x, y: value,
+      }));
     } else {
       labelText = value.toString();
     }

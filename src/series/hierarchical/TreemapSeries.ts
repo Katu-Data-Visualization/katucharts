@@ -4,7 +4,7 @@ import { color as d3Color, hsl } from 'd3-color';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, TreemapLevelOptions, BorderRadiusOptions } from '../../types/options';
-import { templateFormat } from '../../utils/format';
+import { templateFormat, stripHtmlTags } from '../../utils/format';
 
 function resolveBorderRadius(val: number | BorderRadiusOptions | undefined): number {
   if (val === undefined) return 4;
@@ -306,9 +306,10 @@ export class TreemapSeries extends BaseSeries {
           });
         }
         if (dlCfg.format) {
-          return templateFormat(dlCfg.format, {
-            point: d.data, x: d.data.x, y: d.data.y ?? d.data.value,
-          });
+          return stripHtmlTags(templateFormat(dlCfg.format, {
+            point: d.data, series: { name: this.config.name },
+            x: d.data.x, y: d.data.y ?? d.data.value,
+          }));
         }
         return d.data.name || '';
       })

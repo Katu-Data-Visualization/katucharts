@@ -8,6 +8,7 @@ import 'd3-transition';
 import type { InternalSeriesConfig, PointOptions, PlotArea, DataLabelOptions, DashStyleType } from '../types/options';
 import type { AxisInstance } from '../axis/Axis';
 import { EventBus } from '../core/EventBus';
+import { templateFormat, stripHtmlTags } from '../utils/format';
 
 export interface SeriesContext {
   plotArea: PlotArea;
@@ -527,11 +528,9 @@ export abstract class BaseSeries {
           point: d, series: this, x: d.x ?? i, y: d.y, percentage: (d as any)._percentage,
         });
       } else if (merged.format) {
-        text = merged.format
-          .replace('{point.y}', String(d.y ?? ''))
-          .replace('{point.x}', String(d.x ?? i))
-          .replace('{point.name}', d.name ?? '')
-          .replace('{series.name}', this.config.name ?? '');
+        text = stripHtmlTags(templateFormat(merged.format, {
+          point: d, series: { name: this.config.name ?? '' },
+        }));
       } else {
         text = String(d.y);
       }

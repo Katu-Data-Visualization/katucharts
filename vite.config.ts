@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
-const entries: Record<string, { entry: string; name: string; fileName: string }> = {
+const entries: Record<string, { entry: string; name: string; fileName: string; external?: string[] }> = {
   index: {
     entry: resolve(__dirname, 'src/index.ts'),
     name: 'KatuCharts',
@@ -22,6 +22,12 @@ const entries: Record<string, { entry: string; name: string; fileName: string }>
     name: 'KatuChartsDataTable',
     fileName: 'katucharts-datatable',
   },
+  react: {
+    entry: resolve(__dirname, 'src/react.tsx'),
+    name: 'KatuChartsReact',
+    fileName: 'katucharts-react',
+    external: ['react', 'react-dom', 'react/jsx-runtime'],
+  },
 };
 
 const target = process.env.BUILD_ENTRY || 'index';
@@ -40,6 +46,18 @@ export default defineConfig({
     },
     sourcemap: true,
     emptyOutDir: target === 'index',
+    rollupOptions: config.external
+      ? {
+          external: config.external,
+          output: {
+            globals: {
+              react: 'React',
+              'react-dom': 'ReactDOM',
+              'react/jsx-runtime': 'jsxRuntime',
+            },
+          },
+        }
+      : undefined,
   },
   resolve: {
     alias: {

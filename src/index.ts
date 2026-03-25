@@ -7,7 +7,7 @@ import { setGlobalOptions, getGlobalOptions } from './core/OptionsParser';
 import { SeriesRegistry, ModuleRegistry, type ModuleDefinition } from './core/Registry';
 import { ExportModule } from './export/Export';
 import { LicenseManager } from './license/LicenseManager';
-import { dateFormat, numberFormat } from './utils/format';
+import { dateFormat, numberFormat, templateFormat, stripHtmlTags } from './utils/format';
 import { parseColor, PALETTES, getPalette, THEMES } from './utils/color';
 import type { KatuChartsOptions } from './types/options';
 import { registerCoreSeriesTypes } from './core/registerCore';
@@ -35,6 +35,8 @@ export const KatuCharts = {
 
   dateFormat,
   numberFormat,
+  templateFormat,
+  stripHtmlTags,
 
   color(input: string) {
     return parseColor(input);

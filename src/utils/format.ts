@@ -47,6 +47,38 @@ export function numberFormat(
   return decPart ? `${withThousands}${decPoint}${decPart}` : withThousands;
 }
 
+const SI_SUFFIXES: [number, string][] = [
+  [1e12, 'T'],
+  [1e9, 'G'],
+  [1e6, 'M'],
+  [1e3, 'k'],
+];
+
+/**
+ * Formats a numeric value with SI suffixes (k, M, G, T) when the absolute
+ * value is >= 1,000, for standard axis label formatting.
+ * Values below 1,000 are shown as-is.
+ */
+export function siFormat(value: number): string {
+  const abs = Math.abs(value);
+  if (abs < 1e3) {
+    if (abs === Math.floor(abs)) {
+      return numberFormat(value, 0, '.', ',');
+    }
+    return value.toPrecision(4).replace(/\.?0+$/, '');
+  }
+  for (const [threshold, suffix] of SI_SUFFIXES) {
+    if (abs >= threshold) {
+      const scaled = value / threshold;
+      const str = scaled === Math.floor(scaled)
+        ? String(scaled)
+        : scaled.toPrecision(4).replace(/\.?0+$/, '');
+      return str + suffix;
+    }
+  }
+  return String(value);
+}
+
 const TEMPLATE_RE = /\{([^}]+)\}/g;
 
 export function templateFormat(template: string, context: Record<string, any>): string {
@@ -58,10 +90,11 @@ export function templateFormat(template: string, context: Record<string, any>): 
       path = key.slice(0, formatSep);
       fmt = key.slice(formatSep + 1);
     }
-    const keys = path.split('.');
+    const keys = path.trim().split('.');
     let val: any = context;
     for (const k of keys) {
-      val = val?.[k];
+      if (val === undefined || val === null) return '';
+      val = val[k];
     }
     if (val === undefined || val === null) return '';
     if (fmt && typeof val === 'number') {
@@ -73,4 +106,15 @@ export function templateFormat(template: string, context: Record<string, any>): 
     }
     return String(val);
   });
+}
+
+const HTML_TAG_RE = /<\/?[^>]+(>|$)/g;
+const BR_TAG_RE = /<br\s*\/?>/gi;
+
+/**
+ * Strips HTML tags from a string, suitable for rendering text in SVG context
+ * where innerHTML is not available. <br/> tags are replaced with spaces.
+ */
+export function stripHtmlTags(text: string): string {
+  return text.replace(BR_TAG_RE, ' ').replace(HTML_TAG_RE, '').trim();
 }

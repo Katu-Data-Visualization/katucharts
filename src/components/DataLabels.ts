@@ -1,7 +1,7 @@
 import { Selection } from 'd3-selection';
 import type { DataLabelOptions, PointOptions, PlotArea } from '../types/options';
 import type { AxisInstance } from '../axis/Axis';
-import { templateFormat } from '../utils/format';
+import { templateFormat, stripHtmlTags } from '../utils/format';
 
 export class DataLabels {
   static render(
@@ -38,7 +38,9 @@ export class DataLabels {
           percentage: (point as any).percentage,
         });
       } else if (config.format) {
-        text = templateFormat(config.format, { point, x: point.x, y: point.y });
+        text = stripHtmlTags(templateFormat(config.format, {
+          point, series: { name: seriesName }, x: point.x, y: point.y,
+        }));
       } else {
         text = String(point.y);
       }

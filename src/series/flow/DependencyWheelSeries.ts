@@ -27,8 +27,8 @@ export class DependencyWheelSeries extends BaseSeries {
     const sizePct = cfg.size;
     const maxDim = sizePct
       ? this.resolvePercent(sizePct, Math.min(plotArea.width, plotArea.height))
-      : Math.min(plotArea.width, plotArea.height);
-    const outerRadius = maxDim / 2 - 30;
+      : Math.min(plotArea.width, plotArea.height) * 0.95;
+    const outerRadius = maxDim / 2 - 5;
     const innerRadius = outerRadius - nodeWidth;
 
     const { matrix, names, nodeColors } = this.buildMatrix();
