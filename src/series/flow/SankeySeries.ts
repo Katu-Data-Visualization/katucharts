@@ -14,6 +14,17 @@ export class SankeySeries extends BaseSeries {
     const animate = this.context.animate;
     const cfg = this.config as any;
 
+    const parentGroup = (this.group.node() as SVGElement)?.parentElement;
+    if (parentGroup) {
+      select(parentGroup).attr('clip-path', null);
+    }
+    const svg = this.group.select(function() {
+      return (this as unknown as SVGElement).ownerSVGElement;
+    }) as any;
+    if (!svg.empty()) {
+      svg.style('overflow', 'visible');
+    }
+
     const { nodes, links } = this.buildGraph();
     if (nodes.length === 0) return;
 
@@ -33,7 +44,7 @@ export class SankeySeries extends BaseSeries {
       .nodeAlign(alignMode)
       .nodeWidth(nodeWidth)
       .nodePadding(nodePadding)
-      .extent([[0, 0], [plotArea.width - nodeWidth, plotArea.height]]);
+      .extent([[0, 0], [plotArea.width, plotArea.height]]);
 
     const graph = sankeyGen({ nodes: [...nodes], links: [...links] });
 
