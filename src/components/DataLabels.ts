@@ -34,7 +34,7 @@ export class DataLabels {
       let text: string;
       if (config.formatter) {
         text = config.formatter.call({
-          point, series: { name: seriesName }, x: point.x, y: point.y,
+          point: { ...point, index: i }, series: { name: seriesName }, x: point.x, y: point.y,
           percentage: (point as any).percentage,
         });
       } else if (config.format) {

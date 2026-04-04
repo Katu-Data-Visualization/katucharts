@@ -17,6 +17,7 @@ function resolveBorderRadius(val: number | BorderRadiusOptions | undefined): num
 export class HeatmapSeries extends BaseSeries {
   constructor(config: InternalSeriesConfig) {
     super(config);
+    config.showInLegend = false;
   }
 
   render(): void {
@@ -26,7 +27,7 @@ export class HeatmapSeries extends BaseSeries {
 
     const colorAxisCfg: ColorAxisOptions = (this.config as any).colorAxis || {};
     const values = data
-      .map(d => (d as any).value ?? d.y ?? 0)
+      .map(d => (d as any).value ?? (d as any).z ?? d.y ?? 0)
       .filter(v => v !== null && v !== undefined);
     const minVal = colorAxisCfg.min ?? (values.length > 0 ? Math.min(...values) : 0);
     const maxVal = colorAxisCfg.max ?? (values.length > 0 ? Math.max(...values) : 1);
@@ -53,7 +54,7 @@ export class HeatmapSeries extends BaseSeries {
 
     const getCellColor = (d: any): string => {
       if (d.color) return d.color;
-      const val = d.value ?? d.y;
+      const val = d.value ?? d.z ?? d.y;
       if (val === null || val === undefined) return nullColor;
       return colorScale(val);
     };
@@ -182,7 +183,7 @@ export class HeatmapSeries extends BaseSeries {
 
     const grid = new Map<string, number>();
     for (const d of data) {
-      const val = (d as any).value ?? d.y;
+      const val = (d as any).value ?? (d as any).z ?? d.y;
       const xIdx = xs.indexOf(d.x ?? 0);
       const yIdx = ys.indexOf((d as any).yCategory ?? d.y ?? 0);
       if (val !== null && val !== undefined) {
@@ -317,21 +318,50 @@ export class HeatmapSeries extends BaseSeries {
     if (colorAxisCfg.labels?.enabled === false) return;
 
     const { plotArea } = this.context;
-    const barWidth = 15;
-    const barHeight = plotArea.height * 0.6;
-    const x = plotArea.width + 20;
-    const y = (plotArea.height - barHeight) / 2;
+    const barHeight = 12;
+    const barWidth = Math.min(plotArea.width * 0.6, 300);
+    const x = (plotArea.width - barWidth) / 2;
+    const y = plotArea.height + 60;
     const steps = 50;
 
-    const axisGroup = this.group.append('g')
+    const parentGroup = this.context.plotGroup || this.group;
+    parentGroup.selectAll('.katucharts-color-axis').remove();
+    const axisGroup = parentGroup.append('g')
       .attr('class', 'katucharts-color-axis');
+
+    const labelStyle = colorAxisCfg.labels?.style || {};
+    const fontSize = (labelStyle.fontSize as string) || '11px';
+    const fontColor = (labelStyle.color as string) || '#666';
+
+    if (colorAxisCfg.dataClasses && colorAxisCfg.dataClasses.length > 0) {
+      const classes = colorAxisCfg.dataClasses;
+      const segW = barWidth / classes.length;
+      for (let i = 0; i < classes.length; i++) {
+        const cls = classes[i];
+        axisGroup.append('rect')
+          .attr('x', x + i * segW).attr('y', y)
+          .attr('width', segW).attr('height', barHeight)
+          .attr('fill', cls.color || '#ccc')
+          .attr('stroke', '#ccc').attr('stroke-width', 0.5)
+          .attr('rx', i === 0 ? 2 : 0)
+          .attr('ry', i === 0 ? 2 : 0);
+        if (cls.name) {
+          axisGroup.append('text')
+            .attr('x', x + i * segW + segW / 2).attr('y', y + barHeight + 14)
+            .attr('font-size', fontSize).attr('fill', fontColor)
+            .attr('text-anchor', 'middle')
+            .text(cls.name);
+        }
+      }
+      return;
+    }
 
     const defs = axisGroup.append('defs');
     const gradientId = `katucharts-heatmap-grad-${Math.random().toString(36).slice(2, 8)}`;
     const gradient = defs.append('linearGradient')
       .attr('id', gradientId)
-      .attr('x1', '0%').attr('y1', '100%')
-      .attr('x2', '0%').attr('y2', '0%');
+      .attr('x1', '0%').attr('y1', '0%')
+      .attr('x2', '100%').attr('y2', '0%');
 
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
@@ -341,46 +371,56 @@ export class HeatmapSeries extends BaseSeries {
         .attr('stop-color', colorScale(val));
     }
 
+    const range = maxVal - minVal;
+    const rawStep = range / 6;
+    const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const nice = [1, 2, 2.5, 5, 10].find(n => n * mag >= rawStep)! * mag;
+    const tickStart = Math.ceil(minVal / nice) * nice;
+    const ticks: number[] = [];
+    for (let v = tickStart; v <= maxVal + nice * 0.01; v += nice) {
+      ticks.push(Math.round(v * 1e6) / 1e6);
+    }
+    if (ticks.length === 0 || ticks[0] > minVal) ticks.unshift(minVal);
+    if (ticks[ticks.length - 1] < maxVal) ticks.push(maxVal);
+
+    const segCount = ticks.length - 1;
+    const segW = barWidth / segCount;
+
+    for (let i = 0; i < segCount; i++) {
+      const segGradId = `katucharts-heatmap-seg-${Math.random().toString(36).slice(2, 8)}`;
+      const segGrad = defs.append('linearGradient')
+        .attr('id', segGradId)
+        .attr('x1', '0%').attr('y1', '0%')
+        .attr('x2', '100%').attr('y2', '0%');
+      segGrad.append('stop').attr('offset', '0%').attr('stop-color', colorScale(ticks[i]));
+      segGrad.append('stop').attr('offset', '100%').attr('stop-color', colorScale(ticks[i + 1]));
+
+      axisGroup.append('rect')
+        .attr('x', x + i * segW).attr('y', y)
+        .attr('width', segW + 0.5).attr('height', barHeight)
+        .attr('fill', `url(#${segGradId})`)
+        .attr('stroke', 'none');
+    }
+
     axisGroup.append('rect')
       .attr('x', x).attr('y', y)
       .attr('width', barWidth).attr('height', barHeight)
-      .attr('fill', `url(#${gradientId})`)
-      .attr('stroke', '#ccc').attr('stroke-width', 0.5);
+      .attr('fill', 'none')
+      .attr('stroke', '#ccc').attr('stroke-width', 0.5)
+      .attr('rx', 2);
 
-    const labelStyle = colorAxisCfg.labels?.style || {};
-    const fontSize = (labelStyle.fontSize as string) || '9px';
-    const fontColor = (labelStyle.color as string) || '#666';
-
-    axisGroup.append('text')
-      .attr('x', x + barWidth + 4).attr('y', y + barHeight)
-      .attr('font-size', fontSize).attr('fill', fontColor)
-      .attr('dominant-baseline', 'auto')
-      .text(String(minVal));
-
-    axisGroup.append('text')
-      .attr('x', x + barWidth + 4).attr('y', y)
-      .attr('font-size', fontSize).attr('fill', fontColor)
-      .attr('dominant-baseline', 'hanging')
-      .text(String(maxVal));
-
-    if (colorAxisCfg.dataClasses) {
-      let offsetY = y;
-      for (const cls of colorAxisCfg.dataClasses) {
-        const h = barHeight / colorAxisCfg.dataClasses.length;
-        axisGroup.append('rect')
-          .attr('x', x).attr('y', offsetY)
-          .attr('width', barWidth).attr('height', h)
-          .attr('fill', cls.color || '#ccc')
-          .attr('stroke', '#ccc').attr('stroke-width', 0.5);
-        if (cls.name) {
-          axisGroup.append('text')
-            .attr('x', x + barWidth + 4).attr('y', offsetY + h / 2)
-            .attr('font-size', fontSize).attr('fill', fontColor)
-            .attr('dominant-baseline', 'central')
-            .text(cls.name);
-        }
-        offsetY += h;
-      }
+    const precision = nice >= 1 ? 0 : nice >= 0.1 ? 1 : 2;
+    for (let i = 0; i < ticks.length; i++) {
+      const tx = x + (ticks[i] - minVal) / range * barWidth;
+      axisGroup.append('line')
+        .attr('x1', tx).attr('y1', y + barHeight)
+        .attr('x2', tx).attr('y2', y + barHeight + 4)
+        .attr('stroke', '#999').attr('stroke-width', 0.5);
+      axisGroup.append('text')
+        .attr('x', tx).attr('y', y + barHeight + 15)
+        .attr('font-size', fontSize).attr('fill', fontColor)
+        .attr('text-anchor', i === 0 ? 'start' : i === ticks.length - 1 ? 'end' : 'middle')
+        .text(ticks[i].toFixed(precision));
     }
   }
 
@@ -403,7 +443,7 @@ export class HeatmapSeries extends BaseSeries {
       .attr('fill', fontColor)
       .style('pointer-events', 'none')
       .text((d: any) => {
-        const val = d.value ?? d.y;
+        const val = d.value ?? d.z ?? d.y;
         if (val === null || val === undefined) {
           if (dlCfg.nullFormatter) return dlCfg.nullFormatter.call({ point: d, series: { name: this.config.name } });
           if (dlCfg.nullFormat) return dlCfg.nullFormat;

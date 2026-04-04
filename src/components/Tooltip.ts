@@ -31,7 +31,13 @@ export class Tooltip {
     if (config.enabled === false) return;
 
     events.on('point:mouseover', (data: any) => this.show(data));
-    events.on('point:mouseout', () => this.scheduleHide());
+    events.on('point:mouseout', (data: any) => {
+      if (this.config.shared && data?.series) {
+        const name = data.series?.config?.name ?? data.series?.name ?? '';
+        this.sharedPoints = this.sharedPoints.filter(p => p.series.name !== name);
+      }
+      this.scheduleHide();
+    });
 
     if (config.followPointer) {
       const handler = throttle((e: MouseEvent) => {
@@ -87,8 +93,12 @@ export class Tooltip {
       this.hideTimeout = null;
     }
 
+    const pointWithIndex = rawData.index !== undefined
+      ? { ...rawData.point, index: rawData.index }
+      : rawData.point;
+
     const data: TooltipPointData = {
-      point: rawData.point,
+      point: pointWithIndex,
       plotX: rawData.plotX,
       plotY: rawData.plotY,
       series: {
@@ -99,6 +109,12 @@ export class Tooltip {
     };
 
     if (this.config.shared) {
+      const currentX = data.point.x ?? data.plotX;
+      const staleX = this.sharedPoints.length > 0 &&
+        (this.sharedPoints[0].point.x ?? this.sharedPoints[0].plotX) !== currentX;
+      if (staleX) {
+        this.sharedPoints = [];
+      }
       const existingIdx = this.sharedPoints.findIndex(
         p => p.series.name === data.series.name
       );

@@ -38,15 +38,30 @@ export class SankeySeries extends BaseSeries {
     const levels: SankeyLevelOptions[] = cfg.levels || [];
     const curveFactor = cfg.curveFactor ?? 0.33;
 
+    const dlCfgPre = this.config.dataLabels || {};
+    const dlEnabledPre = dlCfgPre.enabled !== false;
+    let labelReserve = 0;
+    if (dlEnabledPre && nodes.length > 0) {
+      const fontSize = parseFloat((dlCfgPre.style?.fontSize as string) || '10') || 10;
+      const maxLen = nodes.reduce((max, n) => Math.max(max, (n.name || n.id || '').length), 0);
+      labelReserve = maxLen * fontSize * 0.6 + 12;
+    }
+
     const alignMode = cfg.nodeAlignment === 'left' ? sankeyLeft : sankeyJustify;
     const sankeyGen = sankey<any, any>()
       .nodeId((d: any) => d.id)
       .nodeAlign(alignMode)
       .nodeWidth(nodeWidth)
       .nodePadding(nodePadding)
-      .extent([[0, 0], [plotArea.width, plotArea.height]]);
+      .extent([[0, 0], [plotArea.width - labelReserve, plotArea.height]]);
 
     const graph = sankeyGen({ nodes: [...nodes], links: [...links] });
+
+    const centerNodes = cfg.centerNodes !== false;
+    const spreadFactor = cfg.spreadFactor ?? 1.0;
+    if (centerNodes || spreadFactor !== 1.0) {
+      this.centerAndSpreadNodes(graph, sankeyGen, plotArea.height, spreadFactor, nodePadding);
+    }
 
     const levelMap = new Map<number, SankeyLevelOptions>();
     for (const lvl of levels) {
@@ -123,8 +138,14 @@ export class SankeySeries extends BaseSeries {
         nodeRects.attr('opacity', 1);
         nodeRects.transition('highlight').duration(150)
           .attr('opacity', (n: any) => n === d.source || n === d.target ? 1 : 0.4);
+        const linkPoint = {
+          from: d.source.name, to: d.target.name, y: d.value,
+          weight: d.value,
+          fromNode: { name: d.source.name, id: d.source.id },
+          toNode: { name: d.target.name, id: d.target.id },
+        };
         this.context.events.emit('point:mouseover', {
-          point: { from: d.source.name, to: d.target.name, y: d.value },
+          point: linkPoint,
           index: graph.links.indexOf(d), series: this, event,
           plotX: (d.source.x1 + d.target.x0) / 2,
           plotY: (d.y0 + d.y1) / 2,
@@ -137,13 +158,15 @@ export class SankeySeries extends BaseSeries {
           .attr('stroke-opacity', (l: any) => getLinkOpacity(l));
         nodeRects.transition('highlight').duration(150).attr('opacity', 1);
         this.context.events.emit('point:mouseout', {
-          point: { from: d.source.name, to: d.target.name, y: d.value },
+          point: { from: d.source.name, to: d.target.name, y: d.value, weight: d.value,
+            fromNode: { name: d.source.name }, toNode: { name: d.target.name } },
           index: graph.links.indexOf(d), series: this, event,
         });
       })
       .on('click', (event: MouseEvent, d: any) => {
         this.context.events.emit('point:click', {
-          point: { from: d.source.name, to: d.target.name, y: d.value },
+          point: { from: d.source.name, to: d.target.name, y: d.value, weight: d.value,
+            fromNode: { name: d.source.name }, toNode: { name: d.target.name } },
           index: graph.links.indexOf(d), series: this, event,
         });
       });
@@ -185,8 +208,9 @@ export class SankeySeries extends BaseSeries {
           .attr('stroke-opacity', (l: any) =>
             l.source === d || l.target === d ? Math.min(getLinkOpacity(l) + 0.3, 1) : getLinkOpacity(l) * 0.375
           );
+        const nodePoint = { name: d.name || d.id, y: d.value, sum: d.value };
         this.context.events.emit('point:mouseover', {
-          point: { name: d.name || d.id, y: d.value },
+          point: nodePoint,
           index: graph.nodes.indexOf(d), series: this, event,
           plotX: (d.x0 + d.x1) / 2, plotY: (d.y0 + d.y1) / 2,
         });
@@ -200,7 +224,7 @@ export class SankeySeries extends BaseSeries {
         linkPaths.transition('highlight').duration(150)
           .attr('stroke-opacity', (l: any) => getLinkOpacity(l));
         this.context.events.emit('point:mouseout', {
-          point: { name: d.name || d.id, y: d.value },
+          point: { name: d.name || d.id, y: d.value, sum: d.value },
           index: graph.nodes.indexOf(d), series: this, event,
         });
       })
@@ -213,7 +237,7 @@ export class SankeySeries extends BaseSeries {
 
     const dlCfg = this.config.dataLabels || {};
     const dlEnabled = dlCfg.enabled !== false;
-    const dlFontSize = (dlCfg.style?.fontSize as string) || '10px';
+    const dlFontSize = (dlCfg.style?.fontSize as string) || '13px';
     const dlColor = dlCfg.color || (dlCfg.style?.color as string) || '#333';
 
     if (dlEnabled) {
@@ -243,6 +267,58 @@ export class SankeySeries extends BaseSeries {
           return d.name || d.id;
         });
     }
+  }
+
+  private centerAndSpreadNodes(
+    graph: any,
+    sankeyGen: any,
+    plotHeight: number,
+    spreadFactor: number,
+    nodePadding: number
+  ): void {
+    const columns = new Map<number, any[]>();
+    for (const node of graph.nodes) {
+      const layer = node.layer ?? node.depth ?? 0;
+      if (!columns.has(layer)) columns.set(layer, []);
+      columns.get(layer)!.push(node);
+    }
+
+    for (const [, colNodes] of columns) {
+      colNodes.sort((a: any, b: any) => a.y0 - b.y0);
+
+      if (spreadFactor !== 1.0 && colNodes.length > 1) {
+        const minY = colNodes[0].y0;
+        const maxY = colNodes[colNodes.length - 1].y1;
+        const midpoint = (minY + maxY) / 2;
+
+        for (const node of colNodes) {
+          const nodeMid = (node.y0 + node.y1) / 2;
+          const nodeHeight = node.y1 - node.y0;
+          const newMid = midpoint + (nodeMid - midpoint) * spreadFactor;
+          node.y0 = newMid - nodeHeight / 2;
+          node.y1 = newMid + nodeHeight / 2;
+        }
+
+        for (let i = 1; i < colNodes.length; i++) {
+          const overlap = colNodes[i - 1].y1 + nodePadding - colNodes[i].y0;
+          if (overlap > 0) {
+            colNodes[i].y0 += overlap;
+            colNodes[i].y1 += overlap;
+          }
+        }
+      }
+
+      const colMinY = colNodes[0].y0;
+      const colMaxY = colNodes[colNodes.length - 1].y1;
+      const delta = (plotHeight - (colMaxY - colMinY)) / 2 - colMinY;
+
+      for (const node of colNodes) {
+        node.y0 += delta;
+        node.y1 += delta;
+      }
+    }
+
+    sankeyGen.update(graph);
   }
 
   private buildGraph() {

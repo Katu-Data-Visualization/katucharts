@@ -187,7 +187,8 @@ export class Chart {
 
     this.axisGroup = this.renderer.createGroup('katucharts-axis-group', this.plotGroup as any);
     this.seriesGroup = this.renderer.createGroup('katucharts-series-group', this.plotGroup as any);
-    if (!this.isNonCartesian()) {
+    const hasZoom = this.options.chart.zoomType || this.options.chart.panKey;
+    if (!this.isNonCartesian() && hasZoom) {
       this.seriesGroup.attr('clip-path', `url(#${this.clipPathId})`);
     }
 
@@ -215,42 +216,57 @@ export class Chart {
 
   private renderTitles(): void {
     this.titleGroup.selectAll('*').remove();
+    this.container.querySelectorAll('.katucharts-title-html, .katucharts-subtitle-html').forEach(el => el.remove());
 
     if (this.options.title?.text) {
       const titleOpts = this.options.title;
-      const x = this.getTitleX(titleOpts.align);
       const fontSize = titleOpts.style?.fontSize as string || '18px';
-      const maxWidth = this.chartWidth + (titleOpts.widthAdjust ?? -44);
 
-      const titleEl = this.titleGroup.append('text')
-        .attr('class', 'katucharts-chart-title')
-        .attr('x', x)
-        .attr('y', this.layout.titleArea.y + 20)
-        .attr('text-anchor', this.getTextAnchor(titleOpts.align))
-        .attr('fill', titleOpts.style?.color as string || '#333333')
-        .attr('font-size', fontSize)
-        .attr('font-weight', titleOpts.style?.fontWeight as string || 'bold')
-        .text(titleOpts.text!);
-
-      this.wrapSvgText(titleEl, maxWidth, x, parseFloat(fontSize));
+      if (titleOpts.useHTML) {
+        const div = document.createElement('div');
+        div.className = 'katucharts-title-html';
+        div.innerHTML = titleOpts.text!;
+        div.style.cssText = `position:absolute;top:${this.layout.titleArea.y + 5}px;left:0;width:100%;text-align:${titleOpts.align || 'center'};color:${titleOpts.style?.color as string || '#333333'};font-size:${fontSize};font-weight:${titleOpts.style?.fontWeight as string || 'bold'};pointer-events:none;box-sizing:border-box;padding:0 22px;`;
+        this.container.appendChild(div);
+      } else {
+        const x = this.getTitleX(titleOpts.align);
+        const maxWidth = this.chartWidth + (titleOpts.widthAdjust ?? -44);
+        const titleEl = this.titleGroup.append('text')
+          .attr('class', 'katucharts-chart-title')
+          .attr('x', x)
+          .attr('y', this.layout.titleArea.y + 20)
+          .attr('text-anchor', this.getTextAnchor(titleOpts.align))
+          .attr('fill', titleOpts.style?.color as string || '#333333')
+          .attr('font-size', fontSize)
+          .attr('font-weight', titleOpts.style?.fontWeight as string || 'bold')
+          .text(titleOpts.text!);
+        this.wrapSvgText(titleEl, maxWidth, x, parseFloat(fontSize));
+      }
     }
 
     if (this.options.subtitle?.text) {
       const subOpts = this.options.subtitle;
-      const x = this.getTitleX(subOpts.align);
       const fontSize = subOpts.style?.fontSize as string || '12px';
-      const maxWidth = this.chartWidth + (subOpts.widthAdjust ?? -44);
 
-      const subEl = this.titleGroup.append('text')
-        .attr('class', 'katucharts-chart-subtitle')
-        .attr('x', x)
-        .attr('y', this.layout.subtitleArea.y + 15)
-        .attr('text-anchor', this.getTextAnchor(subOpts.align))
-        .attr('fill', subOpts.style?.color as string || '#666666')
-        .attr('font-size', fontSize)
-        .text(subOpts.text!);
-
-      this.wrapSvgText(subEl, maxWidth, x, parseFloat(fontSize));
+      if (subOpts.useHTML) {
+        const div = document.createElement('div');
+        div.className = 'katucharts-subtitle-html';
+        div.innerHTML = subOpts.text!;
+        div.style.cssText = `position:absolute;top:${this.layout.subtitleArea.y + 5}px;left:0;width:100%;text-align:${subOpts.align || 'center'};color:${subOpts.style?.color as string || '#666666'};font-size:${fontSize};pointer-events:none;box-sizing:border-box;padding:0 22px;`;
+        this.container.appendChild(div);
+      } else {
+        const x = this.getTitleX(subOpts.align);
+        const maxWidth = this.chartWidth + (subOpts.widthAdjust ?? -44);
+        const subEl = this.titleGroup.append('text')
+          .attr('class', 'katucharts-chart-subtitle')
+          .attr('x', x)
+          .attr('y', this.layout.subtitleArea.y + 15)
+          .attr('text-anchor', this.getTextAnchor(subOpts.align))
+          .attr('fill', subOpts.style?.color as string || '#666666')
+          .attr('font-size', fontSize)
+          .text(subOpts.text!);
+        this.wrapSvgText(subEl, maxWidth, x, parseFloat(fontSize));
+      }
     }
   }
 
@@ -354,7 +370,7 @@ export class Chart {
     const noAxesTypes = new Set([
       'pie', 'donut', 'sunburst', 'treemap', 'sankey', 'dependencywheel',
       'networkgraph', 'gauge', 'solidgauge', 'polar', 'radar', 'funnel',
-      'pyramid', 'timeline', 'map', 'heatmap', 'barchartrace', 'venn',
+      'pyramid', 'timeline', 'map', 'barchartrace', 'venn',
       'clusteredheatmap', 'phylotree', 'circos',
     ]);
 
@@ -420,10 +436,16 @@ export class Chart {
         }
       }
 
+      const hasPercentStacking = relatedConfigs.some(cfg => cfg?.stacking === 'percent');
       for (const accum of stackGroups.values()) {
-        for (const total of accum.values()) {
-          yMin = Math.min(yMin, 0);
-          yMax = Math.max(yMax, total);
+        if (hasPercentStacking) {
+          yMin = 0;
+          yMax = Math.max(yMax, 100);
+        } else {
+          for (const total of accum.values()) {
+            yMin = Math.min(yMin, 0);
+            yMax = Math.max(yMax, total);
+          }
         }
       }
 
@@ -444,7 +466,7 @@ export class Chart {
     const noAxesTypes = new Set([
       'pie', 'donut', 'sunburst', 'treemap', 'sankey', 'dependencywheel',
       'networkgraph', 'gauge', 'solidgauge', 'polar', 'radar', 'funnel',
-      'pyramid', 'timeline', 'map', 'heatmap', 'barchartrace', 'venn',
+      'pyramid', 'timeline', 'map', 'barchartrace', 'venn',
       'clusteredheatmap', 'phylotree', 'circos',
       'circosChord', 'circosHeatmap', 'circosComparative', 'circosSpiral',
     ]);
@@ -503,7 +525,8 @@ export class Chart {
 
         if (catIndex < 0) return;
 
-        const plotX = xAxis.getPixelForValue(tickValue);
+        const inv = !!self.options.chart.inverted;
+        const rawX = xAxis.getPixelForValue(tickValue);
         const matchingPoints: any[] = [];
 
         for (const series of self.seriesInstances) {
@@ -511,11 +534,12 @@ export class Chart {
           const point = series.data.find((d: any) => (d.x ?? 0) === catIndex);
           if (point && point.y !== null && point.y !== undefined) {
             const yAxis = self.yAxes[0];
+            const rawY = yAxis.getPixelForValue(point.y ?? 0);
             matchingPoints.push({
               point,
               series,
-              plotX,
-              plotY: yAxis.getPixelForValue(point.y ?? 0),
+              plotX: inv ? rawY : rawX,
+              plotY: inv ? rawX : rawY,
             });
           }
         }
@@ -527,7 +551,7 @@ export class Chart {
             index: catIndex,
             series: first.series,
             event: _event,
-            plotX,
+            plotX: first.plotX,
             plotY: first.plotY,
           });
         }
@@ -593,10 +617,20 @@ export class Chart {
 
     const stackSeriesCount = new Map<string, number>();
     const stackSeriesIndex = new Map<string, number>();
-    for (const cfg of this.options.series) {
+    const stackTotalsMap = new Map<string, Map<number | string, number>>();
+    for (let i = 0; i < this.options.series.length; i++) {
+      const cfg = this.options.series[i];
       if (cfg.stacking) {
         const sk = buildStackKey(cfg);
         stackSeriesCount.set(sk, (stackSeriesCount.get(sk) || 0) + 1);
+        if (!stackTotalsMap.has(sk)) stackTotalsMap.set(sk, new Map());
+        const totals = stackTotalsMap.get(sk)!;
+        const s = this.seriesInstances[i];
+        s.processData();
+        for (const d of s.data) {
+          const xKey = d.x ?? 0;
+          totals.set(xKey, (totals.get(xKey) || 0) + (d.y ?? 0));
+        }
       }
     }
 
@@ -632,7 +666,9 @@ export class Chart {
         indexInType: cfg.stacking ? (stackSeriesIndex.get(buildStackKey(cfg)) || 0) : idxInType,
         animate: chartAnimate && cfg.animation !== false,
         stackOffsets,
+        stackTotals: cfg.stacking ? stackTotalsMap.get(buildStackKey(cfg)) : undefined,
         allSeries: this.seriesInstances,
+        inverted: !!this.options.chart.inverted,
       };
 
       series.processData();
@@ -676,23 +712,32 @@ export class Chart {
 
   private setupSeriesDimming(): void {
     const inactiveOpacity = this.options.plotOptions?.series?.states?.inactive?.opacity ?? 0.2;
+    let restoreTimer: ReturnType<typeof setTimeout> | null = null;
 
     const dimOtherSeries = (hoveredSeries: BaseSeries) => {
+      if (restoreTimer) {
+        clearTimeout(restoreTimer);
+        restoreTimer = null;
+      }
       for (const s of this.seriesInstances) {
         s['group']?.interrupt?.('seriesDim');
         if (s !== hoveredSeries && s.visible) {
           s['group']?.transition?.('seriesDim')?.duration?.(200)?.attr?.('opacity', inactiveOpacity);
         } else {
-          s['group']?.attr?.('opacity', 1);
+          s['group']?.attr?.('opacity', s.config.opacity ?? 1);
         }
       }
     };
 
     const restoreAllSeries = () => {
-      for (const s of this.seriesInstances) {
-        s['group']?.interrupt?.('seriesDim');
-        s['group']?.transition?.('seriesDim')?.duration?.(200)?.attr?.('opacity', 1);
-      }
+      if (restoreTimer) clearTimeout(restoreTimer);
+      restoreTimer = setTimeout(() => {
+        for (const s of this.seriesInstances) {
+          s['group']?.interrupt?.('seriesDim');
+          s['group']?.transition?.('seriesDim')?.duration?.(200)?.attr?.('opacity', s.config.opacity ?? 1);
+        }
+        restoreTimer = null;
+      }, 50);
     };
 
     this.events.on('series:mouseenter', dimOtherSeries);
@@ -992,6 +1037,7 @@ export class Chart {
     const stackIdx = new Map<string, number>();
     const stackAccum = new Map<string, Map<number | string, number>>();
     const buildSK = (cfg: any) => `${cfg._internalType}__${cfg.stack ?? '_default'}`;
+    const stackTotalsMap2 = new Map<string, Map<number | string, number>>();
     for (const s of this.seriesInstances) {
       if (!s.visible) continue;
       const t = s.config._internalType;
@@ -1000,6 +1046,12 @@ export class Chart {
         const sk = buildSK(s.config);
         stackCount.set(sk, (stackCount.get(sk) || 0) + 1);
         if (!stackAccum.has(sk)) stackAccum.set(sk, new Map());
+        if (!stackTotalsMap2.has(sk)) stackTotalsMap2.set(sk, new Map());
+        const totals = stackTotalsMap2.get(sk)!;
+        for (const d of s.data) {
+          const xKey = d.x ?? 0;
+          totals.set(xKey, (totals.get(xKey) || 0) + (d.y ?? 0));
+        }
       }
     }
 
@@ -1015,12 +1067,14 @@ export class Chart {
       let totalOfType: number;
       let idxOfType: number;
       let stackOffsets: Map<number | string, number> | undefined;
+      let stackTotals: Map<number | string, number> | undefined;
       if (cfg.stacking) {
         const sk = buildSK(cfg);
         totalOfType = stackCount.get(sk) || 1;
         idxOfType = stackIdx.get(sk) || 0;
         stackIdx.set(sk, idxOfType + 1);
         stackOffsets = new Map(stackAccum.get(sk)!);
+        stackTotals = stackTotalsMap2.get(sk);
       } else {
         totalOfType = typeCount.get(t) || 1;
         idxOfType = idxInType;
@@ -1032,6 +1086,7 @@ export class Chart {
         totalSeriesOfType: totalOfType,
         indexInType: idxOfType,
         stackOffsets,
+        stackTotals,
       });
 
       series.animateUpdate(duration);
@@ -1045,6 +1100,10 @@ export class Chart {
         }
       }
     }
+
+    this.renderTitles();
+    this.renderLegend();
+    this.fireEvent('render');
   }
 
   redraw(): void {
@@ -1172,6 +1231,7 @@ export class Chart {
     if (loading) loading.remove();
     const tooltipEl = this.container.querySelector('.katucharts-tooltip');
     if (tooltipEl) tooltipEl.remove();
+    this.container.querySelectorAll('.katucharts-title-html, .katucharts-subtitle-html').forEach(el => el.remove());
   }
 
   getSVG(): string {
@@ -1409,6 +1469,7 @@ export class Chart {
       subtitle: this.options.subtitle,
       xAxis: this.options.xAxis,
       yAxis: this.options.yAxis,
+      colorAxis: this.options.colorAxis,
       series: this.options.series,
       tooltip: this.options.tooltip,
       legend: this.options.legend,

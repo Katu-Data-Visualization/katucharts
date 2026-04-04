@@ -23,7 +23,9 @@ export interface SeriesContext {
   indexInType?: number;
   animate?: boolean;
   stackOffsets?: Map<number | string, number>;
+  stackTotals?: Map<number | string, number>;
   allSeries?: BaseSeries[];
+  inverted?: boolean;
 }
 
 type AnimatedRedrawFn = (duration?: number) => void;
@@ -107,9 +109,9 @@ export abstract class BaseSeries {
       this.group.classed(this.config.className, true);
     }
 
-    if (this.config.clip !== false) {
-      this.applyClipPath();
-    }
+    // Per-series clip is disabled; the chart-level clip on seriesGroup handles clipping.
+    // Applying per-series clip causes coordinate issues with transformed plot groups.
+    // Use series.clip = true explicitly to opt-in if needed.
 
     if (this.config.shadow) {
       this.applyShadowFilter();
@@ -131,12 +133,10 @@ export abstract class BaseSeries {
       .on('mouseenter', () => {
         this.config.events?.mouseOver?.call(this, new Event('mouseOver'));
         this.context.events.emit('series:mouseenter', this);
-        this.applyInactiveState();
       })
       .on('mouseleave', () => {
         this.config.events?.mouseOut?.call(this, new Event('mouseOut'));
         this.context.events.emit('series:mouseleave', this);
-        this.clearInactiveState();
       });
   }
 
@@ -513,6 +513,7 @@ export abstract class BaseSeries {
     const dlConfig = this.config.dataLabels;
     if (!dlConfig?.enabled) return;
 
+    this.group.selectAll('.katucharts-data-labels').remove();
     const labelsGroup = this.group.append('g').attr('class', 'katucharts-data-labels');
     const color = this.getColor();
 
@@ -525,7 +526,7 @@ export abstract class BaseSeries {
       let text: string;
       if (merged.formatter) {
         text = merged.formatter.call({
-          point: d, series: this, x: d.x ?? i, y: d.y, percentage: (d as any)._percentage,
+          point: { ...d, index: i }, series: this, x: d.x ?? i, y: d.y, percentage: (d as any)._percentage,
         });
       } else if (merged.format) {
         text = stripHtmlTags(templateFormat(merged.format, {

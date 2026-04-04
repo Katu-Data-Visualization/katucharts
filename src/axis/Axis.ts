@@ -54,23 +54,33 @@ class BaseAxis {
   }
 
   protected getRange(): [number, number] {
+    const inv = this.config._inverted;
     if (this.config.isX) {
-      return this.config.reversed
-        ? [this.plotArea.width, 0]
-        : [0, this.plotArea.width];
+      if (inv) {
+        const size = this.plotArea.height;
+        return this.config.reversed ? [size, 0] : [0, size];
+      }
+      const size = this.plotArea.width;
+      return this.config.reversed ? [size, 0] : [0, size];
     }
-    return this.config.reversed
-      ? [0, this.plotArea.height]
-      : [this.plotArea.height, 0];
+    if (inv) {
+      const size = this.plotArea.width;
+      return this.config.reversed ? [size, 0] : [0, size];
+    }
+    const size = this.plotArea.height;
+    return this.config.reversed ? [0, size] : [size, 0];
   }
 
   protected createD3Axis(scale: any): D3Axis<any> {
     const isX = this.config.isX;
     const opposite = this.config.opposite;
+    const inv = this.config._inverted;
 
     if (isX) {
+      if (inv) return opposite ? axisRight(scale) : axisLeft(scale);
       return opposite ? axisTop(scale) : axisBottom(scale);
     }
+    if (inv) return opposite ? axisTop(scale) : axisBottom(scale);
     return opposite ? axisRight(scale) : axisLeft(scale);
   }
 
@@ -85,7 +95,7 @@ class BaseAxis {
 
     axisGroup.selectAll('.tick line')
       .attr('stroke', cfg.tickColor || '#ccd6eb')
-      .attr('stroke-width', cfg.tickWidth ?? (cfg.isX ? 1 : 0));
+      .attr('stroke-width', cfg.tickWidth ?? 1);
 
     if (tickLen !== 10 || tickPos === 'inside') {
       axisGroup.selectAll('.tick line').each(function() {
@@ -110,7 +120,7 @@ class BaseAxis {
 
     axisGroup.selectAll('.domain')
       .attr('stroke', cfg.lineColor || '#ccd6eb')
-      .attr('stroke-width', cfg.lineWidth ?? (cfg.isX ? 1 : 0));
+      .attr('stroke-width', cfg.lineWidth ?? 1);
 
     if (cfg.labels?.enabled === false) {
       axisGroup.selectAll('.tick text').remove();
@@ -151,7 +161,7 @@ class BaseAxis {
         axisGroup.selectAll('.tick text')
           .attr('transform', `rotate(${cfg.labels.rotation})`)
           .style('text-anchor', cfg.labels.rotation < 0 ? 'end' : 'start');
-      } else if (cfg.isX && cfg.labels?.autoRotation) {
+      } else if ((cfg.isX ? !cfg._inverted : !!cfg._inverted) && cfg.labels?.autoRotation) {
         this.applyAutoRotation(axisGroup, cfg.labels.autoRotation, plotArea);
       }
     }
@@ -238,9 +248,11 @@ class BaseAxis {
       this.renderAlternateGridColor(gridGroup, ticks, scale, plotArea);
     }
 
+    const drawsVerticalLines = this.config.isX ? !this.config._inverted : !!this.config._inverted;
+
     for (const tick of ticks) {
       const pos = scale(tick);
-      if (this.config.isX) {
+      if (drawsVerticalLines) {
         gridGroup.append('line')
           .attr('x1', pos).attr('x2', pos)
           .attr('y1', 0).attr('y2', plotArea.height)
@@ -267,10 +279,11 @@ class BaseAxis {
     plotArea: PlotArea
   ): void {
     const color = this.config.alternateGridColor!;
+    const vertical = this.config.isX ? !this.config._inverted : !!this.config._inverted;
     for (let i = 0; i < ticks.length - 1; i += 2) {
       const pos0 = scale(ticks[i]);
       const pos1 = scale(ticks[i + 1]);
-      if (this.config.isX) {
+      if (vertical) {
         gridGroup.insert('rect', ':first-child')
           .attr('x', Math.min(pos0, pos1)).attr('y', 0)
           .attr('width', Math.abs(pos1 - pos0)).attr('height', plotArea.height)
@@ -302,10 +315,11 @@ class BaseAxis {
     const end = typeof domain[domain.length - 1] === 'number' ? domain[domain.length - 1] : 1;
     const majorSet = new Set(majorTicks.map((t: any) => Number(t)));
 
+    const vertical = this.config.isX ? !this.config._inverted : !!this.config._inverted;
     for (let v = start; v <= end; v += minorInterval) {
       if (majorSet.has(v)) continue;
       const pos = scale(v);
-      if (this.config.isX) {
+      if (vertical) {
         gridGroup.append('line')
           .attr('x1', pos).attr('x2', pos)
           .attr('y1', 0).attr('y2', plotArea.height)
@@ -335,7 +349,8 @@ class BaseAxis {
       const to = scale(band.to ?? 0);
 
       let rx: number, ry: number, rw: number, rh: number;
-      if (this.config.isX) {
+      const vertical = this.config.isX ? !this.config._inverted : !!this.config._inverted;
+      if (vertical) {
         rx = Math.min(from, to); ry = 0;
         rw = Math.abs(to - from); rh = plotArea.height;
       } else {
@@ -403,8 +418,9 @@ class BaseAxis {
     for (const pl of this.config.plotLines) {
       const pos = scale(pl.value ?? 0);
 
+      const vertical = this.config.isX ? !this.config._inverted : !!this.config._inverted;
       let lineEl: Selection<SVGLineElement, unknown, null, undefined>;
-      if (this.config.isX) {
+      if (vertical) {
         lineEl = group.append('line')
           .attr('x1', pos).attr('x2', pos)
           .attr('y1', 0).attr('y2', plotArea.height)
@@ -496,7 +512,9 @@ class BaseAxis {
     const margin = title.margin ?? 0;
     const rotation = title.rotation;
 
-    if (this.config.isX) {
+    const rendersHorizontally = this.config.isX ? !this.config._inverted : !!this.config._inverted;
+
+    if (rendersHorizontally) {
       const labelsEnabled = this.config.labels?.enabled !== false;
       let yPos = (labelsEnabled ? 45 : 33) + margin + offset;
 
@@ -523,8 +541,21 @@ class BaseAxis {
         el.attr('transform', `rotate(${rotation}, ${plotArea.width / 2}, ${yPos})`);
       }
     } else {
-      const baseX = this.config.opposite ? plotArea.width + 45 : -45;
-      const x = baseX + offset;
+      const labelsEnabled = this.config.labels?.enabled !== false;
+      let x = (this.config.opposite ? plotArea.width + 45 : -45) + offset;
+
+      if (labelsEnabled) {
+        try {
+          const axisNode = group.node() as SVGGElement;
+          const axisRect = axisNode.getBBox();
+          if (this.config.opposite) {
+            x = Math.max(x, axisRect.x + axisRect.width + 10 + margin + offset);
+          } else {
+            x = Math.min(x, axisRect.x - 10 - margin - offset);
+          }
+        } catch { /* fallback to default */ }
+      }
+
       const yPos = plotArea.height / 2;
       const rot = rotation ?? -90;
 
@@ -562,8 +593,12 @@ class BaseAxis {
       }
       axisGen.tickValues(ticks);
     } else if (scale.domain && typeof scale.ticks === 'function') {
-      const axisLength = this.config.isX ? plotArea.width : plotArea.height;
-      const tickPixelInterval = this.config.tickPixelInterval ?? (this.config.isX ? 100 : 72);
+      const inv = this.config._inverted;
+      const axisLength = this.config.isX
+        ? (inv ? plotArea.height : plotArea.width)
+        : (inv ? plotArea.width : plotArea.height);
+      const rendersHoriz = this.config.isX ? !inv : !!inv;
+      const tickPixelInterval = this.config.tickPixelInterval ?? (rendersHoriz ? 100 : 72);
       const idealTickCount = Math.min(8, Math.max(2, Math.floor(axisLength / tickPixelInterval)));
       const domain = scale.domain();
       if ((this as any).computeNiceTicks) {
@@ -666,8 +701,14 @@ export class LinearAxis extends BaseAxis implements AxisInstance {
 
     this.scale.domain([min, max]).range(this.getRange());
 
-    if (this.config.startOnTick || this.config.endOnTick) {
-      this.scale.nice();
+    const hasExplicitRange = this.config.min !== undefined && this.config.min !== null
+      && this.config.max !== undefined && this.config.max !== null;
+    if (!hasExplicitRange) {
+      const shouldNice = this.config.startOnTick || this.config.endOnTick
+        || (!this.config.isX && this.config.startOnTick !== false && this.config.endOnTick !== false);
+      if (shouldNice) {
+        this.scale.nice();
+      }
     }
   }
 
@@ -690,8 +731,12 @@ export class LinearAxis extends BaseAxis implements AxisInstance {
     } else if (this.config.tickAmount) {
       axisGen.ticks(this.config.tickAmount);
     } else {
-      const axisLength = this.config.isX ? plotArea.width : plotArea.height;
-      const tickPixelInterval = this.config.tickPixelInterval ?? (this.config.isX ? 100 : 72);
+      const inv = this.config._inverted;
+      const axisLength = this.config.isX
+        ? (inv ? plotArea.height : plotArea.width)
+        : (inv ? plotArea.width : plotArea.height);
+      const rendersHoriz = this.config.isX ? !inv : !!inv;
+      const tickPixelInterval = this.config.tickPixelInterval ?? (rendersHoriz ? 100 : 72);
       const idealTickCount = Math.min(8, Math.max(2, Math.floor(axisLength / tickPixelInterval)));
       const domain = this.scale.domain();
       const tickValues = this.computeNiceTicks(domain[0], domain[1], idealTickCount);
@@ -785,9 +830,12 @@ export class LinearAxis extends BaseAxis implements AxisInstance {
   }
 
   private getTransform(plotArea: PlotArea): string {
+    const inv = this.config._inverted;
     if (this.config.isX) {
+      if (inv) return this.config.opposite ? `translate(${plotArea.width},0)` : '';
       return this.config.opposite ? '' : `translate(0,${plotArea.height})`;
     }
+    if (inv) return this.config.opposite ? '' : `translate(0,${plotArea.height})`;
     return this.config.opposite ? `translate(${plotArea.width},0)` : '';
   }
 }
@@ -899,9 +947,10 @@ export class LogarithmicAxis extends BaseAxis implements AxisInstance {
       axisGen.tickFormat((d: any) => siFormat(d as number));
     }
 
+    const atBottom = this.config.isX ? !this.config._inverted : !!this.config._inverted;
     const axisGroup = group.append('g')
       .attr('class', `katucharts-axis katucharts-axis-${this.config.isX ? 'x' : 'y'}`)
-      .attr('transform', this.config.isX ? `translate(0,${plotArea.height})` : '');
+      .attr('transform', atBottom ? `translate(0,${plotArea.height})` : '');
 
     this.renderGridLines(group, this.scale, plotArea, ticks);
     axisGroup.call(axisGen as any);
@@ -950,9 +999,10 @@ export class DateTimeAxis extends BaseAxis implements AxisInstance {
       });
     }
 
+    const atBottom = this.config.isX ? !this.config._inverted : !!this.config._inverted;
     const axisGroup = group.append('g')
       .attr('class', `katucharts-axis katucharts-axis-${this.config.isX ? 'x' : 'y'}`)
-      .attr('transform', this.config.isX ? `translate(0,${plotArea.height})` : '');
+      .attr('transform', atBottom ? `translate(0,${plotArea.height})` : '');
 
     this.renderGridLines(group, this.scale, plotArea);
     axisGroup.call(axisGen as any);
@@ -1006,9 +1056,10 @@ export class CategoryAxis extends BaseAxis implements AxisInstance {
 
     const axisGen = this.createD3Axis(this.scale);
 
+    const atBottom = this.config.isX ? !this.config._inverted : !!this.config._inverted;
     const axisGroup = group.append('g')
       .attr('class', `katucharts-axis katucharts-axis-${this.config.isX ? 'x' : 'y'}`)
-      .attr('transform', this.config.isX ? `translate(0,${plotArea.height})` : '');
+      .attr('transform', atBottom ? `translate(0,${plotArea.height})` : '');
 
     this.renderGridLines(group, this.scale, plotArea);
     axisGroup.call(axisGen as any);
@@ -1020,7 +1071,11 @@ export class CategoryAxis extends BaseAxis implements AxisInstance {
     const domain = this.scale.domain();
     let key: string;
     if (typeof value === 'number' && !domain.includes(String(value))) {
-      key = domain[value] ?? String(value);
+      const idx = Math.round(value);
+      key = domain[idx] ?? String(value);
+      const basePixel = (this.scale(key) ?? 0) + this.scale.bandwidth() / 2;
+      const offset = (value - idx) * this.scale.bandwidth();
+      return basePixel + offset;
     } else {
       key = String(value);
     }

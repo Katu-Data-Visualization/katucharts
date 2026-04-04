@@ -59,17 +59,30 @@ export class OptionsParser {
       result.yAxis = [deepMerge({} as any, defaultOptions.yAxis as any)];
     }
 
-    if (Array.isArray(result.xAxis)) {
-      for (const ax of result.xAxis) {
-        if (ax.categories && ax.categories.length > 0) {
-          ax.type = 'category';
+    for (const axes of [result.xAxis, result.yAxis]) {
+      if (Array.isArray(axes)) {
+        for (const ax of axes) {
+          if (ax.categories && ax.categories.length > 0) {
+            ax.type = 'category';
+          }
         }
       }
     }
 
     const chartType = result.chart?.type || 'line';
+    const hasBarType = chartType === 'bar' || (result.series?.some(s => s.type === 'bar') ?? false);
+    if (hasBarType && result.chart) {
+      result.chart.inverted = true;
+    }
+    const chartColorAxis = Array.isArray(result.colorAxis) ? result.colorAxis[0] : result.colorAxis;
     if (result.series) {
-      result.series = result.series.map(s => this.normalizeSeries(s, chartType, result.plotOptions));
+      result.series = result.series.map(s => {
+        const normalized = this.normalizeSeries(s, chartType, result.plotOptions);
+        if ((normalized.type === 'heatmap') && chartColorAxis && !(normalized as any).colorAxis) {
+          (normalized as any).colorAxis = chartColorAxis;
+        }
+        return normalized;
+      });
     }
 
     return result;
@@ -121,6 +134,14 @@ export class OptionsParser {
 
     if (typeof d === 'number') {
       return { x: (series.pointStart ?? 0) + index * (series.pointInterval ?? 1), y: d };
+    }
+
+    if (Array.isArray(d) && (d as any[]).length === 5 && series.type === 'boxplot') {
+      const arr = d as any as number[];
+      return {
+        x: (series.pointStart ?? 0) + index * (series.pointInterval ?? 1),
+        low: arr[0], q1: arr[1], median: arr[2], q3: arr[3], high: arr[4],
+      };
     }
 
     if (Array.isArray(d)) {
@@ -192,16 +213,20 @@ export class OptionsParser {
   }
 
   private toInternal(options: KatuChartsOptions): InternalConfig {
+    const inverted = !!options.chart?.inverted;
+
     const xAxis = (options.xAxis as AxisOptions[]).map((a, i) => ({
       ...a,
       index: i,
       isX: true,
+      _inverted: inverted,
     } as InternalAxisConfig));
 
     const yAxis = (options.yAxis as AxisOptions[]).map((a, i) => ({
       ...a,
       index: i,
       isX: false,
+      _inverted: inverted,
     } as InternalAxisConfig));
 
     const series = (options.series || []).map((s, i) => {

@@ -13,7 +13,7 @@ interface LevelConfig {
   colorByPoint?: boolean;
   colorVariation?: { key: string; to: number };
   levelSize?: { unit: 'weight' | 'percentage' | 'pixels'; value: number };
-  dataLabels?: { enabled?: boolean; rotationMode?: string; filter?: { property: string; operator: string; value: number } };
+  dataLabels?: { enabled?: boolean; rotationMode?: string; filter?: { property: string; operator: string; value: number }; style?: Record<string, any> };
   borderColor?: string;
   borderWidth?: number;
 }
@@ -23,6 +23,7 @@ export class SunburstSeries extends BaseSeries {
 
   constructor(config: InternalSeriesConfig) {
     super(config);
+    config.showInLegend = false;
   }
 
   render(): void {
@@ -89,7 +90,11 @@ export class SunburstSeries extends BaseSeries {
     const nonRoot = descendants.filter((d: any) => d.depth > 0);
 
     const rootRadius = rootNode._y1 || rootNode.y1;
-    const rootColor = '#ffffff';
+    const rawRootColor = rootNode.data.color || this.getColor() || '#ffffff';
+    const rootHslColor = hsl(rawRootColor);
+    const rootColor = rootHslColor && !isNaN(rootHslColor.h)
+      ? hsl(rootHslColor.h, rootHslColor.s * 0.4, 0.88).toString()
+      : rawRootColor;
     const rootCircle = g.append('circle')
       .attr('r', rootRadius)
       .attr('fill', rootColor)
@@ -113,7 +118,7 @@ export class SunburstSeries extends BaseSeries {
           select(this).transition('fill').duration(150).attr('fill', rootHoverColor);
           select(this).style('filter', 'drop-shadow(0 1px 3px rgba(0,0,0,0.15))');
           self.context.events.emit('point:mouseover', {
-            point: { ...rootNode.data, y: rootNode.value ?? rootNode.data.value },
+            point: { ...rootNode.data, value: rootNode.value, y: rootNode.value ?? rootNode.data.value },
             index: -1, series: self, event,
             plotX: cx, plotY: cy,
           });
@@ -121,21 +126,32 @@ export class SunburstSeries extends BaseSeries {
         .on('mouseout', function(event: MouseEvent) {
           select(this).transition('fill').duration(150).attr('fill', rootColor);
           select(this).style('filter', '');
-          self.context.events.emit('point:mouseout', { point: { ...rootNode.data, y: rootNode.value ?? rootNode.data.value }, index: -1, series: self, event });
+          self.context.events.emit('point:mouseout', { point: { ...rootNode.data, value: rootNode.value, y: rootNode.value ?? rootNode.data.value }, index: -1, series: self, event });
         });
     }
 
     if (rootRadius > 15) {
       const rootLabel = this.config.name || rootNode.data?.name || '';
       if (rootLabel) {
-        g.append('text')
+        const labelColor = '#333';
+        const dlStyle = (this.config.dataLabels as any)?.style || {};
+        const rootOutline = dlStyle.textOutline;
+        const rootText = g.append('text')
           .attr('text-anchor', 'middle')
           .attr('dominant-baseline', 'central')
           .attr('font-size', rootRadius > 35 ? '13px' : '10px')
           .attr('font-weight', 'bold')
-          .attr('fill', '#666')
+          .attr('fill', labelColor)
           .style('pointer-events', 'none')
           .text(rootLabel);
+        if (rootOutline) {
+          const outlineParts = rootOutline.split(/\s+/);
+          rootText
+            .style('paint-order', 'stroke fill')
+            .attr('stroke', outlineParts.length >= 2 ? outlineParts.slice(1).join(' ') : 'white')
+            .attr('stroke-width', parseFloat(rootOutline) || 0)
+            .attr('stroke-linejoin', 'round');
+        }
       }
     }
 
@@ -146,12 +162,13 @@ export class SunburstSeries extends BaseSeries {
       .attr('fill', (d: any) => d._color)
       .attr('stroke', (d: any) => {
         const lc = levels.find(l => l.level === d.depth);
-        return lc?.borderColor || 'none';
+        return lc?.borderColor || d._color;
       })
       .attr('stroke-width', (d: any) => {
         const lc = levels.find(l => l.level === d.depth);
-        return lc?.borderColor ? (lc?.borderWidth ?? 1) : 0;
+        return lc?.borderColor ? (lc?.borderWidth ?? 1) : 0.5;
       })
+      .attr('shape-rendering', 'geometricPrecision')
       .style('cursor', 'pointer');
 
     if (slicedOffset > 0) {
@@ -178,6 +195,19 @@ export class SunburstSeries extends BaseSeries {
       slices.attr('d', arcGen as any);
     }
 
+    const levelRadii = new Set<number>();
+    for (const d of nonRoot) {
+      if (d.depth > 1) levelRadii.add(d._y0);
+    }
+    for (const r of levelRadii) {
+      g.append('circle')
+        .attr('r', r)
+        .attr('fill', 'none')
+        .attr('stroke', '#ffffff')
+        .attr('stroke-width', 2)
+        .style('pointer-events', 'none');
+    }
+
     this.renderLabels(g, nonRoot, levels);
 
     if (this.config.enableMouseTracking !== false) {
@@ -192,13 +222,13 @@ export class SunburstSeries extends BaseSeries {
 
           slices.interrupt('highlight');
           slices.attr('opacity', 1);
-          slices.filter((o: any) => o !== d && !self.isAncestorOf(d, o) && !self.isAncestorOf(o, d))
+          slices.filter((o: any) => o !== d && !self.isAncestorOf(o, d))
             .transition('highlight').duration(150).attr('opacity', inactiveOpacity);
 
           const i = nonRoot.indexOf(d);
           const centroid = arcGen.centroid(d);
           self.context.events.emit('point:mouseover', {
-            point: { ...d.data, y: d.value ?? d.data.value },
+            point: { ...d.data, value: d.value, y: d.value ?? d.data.value },
             index: i, series: self, event,
             plotX: cx + centroid[0], plotY: cy + centroid[1],
           });
@@ -212,7 +242,7 @@ export class SunburstSeries extends BaseSeries {
           slices.transition('highlight').duration(150).attr('opacity', 1);
 
           const i = nonRoot.indexOf(d);
-          self.context.events.emit('point:mouseout', { point: { ...d.data, y: d.value ?? d.data.value }, index: i, series: self, event });
+          self.context.events.emit('point:mouseout', { point: { ...d.data, value: d.value, y: d.value ?? d.data.value }, index: i, series: self, event });
           d.data.events?.mouseOut?.call(d.data, event);
         })
         .on('click', function(event: MouseEvent, d: any) {
@@ -396,14 +426,14 @@ export class SunburstSeries extends BaseSeries {
    */
   private assignColors(root: any, colors: string[], levels: LevelConfig[]): void {
     let colorIdx = 0;
-    root._color = 'transparent';
+    root._color = root.data.color || 'transparent';
 
     const colorByPointLevel = levels.find(l => l.colorByPoint)?.level;
     const baseLevel = colorByPointLevel ?? 1;
 
     const assignRecursive = (node: any) => {
       if (node.depth === 0) {
-        node._color = 'transparent';
+        node._color = node.data.color || 'transparent';
       } else if (node.data.color) {
         node._color = node.data.color;
       } else if (node.depth === baseLevel) {
@@ -448,7 +478,17 @@ export class SunburstSeries extends BaseSeries {
 
   private renderLabels(g: any, nonRoot: any[], levels: LevelConfig[]): void {
     const defaultMinArc = 16;
-    const defaultRotationMode = (this.config.dataLabels as any)?.rotationMode || 'auto';
+    const dlConfig = this.config.dataLabels as any;
+    const defaultRotationMode = dlConfig?.rotationMode || 'auto';
+    const globalStyle = dlConfig?.style || {};
+    const globalFontSize = globalStyle.fontSize || '11px';
+    const globalTextOutline: string | undefined = globalStyle.textOutline;
+    const globalFilter = dlConfig?.filter;
+
+    const resolveOutline = (d: any) => {
+      const lc = levels.find(l => l.level === d.depth);
+      return lc?.dataLabels?.style?.textOutline || globalTextOutline;
+    };
 
     g.selectAll('.katucharts-sunburst-label')
       .data(nonRoot)
@@ -461,49 +501,121 @@ export class SunburstSeries extends BaseSeries {
         const r = (d._y0 + d._y1) / 2;
         const deg = (angle * 180 / Math.PI) - 90;
 
+        const flipTangential = angle < Math.PI / 2 || angle > Math.PI * 3 / 2;
+        const flipRadial = angle > Math.PI;
+
         if (rotMode === 'parallel') {
-          return `translate(${r * Math.cos(angle - Math.PI / 2)},${r * Math.sin(angle - Math.PI / 2)})`;
+          return `rotate(${deg}) translate(${r},0) rotate(${flipTangential ? 90 : -90})`;
         }
 
         if (rotMode === 'perpendicular') {
-          const flip = angle > Math.PI;
-          return `rotate(${deg}) translate(${r},0)${flip ? ' rotate(180)' : ''}`;
+          return `rotate(${deg}) translate(${r},0)${flipRadial ? ' rotate(180)' : ''}`;
         }
 
         const arcLen = d._y1 * (d.x1 - d.x0);
         const ringWidth = d._y1 - d._y0;
         if (arcLen > ringWidth * 2) {
-          return `translate(${r * Math.cos(angle - Math.PI / 2)},${r * Math.sin(angle - Math.PI / 2)})`;
+          return `rotate(${deg}) translate(${r},0) rotate(${flipTangential ? 90 : -90})`;
         }
-        const flip = angle > Math.PI;
-        return `rotate(${deg}) translate(${r},0)${flip ? ' rotate(180)' : ''}`;
+        return `rotate(${deg}) translate(${r},0)${flipRadial ? ' rotate(180)' : ''}`;
       })
       .attr('text-anchor', 'middle')
       .attr('dominant-baseline', 'central')
-      .attr('font-size', (d: any) => d.depth === 1 ? '10px' : '8px')
-      .attr('font-weight', (d: any) => d.depth === 1 ? 'bold' : 'normal')
-      .attr('fill', '#333')
-      .style('pointer-events', 'none')
-      .text((d: any) => {
+      .attr('font-size', (d: any) => {
         const lc = levels.find(l => l.level === d.depth);
+        return lc?.dataLabels?.style?.fontSize || globalFontSize;
+      })
+      .attr('font-weight', 'bold')
+      .attr('fill', '#333')
+      .style('paint-order', 'stroke fill')
+      .attr('stroke', (d: any) => {
+        const outline = resolveOutline(d);
+        if (!outline) return 'none';
+        const parts = outline.split(/\s+/);
+        return parts.length >= 2 ? parts.slice(1).join(' ') : 'white';
+      })
+      .attr('stroke-width', (d: any) => {
+        const outline = resolveOutline(d);
+        if (!outline) return 0;
+        return parseFloat(outline) || 0;
+      })
+      .attr('stroke-linejoin', 'round')
+      .style('pointer-events', 'none')
+      .each(function(this: SVGTextElement, d: any) {
+        const el = select(this);
+        el.selectAll('tspan').remove();
+        const lc = levels.find((l: LevelConfig) => l.level === d.depth);
 
-        if (lc?.dataLabels?.enabled === false) return '';
+        if (lc?.dataLabels?.enabled === false) return;
 
-        const filter = lc?.dataLabels?.filter;
+        const filter = lc?.dataLabels?.filter || globalFilter;
         const outerArcLen = d._y1 * (d.x1 - d.x0);
+        const innerArcLen = d._y0 * (d.x1 - d.x0);
         const ringWidth = d._y1 - d._y0;
 
         if (filter) {
-          const val = filter.property === 'outerArcLength' ? outerArcLen : 0;
-          if (filter.operator === '>' && val <= filter.value) return '';
-          if (filter.operator === '<' && val >= filter.value) return '';
+          const val = filter.property === 'outerArcLength' ? outerArcLen
+            : filter.property === 'innerArcLength' ? innerArcLen : 0;
+          if (filter.operator === '>' && val <= filter.value) return;
+          if (filter.operator === '<' && val >= filter.value) return;
         } else if (outerArcLen < defaultMinArc) {
-          return '';
+          return;
         }
 
         const name = d.data.name || '';
-        const maxChars = Math.floor(ringWidth / 5);
-        return name.length > maxChars ? name.substring(0, maxChars) + '\u2026' : name;
+        const lcRot = lc?.dataLabels?.rotationMode || defaultRotationMode;
+        const isParallel = lcRot === 'parallel' || (lcRot === 'auto' && outerArcLen > ringWidth * 2);
+        const lineWidth = isParallel ? (outerArcLen + innerArcLen) / 2 : ringWidth;
+        const lineHeight = isParallel ? ringWidth : (outerArcLen + innerArcLen) / 2;
+        const fontSize = parseFloat(lc?.dataLabels?.style?.fontSize || globalFontSize) || 11;
+        const charWidth = fontSize * 0.6;
+        const maxCharsPerLine = Math.max(3, Math.floor(lineWidth / charWidth));
+        const maxLines = Math.max(1, Math.floor(lineHeight / (fontSize * 1.2)));
+
+        if (name.length <= maxCharsPerLine) {
+          el.text(name);
+          return;
+        }
+
+        const words = name.split(/[\s_-]+/);
+        const lines: string[] = [];
+        let currentLine = '';
+
+        for (const word of words) {
+          const test = currentLine ? currentLine + ' ' + word : word;
+          if (test.length <= maxCharsPerLine) {
+            currentLine = test;
+          } else {
+            if (currentLine) lines.push(currentLine);
+            currentLine = word.length > maxCharsPerLine
+              ? word.substring(0, maxCharsPerLine - 1) + '\u2026'
+              : word;
+          }
+          if (lines.length >= maxLines) break;
+        }
+        if (currentLine && lines.length < maxLines) lines.push(currentLine);
+
+        if (lines.length === 0) return;
+        if (lines.length > maxLines) lines.length = maxLines;
+        if (lines.length === maxLines && currentLine && !lines[lines.length - 1].endsWith('\u2026')) {
+          const remaining = words.slice(lines.join(' ').split(/[\s]+/).length);
+          if (remaining.length > 0) {
+            const last = lines[lines.length - 1];
+            if (last.length + 2 > maxCharsPerLine) {
+              lines[lines.length - 1] = last.substring(0, maxCharsPerLine - 1) + '\u2026';
+            }
+          }
+        }
+
+        const totalHeight = lines.length * fontSize * 1.2;
+        const startDy = -(totalHeight - fontSize * 1.2) / 2;
+
+        lines.forEach((line, li) => {
+          el.append('tspan')
+            .attr('x', 0)
+            .attr('dy', li === 0 ? `${startDy}px` : `${fontSize * 1.2}px`)
+            .text(line);
+        });
       });
   }
 

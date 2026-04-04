@@ -69,6 +69,7 @@ export class ExportButton {
   private chartWidth: number;
   private chartHeight: number;
   private outsideClickHandler: ((e: MouseEvent) => void) | null = null;
+  private scrollHandler: (() => void) | null = null;
   private btnCenterX = 0;
   private btnCenterY = 0;
 
@@ -293,11 +294,11 @@ export class ExportButton {
 
     this.radialContainer = document.createElement('div');
     Object.assign(this.radialContainer.style, {
-      position: 'absolute',
+      position: 'fixed',
       top: '0',
       left: '0',
-      width: '100%',
-      height: '100%',
+      width: '100vw',
+      height: '100vh',
       pointerEvents: 'none',
       zIndex: '1000',
     });
@@ -366,10 +367,11 @@ export class ExportButton {
     filterSvg.appendChild(defs);
     this.radialContainer.appendChild(filterSvg);
 
-    this.container.appendChild(this.radialContainer);
+    document.body.appendChild(this.radialContainer);
 
-    const cx = this.btnCenterX;
-    const cy = this.btnCenterY;
+    const containerRect = this.container.getBoundingClientRect();
+    const cx = containerRect.left + this.btnCenterX;
+    const cy = containerRect.top + this.btnCenterY;
     const radius = 76;
     const count = items.length;
 
@@ -570,6 +572,9 @@ export class ExportButton {
     setTimeout(() => {
       document.addEventListener('click', this.outsideClickHandler!);
     }, 0);
+
+    this.scrollHandler = () => this.closeMenu();
+    window.addEventListener('scroll', this.scrollHandler, { once: true, capture: true });
   }
 
   private closeMenu(): void {
@@ -599,6 +604,11 @@ export class ExportButton {
     if (this.outsideClickHandler) {
       document.removeEventListener('click', this.outsideClickHandler);
       this.outsideClickHandler = null;
+    }
+
+    if (this.scrollHandler) {
+      window.removeEventListener('scroll', this.scrollHandler, true);
+      this.scrollHandler = null;
     }
   }
 

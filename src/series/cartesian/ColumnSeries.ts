@@ -6,9 +6,12 @@
 
 import { select } from 'd3-selection';
 import 'd3-transition';
+import { interpolate } from 'd3-interpolate';
 import { BaseSeries, brightenColor, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions, BorderRadiusOptions } from '../../types/options';
 import { CategoryAxis } from '../../axis/Axis';
+
+interface RectParams { x: number; y: number; w: number; h: number; }
 
 function resolveBorderRadius(val: number | BorderRadiusOptions | undefined): number {
   if (val === undefined) return 4;
@@ -20,6 +23,7 @@ function roundedRectPath(
   x: number, y: number, w: number, h: number, r: number,
   top: boolean, bottom: boolean,
 ): string {
+  if (w <= 0 || h <= 0) return `M${x},${y}H${x}V${y}Z`;
   const rt = top ? Math.min(r, w / 2, h / 2) : 0;
   const rb = bottom ? Math.min(r, w / 2, h / 2) : 0;
   return `M${x + rt},${y}`
@@ -38,6 +42,7 @@ function roundedRectPathH(
   x: number, y: number, w: number, h: number, r: number,
   right: boolean, left: boolean,
 ): string {
+  if (w <= 0 || h <= 0) return `M${x},${y}H${x}V${y}Z`;
   const rr = right ? Math.min(r, w / 2, h / 2) : 0;
   const rl = left ? Math.min(r, w / 2, h / 2) : 0;
   return `M${x + rl},${y}`
@@ -65,6 +70,8 @@ export class ColumnSeries extends BaseSeries {
   }
 
   render(): void {
+    this.group.selectAll('.katucharts-data-labels').remove();
+
     const { xAxis, yAxis, plotArea } = this.context;
     const color = this.getColor();
     const data = this.data;
@@ -75,15 +82,7 @@ export class ColumnSeries extends BaseSeries {
     const stackOffsets = this.context.stackOffsets;
     const isPercent = stacking === 'percent';
 
-    let percentTotals: Map<number | string, number> | undefined;
-    if (isPercent && stackOffsets) {
-      percentTotals = new Map<number | string, number>();
-      for (const d of data) {
-        const xKey = d.x ?? 0;
-        const offset = stackOffsets.get(xKey) || 0;
-        percentTotals.set(xKey, offset + (d.y ?? 0));
-      }
-    }
+    const percentTotals = isPercent ? this.context.stackTotals : undefined;
 
     const getStackedY = (d: PointOptions): number => {
       const xKey = d.x ?? 0;
@@ -106,11 +105,17 @@ export class ColumnSeries extends BaseSeries {
       return offset;
     };
 
-    if (stacking && stackOffsets) {
+    if (stacking) {
+      const totals = this.context.stackTotals;
       for (const d of data) {
         const xKey = d.x ?? 0;
-        const offset = stackOffsets.get(xKey) || 0;
-        (d as any).total = offset + (d.y ?? 0);
+        if (totals) {
+          (d as any).total = totals.get(xKey) || 0;
+        }
+        if (isPercent && totals) {
+          const t = totals.get(xKey) || 1;
+          (d as any).percentage = ((d.y ?? 0) / t) * 100;
+        }
       }
     }
 
@@ -166,7 +171,8 @@ export class ColumnSeries extends BaseSeries {
     bars
       .attr('x', (d: PointOptions) => this.crispCoord(xAxis.getPixelForValue(d.x ?? 0) + barOffset, crisp))
       .attr('width', crisp ? Math.round(barWidth) : barWidth)
-      .attr('fill', (d: PointOptions, i: number) => this.getPointColor(d, i, color, negColor, threshold));
+      .attr('fill', (d: PointOptions, i: number) => this.getPointColor(d, i, color, negColor, threshold))
+      .attr('display', (d: PointOptions) => d.y == null ? 'none' : null);
 
     if (animate) {
       const dur = this.getEntryDuration();
@@ -187,16 +193,16 @@ export class ColumnSeries extends BaseSeries {
     bars: any, data: PointOptions[], barWidth: number, barOffset: number,
     baseline: number, color: string, minPointLength: number, crisp: boolean, animate: boolean
   ): void {
-    const { yAxis, plotArea } = this.context;
-    const groupWidth = plotArea.height / Math.max(data.length, 1);
+    const { xAxis, yAxis } = this.context;
     const threshold = this.config.threshold ?? 0;
     const negColor = this.config.negativeColor;
 
     bars
-      .attr('y', (d: PointOptions, i: number) =>
-        this.crispCoord((d.x ?? i) * groupWidth + groupWidth / 2 + barOffset, crisp))
+      .attr('y', (d: PointOptions) =>
+        this.crispCoord(xAxis.getPixelForValue(d.x ?? 0) + barOffset, crisp))
       .attr('height', crisp ? Math.round(barWidth) : barWidth)
-      .attr('fill', (d: PointOptions, i: number) => this.getPointColor(d, i, color, negColor, threshold));
+      .attr('fill', (d: PointOptions, i: number) => this.getPointColor(d, i, color, negColor, threshold))
+      .attr('display', (d: PointOptions) => d.y == null ? 'none' : null);
 
     if (animate) {
       const dur = this.getEntryDuration();
@@ -225,7 +231,6 @@ export class ColumnSeries extends BaseSeries {
     color: string, minPointLength: number, crisp: boolean, animate: boolean,
     borderRadius?: number
   ): void {
-    const { xAxis, yAxis, plotArea } = this.context;
     const totalSeries = this.context.totalSeriesOfType || 1;
     const seriesIdx = this.context.indexInType || 0;
     const isTop = seriesIdx === totalSeries - 1;
@@ -234,45 +239,32 @@ export class ColumnSeries extends BaseSeries {
 
     bars.attr('fill', (d: PointOptions, i: number) => this.getPointColor(d, i, color));
 
-    const computePath = (d: PointOptions) => {
-      if (this.isHorizontal) {
-        const groupWidth = plotArea.height / Math.max(data.length, 1);
-        const y = this.crispCoord((d.x ?? data.indexOf(d)) * groupWidth + groupWidth / 2 + barOffset, crisp);
-        const h = crisp ? Math.round(barWidth) : barWidth;
-        const xPos = Math.min(yAxis.getPixelForValue(getStackedY(d)), yAxis.getPixelForValue(getStackedBase(d)));
-        const w = Math.max(Math.abs(yAxis.getPixelForValue(getStackedY(d)) - yAxis.getPixelForValue(getStackedBase(d))), minPointLength);
-        return roundedRectPathH(xPos, y, w, h, r, isTop, isBottom);
-      } else {
-        const x = this.crispCoord(xAxis.getPixelForValue(d.x ?? 0) + barOffset, crisp);
-        const w = crisp ? Math.round(barWidth) : barWidth;
-        const yPos = Math.min(yAxis.getPixelForValue(getStackedY(d)), yAxis.getPixelForValue(getStackedBase(d)));
-        const h = Math.max(Math.abs(yAxis.getPixelForValue(getStackedY(d)) - yAxis.getPixelForValue(getStackedBase(d))), minPointLength);
-        return roundedRectPath(x, yPos, w, h, r, isTop, isBottom);
-      }
-    };
-
     if (animate) {
       const dur = this.getEntryDuration();
-      const computeStartPath = (d: PointOptions) => {
-        if (this.isHorizontal) {
-          const groupWidth = plotArea.height / Math.max(data.length, 1);
-          const y = this.crispCoord((d.x ?? data.indexOf(d)) * groupWidth + groupWidth / 2 + barOffset, crisp);
-          const h = crisp ? Math.round(barWidth) : barWidth;
-          const xBase = yAxis.getPixelForValue(getStackedBase(d));
-          return roundedRectPath(xBase, y, 0.1, h, 0, false, false);
-        } else {
-          const x = this.crispCoord(xAxis.getPixelForValue(d.x ?? 0) + barOffset, crisp);
-          const w = crisp ? Math.round(barWidth) : barWidth;
-          const yBase = yAxis.getPixelForValue(getStackedBase(d));
-          return roundedRectPath(x, yBase, w, 0.1, 0, false, false);
-        }
-      };
-      bars
-        .attr('d', (d: PointOptions) => computeStartPath(d))
-        .transition().duration(dur).delay((_: any, i: number) => staggerDelay(i, 0, 30, data.length))
-        .attr('d', (d: PointOptions) => computePath(d));
+      bars.each((d: PointOptions, i: number, nodes: ArrayLike<SVGPathElement>) => {
+        const el = select(nodes[i]);
+        const startP = this.computeStackedStartParams(d, data, barWidth, barOffset, getStackedBase, crisp);
+        const endP = this.computeStackedRectParams(d, data, barWidth, barOffset, getStackedY, getStackedBase, crisp, minPointLength);
+        (d as any)._rectParams = endP;
+
+        el.attr('d', this.rectParamsToPath(startP, r, isTop, isBottom))
+          .transition().duration(dur).delay(staggerDelay(i, 0, 30, data.length))
+          .attrTween('d', () => {
+            const iX = interpolate(startP.x, endP.x);
+            const iY = interpolate(startP.y, endP.y);
+            const iW = interpolate(startP.w, endP.w);
+            const iH = interpolate(startP.h, endP.h);
+            return (t: number) => this.rectParamsToPath(
+              { x: iX(t), y: iY(t), w: iW(t), h: iH(t) }, r, isTop, isBottom
+            );
+          });
+      });
     } else {
-      bars.attr('d', (d: PointOptions) => computePath(d));
+      bars.each((d: PointOptions, i: number, nodes: ArrayLike<SVGPathElement>) => {
+        const endP = this.computeStackedRectParams(d, data, barWidth, barOffset, getStackedY, getStackedBase, crisp, minPointLength);
+        (d as any)._rectParams = endP;
+        select(nodes[i]).attr('d', this.rectParamsToPath(endP, r, isTop, isBottom));
+      });
     }
   }
 
@@ -292,6 +284,55 @@ export class ColumnSeries extends BaseSeries {
 
   private crispCoord(v: number, crisp: boolean): number {
     return crisp ? Math.round(v) : v;
+  }
+
+  private computeStackedRectParams(
+    d: PointOptions, data: PointOptions[],
+    barWidth: number, barOffset: number,
+    getStackedY: (d: PointOptions) => number,
+    getStackedBase: (d: PointOptions) => number,
+    crisp: boolean, minPointLength: number
+  ): RectParams {
+    const { xAxis, yAxis } = this.context;
+    if (this.isHorizontal) {
+      const y = this.crispCoord(xAxis.getPixelForValue(d.x ?? data.indexOf(d)) + barOffset, crisp);
+      const h = crisp ? Math.round(barWidth) : barWidth;
+      const xPos = Math.min(yAxis.getPixelForValue(getStackedY(d)), yAxis.getPixelForValue(getStackedBase(d)));
+      const w = Math.max(Math.abs(yAxis.getPixelForValue(getStackedY(d)) - yAxis.getPixelForValue(getStackedBase(d))), minPointLength);
+      return { x: xPos, y, w, h };
+    } else {
+      const x = this.crispCoord(xAxis.getPixelForValue(d.x ?? 0) + barOffset, crisp);
+      const w = crisp ? Math.round(barWidth) : barWidth;
+      const yPos = Math.min(yAxis.getPixelForValue(getStackedY(d)), yAxis.getPixelForValue(getStackedBase(d)));
+      const h = Math.max(Math.abs(yAxis.getPixelForValue(getStackedY(d)) - yAxis.getPixelForValue(getStackedBase(d))), minPointLength);
+      return { x, y: yPos, w, h };
+    }
+  }
+
+  private computeStackedStartParams(
+    d: PointOptions, data: PointOptions[],
+    barWidth: number, barOffset: number,
+    getStackedBase: (d: PointOptions) => number,
+    crisp: boolean
+  ): RectParams {
+    const { xAxis, yAxis } = this.context;
+    if (this.isHorizontal) {
+      const y = this.crispCoord(xAxis.getPixelForValue(d.x ?? data.indexOf(d)) + barOffset, crisp);
+      const h = crisp ? Math.round(barWidth) : barWidth;
+      const xBase = yAxis.getPixelForValue(getStackedBase(d));
+      return { x: xBase, y, w: 0.1, h };
+    } else {
+      const x = this.crispCoord(xAxis.getPixelForValue(d.x ?? 0) + barOffset, crisp);
+      const w = crisp ? Math.round(barWidth) : barWidth;
+      const yBase = yAxis.getPixelForValue(getStackedBase(d));
+      return { x, y: yBase, w, h: 0.1 };
+    }
+  }
+
+  private rectParamsToPath(p: RectParams, r: number, isTop: boolean, isBottom: boolean): string {
+    return this.isHorizontal
+      ? roundedRectPathH(p.x, p.y, p.w, p.h, r, isTop, isBottom)
+      : roundedRectPath(p.x, p.y, p.w, p.h, r, isTop, isBottom);
   }
 
   animateUpdate(duration: number): void {
@@ -331,9 +372,8 @@ export class ColumnSeries extends BaseSeries {
     const merged = enter.merge(bars);
 
     if (this.isHorizontal) {
-      const gw = plotArea.height / Math.max(data.length, 1);
       merged.transition().duration(duration)
-        .attr('y', (d, i) => this.crispCoord((d.x ?? i) * gw + gw / 2 + barOffset, crisp))
+        .attr('y', (d) => this.crispCoord(xAxis.getPixelForValue(d.x ?? 0) + barOffset, crisp))
         .attr('height', crisp ? Math.round(barWidth) : barWidth)
         .attr('x', d => Math.min(baseline, yAxis.getPixelForValue(d.y ?? 0)))
         .attr('width', d => Math.max(Math.abs(yAxis.getPixelForValue(d.y ?? 0) - baseline), minPointLength))
@@ -366,15 +406,7 @@ export class ColumnSeries extends BaseSeries {
     const borderRadius = resolveBorderRadius(this.config.borderRadius);
     const minPointLength = this.config.minPointLength ?? 0;
 
-    let percentTotals: Map<number | string, number> | undefined;
-    if (isPercent && stackOffsets) {
-      percentTotals = new Map<number | string, number>();
-      for (const d of data) {
-        const xKey = d.x ?? 0;
-        const offset = stackOffsets.get(xKey) || 0;
-        percentTotals.set(xKey, offset + (d.y ?? 0));
-      }
-    }
+    const percentTotals = isPercent ? this.context.stackTotals : undefined;
 
     const getStackedY = (d: PointOptions): number => {
       const xKey = d.x ?? 0;
@@ -397,42 +429,58 @@ export class ColumnSeries extends BaseSeries {
       return offset;
     };
 
+    if (stacking) {
+      const totals = this.context.stackTotals;
+      for (const d of data) {
+        const xKey = d.x ?? 0;
+        if (totals) {
+          (d as any).total = totals.get(xKey) || 0;
+        }
+        if (isPercent && totals) {
+          const t = totals.get(xKey) || 1;
+          (d as any).percentage = ((d.y ?? 0) / t) * 100;
+        }
+      }
+    }
+
     const totalSeries = this.context.totalSeriesOfType || 1;
     const seriesIdx = this.context.indexInType || 0;
     const isTop = seriesIdx === totalSeries - 1;
     const isBottom = seriesIdx === 0;
     const r = borderRadius;
 
-    const computePath = (d: PointOptions) => {
-      if (this.isHorizontal) {
-        const groupWidth = plotArea.height / Math.max(data.length, 1);
-        const y = this.crispCoord((d.x ?? data.indexOf(d)) * groupWidth + groupWidth / 2 + barOffset, crisp);
-        const h = crisp ? Math.round(barWidth) : barWidth;
-        const xPos = Math.min(yAxis.getPixelForValue(getStackedY(d)), yAxis.getPixelForValue(getStackedBase(d)));
-        const w = Math.max(Math.abs(yAxis.getPixelForValue(getStackedY(d)) - yAxis.getPixelForValue(getStackedBase(d))), minPointLength);
-        return roundedRectPathH(xPos, y, w, h, r, isTop, isBottom);
-      } else {
-        const x = this.crispCoord(xAxis.getPixelForValue(d.x ?? 0) + barOffset, crisp);
-        const w = crisp ? Math.round(barWidth) : barWidth;
-        const yPos = Math.min(yAxis.getPixelForValue(getStackedY(d)), yAxis.getPixelForValue(getStackedBase(d)));
-        const h = Math.max(Math.abs(yAxis.getPixelForValue(getStackedY(d)) - yAxis.getPixelForValue(getStackedBase(d))), minPointLength);
-        return roundedRectPath(x, yPos, w, h, r, isTop, isBottom);
-      }
-    };
-
     const bars = this.group.selectAll<SVGPathElement, PointOptions>('.katucharts-column')
       .data(data);
 
-    bars.transition().duration(duration)
-      .attr('d', (d: PointOptions) => computePath(d))
-      .attr('fill', (d: PointOptions, i: number) => this.getPointColor(d, i, color));
+    bars.each((d: PointOptions, i: number, nodes: ArrayLike<SVGPathElement>) => {
+      const el = select(nodes[i]);
+      const newP = this.computeStackedRectParams(d, data, barWidth, barOffset, getStackedY, getStackedBase, crisp, minPointLength);
+      const oldP: RectParams = (d as any)._rectParams || newP;
+      (d as any)._rectParams = newP;
+
+      el.transition().duration(duration)
+        .attrTween('d', () => {
+          const iX = interpolate(oldP.x, newP.x);
+          const iY = interpolate(oldP.y, newP.y);
+          const iW = interpolate(oldP.w, newP.w);
+          const iH = interpolate(oldP.h, newP.h);
+          return (t: number) => this.rectParamsToPath(
+            { x: iX(t), y: iY(t), w: iW(t), h: iH(t) }, r, isTop, isBottom
+          );
+        })
+        .attr('fill', this.getPointColor(d, i, color));
+    });
 
     bars.enter().append('path')
       .attr('class', 'katucharts-column')
       .attr('stroke', this.config.borderColor || 'none')
       .attr('stroke-width', this.config.borderWidth ?? 0)
       .attr('fill', (d: PointOptions, i: number) => this.getPointColor(d, i, color))
-      .attr('d', (d: PointOptions) => computePath(d));
+      .each((d: PointOptions, i: number, nodes: ArrayLike<SVGPathElement>) => {
+        const endP = this.computeStackedRectParams(d, data, barWidth, barOffset, getStackedY, getStackedBase, crisp, minPointLength);
+        (d as any)._rectParams = endP;
+        select(nodes[i]).attr('d', this.rectParamsToPath(endP, r, isTop, isBottom));
+      });
 
     bars.exit().transition().duration(duration).attr('opacity', 0).remove();
 
@@ -450,10 +498,10 @@ export class ColumnSeries extends BaseSeries {
     const pointPadding = this.config.pointPadding ?? 0.1;
 
     let groupWidth: number;
-    if (this.isHorizontal) {
-      groupWidth = plotArea.height / Math.max(this.data.length, 1);
-    } else if (xAxis instanceof CategoryAxis) {
+    if (xAxis instanceof CategoryAxis) {
       groupWidth = (xAxis as any).getBandwidth();
+    } else if (this.isHorizontal) {
+      groupWidth = plotArea.height / Math.max(this.data.length, 1);
     } else if (this.config.pointRange !== undefined && this.config.pointRange > 0) {
       groupWidth = Math.abs(
         xAxis.getPixelForValue(this.config.pointRange) - xAxis.getPixelForValue(0)
@@ -465,11 +513,14 @@ export class ColumnSeries extends BaseSeries {
         : plotArea.width / Math.max(data.length, 1) * (1 - groupPadding * 2);
     }
 
+    const effectiveGroupPadding = stacked ? 0 : groupPadding;
+    const effectivePointPadding = stacked ? 0 : pointPadding;
+
     let barWidth: number;
     if (this.config.pointWidth !== undefined) {
       barWidth = this.config.pointWidth;
     } else {
-      barWidth = (groupWidth * (1 - groupPadding * 2)) / totalInGroup * (1 - pointPadding * 2);
+      barWidth = (groupWidth * (1 - effectiveGroupPadding * 2)) / totalInGroup * (1 - effectivePointPadding * 2);
     }
 
     if (this.config.maxPointWidth !== undefined) {
@@ -480,8 +531,8 @@ export class ColumnSeries extends BaseSeries {
     if (this.config.centerInCategory) {
       barOffset = -barWidth / 2;
     } else {
-      const groupStart = -groupWidth * (1 - groupPadding * 2) / 2;
-      barOffset = groupStart + (barWidth + barWidth * pointPadding * 2) * indexInGroup + barWidth * pointPadding;
+      const groupStart = -groupWidth * (1 - effectiveGroupPadding * 2) / 2;
+      barOffset = groupStart + (barWidth + barWidth * effectivePointPadding * 2) * indexInGroup + barWidth * effectivePointPadding;
     }
     const baseline = yAxis.getPixelForValue(this.config.threshold ?? 0);
 
@@ -524,7 +575,7 @@ export class ColumnSeries extends BaseSeries {
       },
       (d) => {
         if (this.isHorizontal) {
-          return yAxis.getPixelForValue(d.y ?? 0);
+          return xAxis.getPixelForValue(d.x ?? 0) + barOffset + barWidth / 2;
         }
         const py = getStackedY
           ? yAxis.getPixelForValue(getStackedY(d))
@@ -538,7 +589,8 @@ export class ColumnSeries extends BaseSeries {
     if (this.config.enableMouseTracking === false) return;
 
     const { xAxis, yAxis } = this.context;
-    const brightness = this.config.states?.hover?.brightness ?? 0.1;
+    const isStacked = !!this.config.stacking;
+    const brightness = this.config.states?.hover?.brightness ?? (isStacked ? 0.2 : 0.1);
     const hoverColor = this.config.states?.hover?.color;
     const hoverBorderColor = this.config.states?.hover?.borderColor;
     const hoverBorderWidth = this.config.states?.hover?.borderWidth;
@@ -559,21 +611,66 @@ export class ColumnSeries extends BaseSeries {
         if (hoverBorderWidth !== undefined) target.style.strokeWidth = String(hoverBorderWidth);
         target.style.filter = 'drop-shadow(0 1px 3px rgba(0,0,0,0.2))';
 
+        if (isStacked) {
+          const allSeries = this.context.allSeries;
+          if (allSeries) {
+            for (const other of allSeries) {
+              if (other.visible && (other as any).config?.stacking) {
+                (other as any).group?.selectAll('.katucharts-column')
+                  .filter(function(this: SVGElement) { return this !== target; })
+                  .interrupt('stackDim')
+                  .transition('stackDim').duration(150)
+                  .attr('opacity', 0.3);
+              }
+            }
+          }
+          target.setAttribute('data-orig-stroke', target.getAttribute('stroke') || '');
+          target.setAttribute('data-orig-stroke-width', target.getAttribute('stroke-width') || '');
+          target.style.stroke = '#ffffff';
+          target.style.strokeWidth = '2';
+        }
+
         const i = data.indexOf(d);
         const cx = xAxis.getPixelForValue(d.x ?? 0);
         const cy = yAxis.getPixelForValue(d.y ?? 0);
+        const inv = this.context.inverted;
         this.context.events.emit('point:mouseover', {
-          point: d, index: i, series: this, event, plotX: cx, plotY: cy,
+          point: d, index: i, series: this, event,
+          plotX: inv ? cy : cx, plotY: inv ? cx : cy,
         });
         d.events?.mouseOver?.call(d, event);
         this.config.point?.events?.mouseOver?.call(d, event);
       })
       .on('mouseout', (event: MouseEvent, d: PointOptions) => {
         const target = event.currentTarget as SVGRectElement;
-        target.style.fill = '';
+        const origFill = target.getAttribute('data-orig-fill') || '';
+        target.style.fill = origFill;
         target.style.filter = '';
-        target.style.stroke = '';
-        target.style.strokeWidth = '';
+
+        if (isStacked) {
+          const allSeries = this.context.allSeries;
+          if (allSeries) {
+            for (const other of allSeries) {
+              if (other.visible && (other as any).config?.stacking) {
+                (other as any).group?.selectAll('.katucharts-column')
+                  .interrupt('stackDim')
+                  .transition('stackDim').duration(150)
+                  .attr('opacity', 1);
+              }
+            }
+          }
+          target.style.stroke = target.getAttribute('data-orig-stroke') || '';
+          target.style.strokeWidth = target.getAttribute('data-orig-stroke-width') || '';
+        } else {
+          target.style.stroke = '';
+          target.style.strokeWidth = '';
+        }
+
+        requestAnimationFrame(() => {
+          if (!target.matches(':hover')) {
+            target.style.fill = '';
+          }
+        });
 
         const i = data.indexOf(d);
         this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });

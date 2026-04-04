@@ -32,11 +32,9 @@ export class BoxPlotSeries extends BaseSeries {
     const medianWidth = this.config.medianWidth ?? 2;
     const medianDash = resolveDashArray(this.config.medianDashStyle);
 
-    const stemColor = this.config.stemColor || color;
     const stemWidth = this.config.stemWidth ?? 1;
     const stemDash = resolveDashArray(this.config.stemDashStyle);
 
-    const whiskerColor = this.config.whiskerColor || color;
     const whiskerWidth = this.config.whiskerWidth ?? 2;
     const whiskerDash = resolveDashArray(this.config.whiskerDashStyle);
     const whiskerLength = this.parseWhiskerLength(this.config.whiskerLength, boxWidth);
@@ -56,7 +54,10 @@ export class BoxPlotSeries extends BaseSeries {
       const high = d.high ?? 0;
       const midY = yAxis.getPixelForValue((low + high) / 2);
 
-      const fillColor = d.color || this.getBoxFillColor(i, color);
+      const pointColor = d.color || this.getBoxFillColor(i, color);
+      const fillColor = this.config.fillColor ?? '#ffffff';
+      const stemColor = this.config.stemColor || pointColor;
+      const whiskerColor = this.config.whiskerColor || pointColor;
 
       const g = this.group.append('g')
         .attr('class', 'katucharts-boxplot-point')
@@ -76,14 +77,14 @@ export class BoxPlotSeries extends BaseSeries {
         .attr('x', cx - boxWidth / 2)
         .attr('width', boxWidth)
         .attr('fill', fillColor)
-        .attr('stroke', color)
+        .attr('stroke', pointColor)
         .attr('stroke-width', boxStrokeWidth)
         .attr('stroke-dasharray', boxDash)
         .attr('rx', resolveBorderRadius(this.config.borderRadius));
 
       const medianLine = g.append('line')
         .attr('x1', cx - boxWidth / 2).attr('x2', cx + boxWidth / 2)
-        .attr('stroke', medianColor || this.config.lineColor || color)
+        .attr('stroke', medianColor || this.config.lineColor || pointColor)
         .attr('stroke-width', medianWidth)
         .attr('stroke-dasharray', medianDash);
 
@@ -264,7 +265,7 @@ export class BoxPlotSeries extends BaseSeries {
     if (this.config.pointWidth !== undefined) {
       groupWidth = this.config.pointWidth * totalInGroup * 1.5;
     } else {
-      groupWidth = Math.min(60 * totalInGroup, (plotArea.width / Math.max(data.length, 1)));
+      groupWidth = Math.min(200 * totalInGroup, (plotArea.width / Math.max(data.length, 1)));
     }
 
     let boxWidth: number;
@@ -275,7 +276,7 @@ export class BoxPlotSeries extends BaseSeries {
       if (this.config.maxPointWidth !== undefined) {
         boxWidth = Math.min(boxWidth, this.config.maxPointWidth);
       }
-      boxWidth = Math.min(boxWidth, 40);
+      boxWidth = Math.min(boxWidth, 90);
     }
 
     const groupStart = -groupWidth * (1 - groupPadding * 2) / 2;

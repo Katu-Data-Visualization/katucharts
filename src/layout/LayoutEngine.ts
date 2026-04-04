@@ -45,10 +45,14 @@ export class LayoutEngine {
     }
 
     const isNonCartesian = this.isNonCartesian(config);
+    const inv = !!config.chart.inverted;
 
-    const yAxisLeftWidth = isNonCartesian ? 0 : this.estimateAxisWidth(config, true);
-    const yAxisRightWidth = isNonCartesian ? 0 : this.estimateAxisWidth(config, false);
-    const xAxisBottomHeight = isNonCartesian ? 0 : this.estimateAxisHeight(config);
+    const layoutConfig = inv
+      ? { ...config, xAxis: config.yAxis, yAxis: config.xAxis } as InternalConfig
+      : config;
+    const yAxisLeftWidth = isNonCartesian ? 0 : this.estimateAxisWidth(layoutConfig, true);
+    const yAxisRightWidth = isNonCartesian ? 0 : this.estimateAxisWidth(layoutConfig, false);
+    const xAxisBottomHeight = isNonCartesian ? 0 : this.estimateAxisHeight(layoutConfig);
 
     const plotX = left + yAxisLeftWidth;
     const plotY = top;
@@ -221,12 +225,20 @@ export class LayoutEngine {
       const hasLabels = axis.labels?.enabled !== false;
       const hasTitle = axis.title?.text;
       const labelWidth = hasLabels ? this.estimateLabelWidth(axis) : 0;
-      width += labelWidth + (hasTitle ? 25 : 0) + (axis.offset || 0);
+      width += labelWidth + (hasTitle ? 30 : 0) + (axis.offset || 0);
     }
     return width || 30;
   }
 
   private estimateLabelWidth(axis: InternalConfig['yAxis'][0]): number {
+    if (axis.categories && axis.categories.length > 0) {
+      let maxLen = 0;
+      for (const cat of axis.categories) {
+        if (cat.length > maxLen) maxLen = cat.length;
+      }
+      const fontSize = parseInt(axis.labels?.style?.fontSize as string || '11', 10);
+      return Math.max(25, Math.min(maxLen * fontSize * 0.6, 150));
+    }
     const min = axis.min ?? null;
     const max = axis.max ?? null;
     if (min != null && max != null) {

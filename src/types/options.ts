@@ -661,6 +661,8 @@ export interface SeriesOptions {
   nodeDistance?: number;
   minLinkWidth?: number;
   curveFactor?: number;
+  centerNodes?: boolean;
+  spreadFactor?: number;
   draggable?: boolean;
 
   borderDashStyle?: DashStyleType;
@@ -1096,6 +1098,7 @@ export interface KatuChartsOptions {
 export interface InternalAxisConfig extends AxisOptions {
   index: number;
   isX: boolean;
+  _inverted?: boolean;
 }
 
 export interface InternalSeriesConfig extends SeriesOptions {

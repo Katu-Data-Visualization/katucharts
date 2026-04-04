@@ -41,6 +41,8 @@ export class VennSeries extends BaseSeries {
 
   constructor(config: InternalSeriesConfig) {
     super(config);
+    config.showInLegend = false;
+    config.clip = false;
   }
 
   render(): void {
@@ -54,37 +56,53 @@ export class VennSeries extends BaseSeries {
     if (singles.length === 0) return;
 
     const cx = plotArea.width / 2;
-    const cy = plotArea.height / 2 + 10;
-    const maxR = Math.min(plotArea.width, plotArea.height) * 0.38;
+    const cy = plotArea.height / 2;
+    const maxR = plotArea.height / 2 * 0.92;
     const maxVal = Math.max(...singles.map((s: any) => s.value || s.y || 1));
 
-    const baseOpacity = this.config.opacity ?? 0.3;
-    const interOpacity = baseOpacity * 1.5;
+    const baseOpacity = this.config.opacity ?? 0.75;
+    const interOpacity = baseOpacity;
     const borderColor = this.config.borderColor;
-    const borderWidth = this.config.borderWidth ?? 2;
+    const borderWidth = this.config.borderWidth ?? 0;
     const borderDash = this.resolveDashStyle((this.config as any).borderDashStyle);
     const inactiveOpacity = this.config.states?.inactive?.opacity ?? 0.12;
     const hoverBrightness = this.config.states?.hover?.brightness ?? 0.2;
     const allowSelect = this.config.allowPointSelect === true;
 
     const circleMap = new Map<string, CircleLayout>();
-    this.layoutSets(singles, intersections, circleMap, cx, cy, maxR, maxVal, colors);
+    this.layoutSets(singles, intersections, circleMap, cx, cy, maxR, maxVal, colors, plotArea);
 
     const circles = Array.from(circleMap.values());
 
     const regions: VennRegion[] = [];
 
+    const allCircles = Array.from(circleMap.values());
     for (const s of singles) {
       const c = circleMap.get(s.sets[0]);
       if (!c) continue;
+      let lx = c.cx, ly = c.cy;
+      const others = allCircles.filter(o => o.id !== c.id);
+      if (others.length > 0) {
+        let pushX = 0, pushY = 0;
+        for (const o of others) {
+          const dx = c.cx - o.cx;
+          const dy = c.cy - o.cy;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          pushX += dx / dist;
+          pushY += dy / dist;
+        }
+        const pLen = Math.sqrt(pushX * pushX + pushY * pushY) || 1;
+        lx = c.cx + (pushX / pLen) * c.r * 0.35;
+        ly = c.cy + (pushY / pLen) * c.r * 0.35;
+      }
       regions.push({
         sets: s.sets,
         value: s.value || s.y || 0,
         name: s.name || s.sets[0],
         color: s.color || c.color,
         path: this.circlePath(c.cx, c.cy, c.r),
-        labelX: c.cx,
-        labelY: c.cy,
+        labelX: lx,
+        labelY: ly,
         data: s,
       });
     }
@@ -250,16 +268,14 @@ export class VennSeries extends BaseSeries {
       } else {
         const c = circles.find(c => c.id === region.sets[0]);
         if (c) {
-          const brightenedColor = d3Color(c.color)?.brighter(hoverBrightness)?.toString() || c.color;
           circleEls.filter((d: CircleLayout) => d.id === c.id)
             .transition('hover').duration(150)
-            .attr('fill', brightenedColor)
-            .attr('fill-opacity', baseOpacity + hoverBrightness).attr('stroke-opacity', 1);
+            .attr('fill-opacity', baseOpacity).attr('stroke-opacity', 1);
         }
       }
 
       this.context.events.emit('point:mouseover', {
-        point: { name: region.name, y: region.value, sets: region.sets },
+        point: { name: region.name, y: region.value, value: region.value, sets: region.sets },
         index: idx, series: this, event,
         plotX: region.labelX, plotY: region.labelY,
       });
@@ -279,7 +295,7 @@ export class VennSeries extends BaseSeries {
       }
 
       this.context.events.emit('point:mouseout', {
-        point: { name: region.name, y: region.value, sets: region.sets },
+        point: { name: region.name, y: region.value, value: region.value, sets: region.sets },
         index: idx, series: this, event,
       });
       region.data?.events?.mouseOut?.call(region.data, event);
@@ -297,11 +313,18 @@ export class VennSeries extends BaseSeries {
       }
 
       this.context.events.emit('point:click', {
-        point: { name: region.name, y: region.value, sets: region.sets },
+        point: { name: region.name, y: region.value, value: region.value, sets: region.sets },
         index: idx, series: this, event,
       });
       region.data?.events?.click?.call(region.data, event);
       this.config.events?.click?.call(this, event);
+      const pointClick = (this.config as any).point?.events?.click;
+      if (pointClick) {
+        pointClick.call(
+          { ...region.data, sets: region.sets, name: region.name, value: region.value },
+          event
+        );
+      }
     });
   }
 
@@ -350,35 +373,6 @@ export class VennSeries extends BaseSeries {
           .attr('opacity', 1);
       }
 
-      const indicatorY = plotArea.height - 10;
-      const totalW = setRegions.length * 90;
-      const startX = (plotArea.width - totalW) / 2;
-      const circleArr = Array.from(circleMap.values());
-
-      const indicatorG = this.group.append('g').attr('class', 'katucharts-venn-indicators');
-
-      setRegions.forEach((r: VennRegion, i: number) => {
-        const c = circleArr.find(c => c.id === r.sets[0]);
-        const x = startX + i * 90 + 45;
-
-        indicatorG.append('circle')
-          .attr('cx', x - 18).attr('cy', indicatorY)
-          .attr('r', 5)
-          .attr('fill', c?.color || '#999');
-
-        indicatorG.append('text')
-          .attr('x', x - 8).attr('y', indicatorY)
-          .attr('dominant-baseline', 'central')
-          .attr('font-size', '11px')
-          .attr('fill', dlColor)
-          .text(r.name);
-      });
-
-      if (animate) {
-        indicatorG.attr('opacity', 0)
-          .transition().duration(400).delay(900)
-          .attr('opacity', 1);
-      }
     }
 
     const interLabels = this.group.selectAll('.katucharts-venn-inter-label')
@@ -400,12 +394,13 @@ export class VennSeries extends BaseSeries {
   private layoutSets(
     singles: any[], intersections: any[],
     map: Map<string, CircleLayout>, centerX: number, centerY: number,
-    maxR: number, maxVal: number, colors: string[]
+    maxR: number, maxVal: number, colors: string[],
+    plotArea?: { width: number; height: number }
   ): void {
     const n = singles.length;
     const ids = singles.map((s: any) => s.sets[0] as string);
     const radii = singles.map((s: any) =>
-      maxR * (n <= 3 ? 0.85 : 0.7) * Math.sqrt((s.value || s.y || 1) / maxVal)
+      maxR * Math.sqrt((s.value || s.y || 1) / maxVal)
     );
 
     const targetDist = new Map<string, number>();
@@ -486,9 +481,9 @@ export class VennSeries extends BaseSeries {
     }
     const bw = maxX - minX || 1;
     const bh = maxY - minY || 1;
-    const availW = maxR * 2;
-    const availH = maxR * 2;
-    const scale = Math.min(availW / bw, availH / bh) * 0.95;
+    const availW = plotArea ? plotArea.width * 0.95 : maxR * 2;
+    const availH = plotArea ? plotArea.height * 0.95 : maxR * 2;
+    const scale = Math.min(availW / bw, availH / bh);
     const bcx = (minX + maxX) / 2;
     const bcy = (minY + maxY) / 2;
 
