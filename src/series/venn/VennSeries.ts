@@ -3,6 +3,13 @@ import { color as d3Color, rgb } from 'd3-color';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, DashStyleType } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 interface CircleLayout {
   id: string;
@@ -174,7 +181,8 @@ export class VennSeries extends BaseSeries {
 
     if (animate) {
       circleEls.attr('r', 0)
-        .transition().duration(800).delay((_: any, i: number) => i * 120)
+        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
+        .delay((_: any, i: number) => i * ENTRY_STAGGER_PER_ITEM)
         .attr('r', (d: CircleLayout) => d.r);
     } else {
       circleEls.attr('r', (d: CircleLayout) => d.r);
@@ -208,7 +216,7 @@ export class VennSeries extends BaseSeries {
 
     if (animate) {
       interPaths.attr('fill-opacity', 0)
-        .transition().duration(500).delay(700)
+        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
         .attr('fill-opacity', interOpacity);
     }
 
@@ -248,9 +256,9 @@ export class VennSeries extends BaseSeries {
     const alwaysShowInterLabels = ((this.config as any).dataLabels?.intersections?.enabled === true);
 
     el.on('mouseover', (event: MouseEvent) => {
-      circleEls.transition('hover').duration(150)
+      circleEls.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
         .attr('fill-opacity', inactiveOpacity).attr('stroke-opacity', 0.3);
-      interPaths.transition('hover').duration(150)
+      interPaths.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
         .attr('fill-opacity', inactiveOpacity);
       allHoverTargets.each(function() {
         (this as SVGElement).style.pointerEvents = 'none';
@@ -259,17 +267,17 @@ export class VennSeries extends BaseSeries {
 
       if (isIntersection) {
         const target = select(event.currentTarget as SVGElement);
-        target.transition('hover').duration(150).attr('fill-opacity', 0.7);
+        target.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill-opacity', 0.7);
         if (!alwaysShowInterLabels) {
           interLabels.filter((d: any) =>
             d.sets.length === region.sets.length && d.sets.every((s: string) => region.sets.includes(s))
-          ).transition('label').duration(150).attr('opacity', 1);
+          ).transition('label').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
         }
       } else {
         const c = circles.find(c => c.id === region.sets[0]);
         if (c) {
           circleEls.filter((d: CircleLayout) => d.id === c.id)
-            .transition('hover').duration(150)
+            .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
             .attr('fill-opacity', baseOpacity).attr('stroke-opacity', 1);
         }
       }
@@ -282,16 +290,16 @@ export class VennSeries extends BaseSeries {
       region.data?.events?.mouseOver?.call(region.data, event);
     })
     .on('mouseout', (event: MouseEvent) => {
-      circleEls.transition('hover').duration(150)
+      circleEls.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
         .attr('fill', (d: CircleLayout) => d.color)
         .attr('fill-opacity', baseOpacity).attr('stroke-opacity', 1);
-      interPaths.transition('hover').duration(150)
+      interPaths.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
         .attr('fill-opacity', interOpacity);
       allHoverTargets.each(function() {
         (this as SVGElement).style.pointerEvents = '';
       });
       if (!alwaysShowInterLabels) {
-        interLabels.transition('label').duration(150).attr('opacity', 0);
+        interLabels.transition('label').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 0);
       }
 
       this.context.events.emit('point:mouseout', {
@@ -369,7 +377,7 @@ export class VennSeries extends BaseSeries {
 
       if (animate) {
         circleLabels.attr('opacity', 0)
-          .transition().duration(400).delay(900)
+          .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
           .attr('opacity', 1);
       }
 

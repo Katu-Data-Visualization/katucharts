@@ -6,8 +6,16 @@
 import { area as d3Area, curveMonotoneY } from 'd3-shape';
 import { scaleLinear } from 'd3-scale';
 import 'd3-transition';
-import { BaseSeries } from '../BaseSeries';
+import { select } from 'd3-selection';
+import { BaseSeries, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 function gaussianKernel(u: number): number {
   return (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * u * u);
@@ -62,7 +70,7 @@ export class ViolinSeries extends BaseSeries {
     const { violinWidth, violinOffset } = this.computeViolinGeometry();
 
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDur = animOpts.duration ?? 600;
+    const entryDur = animOpts.duration ?? ENTRY_DURATION;
 
     for (let i = 0; i < data.length; i++) {
       const d = data[i] as any;
@@ -103,7 +111,7 @@ export class ViolinSeries extends BaseSeries {
 
         if (animate) {
           leftPath.attr('opacity', 0)
-            .transition().duration(entryDur).delay(i * 100)
+            .transition().duration(entryDur).ease(EASE_ENTRY).delay(staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length))
             .attr('opacity', 1);
         }
       }
@@ -124,7 +132,7 @@ export class ViolinSeries extends BaseSeries {
 
         if (animate) {
           rightPath.attr('opacity', 0)
-            .transition().duration(entryDur).delay(i * 100)
+            .transition().duration(entryDur).ease(EASE_ENTRY).delay(staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length))
             .attr('opacity', 1);
         }
       }
@@ -141,7 +149,7 @@ export class ViolinSeries extends BaseSeries {
     }
 
     if (animate) {
-      this.emitAfterAnimate(entryDur + data.length * 100);
+      this.emitAfterAnimate(entryDur + data.length * ENTRY_STAGGER_PER_ITEM);
     }
   }
 
@@ -179,17 +187,17 @@ export class ViolinSeries extends BaseSeries {
     if (animate) {
       const midY = yAxis.getPixelForValue(median);
       box.attr('y', midY).attr('height', 0)
-        .transition().duration(dur).delay(idx * 100)
+        .transition().duration(dur).ease(EASE_ENTRY).delay(idx * ENTRY_STAGGER_PER_ITEM)
         .attr('y', yAxis.getPixelForValue(q3))
         .attr('height', Math.abs(yAxis.getPixelForValue(q1) - yAxis.getPixelForValue(q3)));
 
       medLine.attr('y1', midY).attr('y2', midY)
-        .transition().duration(dur).delay(idx * 100)
+        .transition().duration(dur).ease(EASE_ENTRY).delay(idx * ENTRY_STAGGER_PER_ITEM)
         .attr('y1', yAxis.getPixelForValue(median))
         .attr('y2', yAxis.getPixelForValue(median));
 
       stem.attr('y1', midY).attr('y2', midY)
-        .transition().duration(dur).delay(idx * 100)
+        .transition().duration(dur).ease(EASE_ENTRY).delay(idx * ENTRY_STAGGER_PER_ITEM)
         .attr('y1', yAxis.getPixelForValue(whiskerLow))
         .attr('y2', yAxis.getPixelForValue(whiskerHigh));
     } else {
@@ -268,7 +276,9 @@ export class ViolinSeries extends BaseSeries {
     if (this.config.enableMouseTracking === false) return;
 
     g.on('mouseover', (event: MouseEvent) => {
-      g.select('path').attr('fill-opacity', (this.config.fillOpacity ?? 0.3) + 0.2);
+      g.selectAll('path').interrupt('hover')
+        .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+        .attr('fill-opacity', (this.config.fillOpacity ?? 0.3) + 0.2);
       g.style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))');
       this.context.events.emit('point:mouseover', {
         point: d, index: i, series: this, event,
@@ -278,7 +288,9 @@ export class ViolinSeries extends BaseSeries {
       this.config.point?.events?.mouseOver?.call(d, event);
     })
     .on('mouseout', (event: MouseEvent) => {
-      g.select('path').attr('fill-opacity', this.config.fillOpacity ?? 0.3);
+      g.selectAll('path').interrupt('hover')
+        .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+        .attr('fill-opacity', this.config.fillOpacity ?? 0.3);
       g.style('filter', '');
       this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });
       d.events?.mouseOut?.call(d, event);

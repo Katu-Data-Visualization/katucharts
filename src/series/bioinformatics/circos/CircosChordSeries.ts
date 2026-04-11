@@ -12,6 +12,12 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries } from '../../BaseSeries';
 import type { InternalSeriesConfig } from '../../../types/options';
+import {
+  ENTRY_DURATION,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../../core/animationConstants';
 
 interface ChordSegment {
   id: string;
@@ -100,7 +106,7 @@ export class CircosChordSeries extends BaseSeries {
       segmentColors[idx] || colors[idx % colors.length];
 
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDur = animOpts.duration ?? 800;
+    const entryDur = animOpts.duration ?? ENTRY_DURATION;
 
     const arcsData = chords.groups.map((grp: any) => ({ ...grp }));
 
@@ -118,7 +124,7 @@ export class CircosChordSeries extends BaseSeries {
         const self = select(this);
         const startArc = { startAngle: d.startAngle, endAngle: d.startAngle };
         const interp = interpolate(startArc, d);
-        self.transition().duration(entryDur)
+        self.transition().duration(entryDur).ease(EASE_ENTRY)
           .attrTween('d', () => (t: number) => arcGen(interp(t))!);
       });
     } else {
@@ -166,7 +172,7 @@ export class CircosChordSeries extends BaseSeries {
 
     if (animate) {
       ribbons.attr('fill-opacity', 0)
-        .transition().duration(600).delay(entryDur * 0.5)
+        .transition().duration(entryDur).ease(EASE_ENTRY)
         .attr('fill-opacity', linkOpacity);
     } else {
       ribbons.attr('fill-opacity', linkOpacity);
@@ -176,10 +182,10 @@ export class CircosChordSeries extends BaseSeries {
       .on('mouseover', (event: MouseEvent, d: any) => {
         ribbons.interrupt('highlight');
         arcs.interrupt('highlight');
-        ribbons.transition('highlight').duration(150)
+        ribbons.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
           .attr('fill-opacity', (o: any) => o === d ? Math.min(linkOpacity + 0.35, 1) : 0.05);
         arcs.attr('opacity', 1);
-        arcs.transition('highlight').duration(150)
+        arcs.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
           .attr('opacity', (a: any) =>
             a.index === d.source.index || a.index === d.target.index ? 1 : 0.3
           );
@@ -192,8 +198,8 @@ export class CircosChordSeries extends BaseSeries {
       .on('mouseout', (event: MouseEvent, d: any) => {
         ribbons.interrupt('highlight');
         arcs.interrupt('highlight');
-        ribbons.transition('highlight').duration(150).attr('fill-opacity', linkOpacity);
-        arcs.transition('highlight').duration(150).attr('opacity', 1);
+        ribbons.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill-opacity', linkOpacity);
+        arcs.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
         this.context.events.emit('point:mouseout', {
           point: { from: names[d.source.index], to: names[d.target.index], y: d.source.value },
           index: chords.indexOf(d), series: this, event,
@@ -209,16 +215,16 @@ export class CircosChordSeries extends BaseSeries {
     arcs
       .on('mouseover', (event: MouseEvent, d: any) => {
         const target = select(event.currentTarget as SVGPathElement);
-        target.transition('arc').duration(150).attr('d', arcHover(d)!);
+        target.transition('arc').duration(HOVER_DURATION).ease(EASE_HOVER).attr('d', arcHover(d)!);
         ribbons.interrupt('highlight');
         arcs.interrupt('highlight');
-        ribbons.transition('highlight').duration(150)
+        ribbons.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
           .attr('fill-opacity', (r: any) =>
             r.source.index === d.index || r.target.index === d.index
               ? Math.min(linkOpacity + 0.35, 1) : 0.05
           );
         arcs.filter((o: any) => o !== d)
-          .transition('highlight').duration(150)
+          .transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
           .attr('opacity', (a: any) => {
             const connected = chords.some((r: any) =>
               (r.source.index === d.index && r.target.index === a.index) ||
@@ -234,11 +240,11 @@ export class CircosChordSeries extends BaseSeries {
       })
       .on('mouseout', (event: MouseEvent, d: any) => {
         const target = select(event.currentTarget as SVGPathElement);
-        target.transition('arc').duration(150).attr('d', arcGen(d)!);
+        target.transition('arc').duration(HOVER_DURATION).ease(EASE_HOVER).attr('d', arcGen(d)!);
         ribbons.interrupt('highlight');
         arcs.interrupt('highlight');
-        ribbons.transition('highlight').duration(150).attr('fill-opacity', linkOpacity);
-        arcs.transition('highlight').duration(150).attr('opacity', 1);
+        ribbons.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill-opacity', linkOpacity);
+        arcs.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
         this.context.events.emit('point:mouseout', {
           point: { name: names[d.index], y: d.value },
           index: d.index, series: this, event,
@@ -254,7 +260,7 @@ export class CircosChordSeries extends BaseSeries {
     this.renderLabels(g, arcsData, names, innerRadius, outerRadius);
 
     if (animate) {
-      this.emitAfterAnimate(entryDur + 400);
+      this.emitAfterAnimate(entryDur + 100);
     }
   }
 

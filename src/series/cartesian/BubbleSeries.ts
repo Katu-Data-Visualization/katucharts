@@ -7,8 +7,15 @@
 import { scaleSqrt, scaleLinear } from 'd3-scale';
 import { select } from 'd3-selection';
 import 'd3-transition';
-import { BaseSeries } from '../BaseSeries';
+import { BaseSeries, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 export class BubbleSeries extends BaseSeries {
   private sizeScale!: (v: number) => number;
@@ -41,15 +48,16 @@ export class BubbleSeries extends BaseSeries {
       .attr('cy', (_, i) => positions[i].cy)
       .attr('fill', (d, i) => this.getBubbleFill(d, i, color))
       .attr('fill-opacity', this.config.fillOpacity ?? 0.5)
-      .attr('stroke', this.config.lineColor || color)
+      .attr('stroke', (d: any, i: number) => this.config.lineColor || this.getBubbleFill(d, i, color))
       .attr('stroke-width', this.config.lineWidth ?? 1)
       .style('cursor', this.config.cursor || 'pointer');
 
     if (animate) {
       const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-      const entryDur = animOpts.duration ?? 600;
+      const entryDur = animOpts.duration ?? ENTRY_DURATION;
       bubbles.attr('r', 0)
-        .transition().duration(entryDur).delay((_: any, i: number) => i * 40)
+        .transition().duration(entryDur).ease(EASE_ENTRY)
+        .delay((_: any, i: number) => staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length))
         .attr('r', (d: PointOptions) => this.sizeScale(this.getZValue(d)));
     } else {
       bubbles.attr('r', (d: PointOptions) => this.sizeScale(this.getZValue(d)));
@@ -64,7 +72,7 @@ export class BubbleSeries extends BaseSeries {
     );
 
     if (animate) {
-      this.emitAfterAnimate(600 + data.length * 40);
+      this.emitAfterAnimate(ENTRY_DURATION + data.length * ENTRY_STAGGER_PER_ITEM);
     }
   }
 
@@ -92,7 +100,7 @@ export class BubbleSeries extends BaseSeries {
       .attr('r', 0)
       .attr('fill', (d, i) => this.getBubbleFill(d, i, color))
       .attr('fill-opacity', this.config.fillOpacity ?? 0.5)
-      .attr('stroke', this.config.lineColor || color)
+      .attr('stroke', (d: any, i: number) => this.config.lineColor || this.getBubbleFill(d, i, color))
       .attr('stroke-width', this.config.lineWidth ?? 1);
 
     enter.merge(bubbles)
@@ -176,15 +184,17 @@ export class BubbleSeries extends BaseSeries {
 
     const hoverBrightness = this.config.states?.hover?.brightness ?? 0.1;
 
+    const baseFillOpacity = this.config.fillOpacity ?? 0.5;
+
     bubbles
       .on('mouseover', (event: MouseEvent, d: PointOptions) => {
         const target = event.currentTarget as SVGCircleElement;
         const baseR = this.sizeScale(this.getZValue(d));
-        target.setAttribute('r', String(baseR + 4));
+        select(target).interrupt('hover')
+          .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+          .attr('r', baseR + 4)
+          .attr('fill-opacity', Math.min(baseFillOpacity + 0.3, 1));
         target.style.filter = 'drop-shadow(0 2px 6px rgba(0,0,0,0.3))';
-        (bubbles.nodes() as SVGCircleElement[]).forEach(el => {
-          if (el !== target) el.style.opacity = '0.35';
-        });
         const i = data.indexOf(d);
         this.context.events.emit('point:mouseover', {
           point: d, index: i, series: this, event,
@@ -196,11 +206,11 @@ export class BubbleSeries extends BaseSeries {
       })
       .on('mouseout', (event: MouseEvent, d: PointOptions) => {
         const target = event.currentTarget as SVGCircleElement;
-        target.setAttribute('r', String(this.sizeScale(this.getZValue(d))));
+        select(target).interrupt('hover')
+          .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+          .attr('r', this.sizeScale(this.getZValue(d)))
+          .attr('fill-opacity', baseFillOpacity);
         target.style.filter = '';
-        (bubbles.nodes() as SVGCircleElement[]).forEach(el => {
-          el.style.opacity = '';
-        });
         const i = data.indexOf(d);
         this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });
         d.events?.mouseOut?.call(d, event);

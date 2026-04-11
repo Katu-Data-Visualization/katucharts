@@ -7,11 +7,19 @@
 
 import { scaleSequential } from 'd3-scale';
 import 'd3-transition';
+import { select } from 'd3-selection';
 import { BaseSeries } from '../../BaseSeries';
 import type { InternalSeriesConfig } from '../../../types/options';
 import { getColorInterpolator } from './CircosColorScales';
 import type { CircosColorScaleName } from './CircosTypes';
 import { safeMinMax, parseRadius } from './CircosLayoutEngine';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../../core/animationConstants';
 
 type PeriodType = 'hour' | 'day' | 'week' | 'month' | 'year';
 
@@ -87,7 +95,7 @@ export class CircosSpiralSeries extends BaseSeries {
     const colorScale: (v: number) => string = scaleSequential(interpolator).domain([minVal, maxVal]) as any;
 
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDur = animOpts.duration ?? 800;
+    const entryDur = animOpts.duration ?? ENTRY_DURATION;
 
     const mainGroup = this.group.append('g')
       .attr('class', 'katucharts-spiral')
@@ -100,7 +108,7 @@ export class CircosSpiralSeries extends BaseSeries {
     }
 
     if (animate) {
-      this.emitAfterAnimate(entryDur + 200);
+      this.emitAfterAnimate(entryDur + 100);
     }
   }
 
@@ -209,7 +217,11 @@ export class CircosSpiralSeries extends BaseSeries {
     if (this.context.events) {
       paths
         .on('mouseover', (event: MouseEvent, d: ResolvedSegment) => {
-          (event.currentTarget as SVGElement).style.filter = 'brightness(1.15)';
+          const target = event.currentTarget as SVGElement;
+          target.style.filter = 'brightness(1.15)';
+          select(target).interrupt('hover')
+            .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('opacity', 1);
           this.context.events.emit('point:mouseover', {
             point: { name: `segment-${d.index}`, custom: { value: d.value, index: d.index } },
             index: d.index, series: this, event,
@@ -217,7 +229,11 @@ export class CircosSpiralSeries extends BaseSeries {
           });
         })
         .on('mouseout', (event: MouseEvent, d: ResolvedSegment) => {
-          (event.currentTarget as SVGElement).style.filter = '';
+          const target = event.currentTarget as SVGElement;
+          target.style.filter = '';
+          select(target).interrupt('hover')
+            .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('opacity', 1);
           this.context.events.emit('point:mouseout', {
             point: { name: `segment-${d.index}` },
             index: d.index, series: this, event,
@@ -226,12 +242,11 @@ export class CircosSpiralSeries extends BaseSeries {
     }
 
     if (animate) {
-      const totalSegments = segments.length;
       paths
         .attr('opacity', 0)
         .transition()
-        .duration(duration * 0.4)
-        .delay((d: ResolvedSegment) => (d.index / totalSegments) * duration * 0.6)
+        .duration(duration).ease(EASE_ENTRY)
+        .delay((d: ResolvedSegment) => d.index * ENTRY_STAGGER_PER_ITEM)
         .attr('opacity', 1);
     }
   }

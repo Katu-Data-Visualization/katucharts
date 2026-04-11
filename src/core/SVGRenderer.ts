@@ -7,8 +7,8 @@ import { select, Selection } from 'd3-selection';
 export class SVGRenderer {
   readonly svg: Selection<SVGSVGElement, unknown, null, undefined>;
   readonly defs: Selection<SVGDefsElement, unknown, null, undefined>;
-  private clipPathCounter = 0;
-  private gradientCounter = 0;
+  private static clipPathCounter = 0;
+  private static gradientCounter = 0;
 
   constructor(container: HTMLElement, width: number, height: number) {
     this.svg = select(container)
@@ -37,7 +37,7 @@ export class SVGRenderer {
   }
 
   createClipPath(x: number, y: number, width: number, height: number): string {
-    const id = `katucharts-clip-${++this.clipPathCounter}`;
+    const id = `katucharts-clip-${++SVGRenderer.clipPathCounter}`;
     this.defs.append('clipPath')
       .attr('id', id)
       .append('rect')
@@ -61,7 +61,7 @@ export class SVGRenderer {
     x1: string, y1: string, x2: string, y2: string,
     stops: { offset: string; color: string; opacity?: number }[]
   ): string {
-    const gradId = id || `katucharts-grad-${++this.gradientCounter}`;
+    const gradId = id || `katucharts-grad-${++SVGRenderer.gradientCounter}`;
     const gradient = this.defs.append('linearGradient')
       .attr('id', gradId)
       .attr('x1', x1).attr('y1', y1)

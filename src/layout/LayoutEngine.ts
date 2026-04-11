@@ -36,7 +36,9 @@ export class LayoutEngine {
       top += subtitleTextHeight + 2;
     }
 
-    const legendHeight = this.estimateLegendHeight(config, chartWidth);
+    const hasHeatmap = config.series.some(s => s._internalType === 'heatmap');
+    // For heatmaps, the color axis serves as the legend and is rendered within the plot group
+    const legendHeight = hasHeatmap ? 0 : this.estimateLegendHeight(config, chartWidth);
     const legendPosition = config.legend?.verticalAlign || 'bottom';
     if (legendPosition === 'bottom') {
       bottom = Math.max(bottom, spacing.bottom) + legendHeight;
@@ -54,10 +56,16 @@ export class LayoutEngine {
     const yAxisRightWidth = isNonCartesian ? 0 : this.estimateAxisWidth(layoutConfig, false);
     const xAxisBottomHeight = isNonCartesian ? 0 : this.estimateAxisHeight(layoutConfig);
 
+    let colorAxisRightWidth = 0;
+    if (hasHeatmap && config.colorAxis?.length > 0 && config.legend?.layout === 'vertical') {
+      colorAxisRightWidth = 55;
+    }
+
     const plotX = left + yAxisLeftWidth;
     const plotY = top;
-    const plotWidth = Math.max(0, chartWidth - left - right - yAxisLeftWidth - yAxisRightWidth);
-    const plotHeight = Math.max(0, chartHeight - top - bottom - xAxisBottomHeight);
+    const plotWidth = Math.max(0, chartWidth - left - right - yAxisLeftWidth - yAxisRightWidth - colorAxisRightWidth);
+    const hasExplicitMarginBottom = config.chart?.marginBottom !== undefined;
+    const plotHeight = Math.max(0, chartHeight - top - bottom - (hasExplicitMarginBottom ? 0 : xAxisBottomHeight));
 
     return {
       plotArea: { x: plotX, y: plotY, width: plotWidth, height: plotHeight },
@@ -86,7 +94,7 @@ export class LayoutEngine {
     const noAxesTypes = new Set([
       'pie', 'donut', 'sunburst', 'treemap', 'sankey', 'dependencywheel',
       'networkgraph', 'gauge', 'solidgauge', 'polar', 'radar', 'funnel',
-      'pyramid', 'timeline', 'map', 'heatmap', 'barchartrace', 'venn',
+      'pyramid', 'timeline', 'map', 'barchartrace', 'venn',
       'clusteredheatmap', 'phylotree', 'circos',
       'circosChord', 'circosHeatmap', 'circosComparative', 'circosSpiral',
     ]);
@@ -262,7 +270,16 @@ export class LayoutEngine {
 
       let labelHeight = 30;
       if (hasLabels) {
-        if (hasExplicitRotation) {
+        if (hasExplicitRotation && axis.categories && axis.categories.length > 0) {
+          let maxLen = 0;
+          for (const cat of axis.categories) {
+            if (cat.length > maxLen) maxLen = cat.length;
+          }
+          const fontSize = parseInt(axis.labels?.style?.fontSize as string || '11', 10);
+          const angleRad = Math.abs(axis.labels!.rotation!) * (Math.PI / 180);
+          const rotatedHeight = Math.min(maxLen * fontSize * 0.55 * Math.sin(angleRad), 150);
+          labelHeight = Math.max(30, rotatedHeight);
+        } else if (hasExplicitRotation) {
           labelHeight = 45;
         } else if (axis.categories && axis.categories.length > 0) {
           let maxLen = 0;

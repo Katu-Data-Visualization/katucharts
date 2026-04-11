@@ -13,6 +13,12 @@ import { color as d3Color } from 'd3-color';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 const CHR_ORDER = ['1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','18','19','20','21','22','X','Y','MT'];
 
@@ -78,7 +84,7 @@ export class ManhattanSeries extends BaseSeries {
     }
 
     if (animate) {
-      this.emitAfterAnimate(800);
+      this.emitAfterAnimate(ENTRY_DURATION);
     }
   }
 
@@ -174,11 +180,17 @@ export class ManhattanSeries extends BaseSeries {
     }
 
     const dataUrl = canvas.toDataURL();
-    this.group.append('image')
+    const img = this.group.append('image')
       .attr('class', 'katucharts-manhattan-canvas')
       .attr('width', plotArea.width)
       .attr('height', plotArea.height)
       .attr('href', dataUrl);
+
+    if (this.context.animate) {
+      img.attr('opacity', 0)
+        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
+        .attr('opacity', 1);
+    }
   }
 
   private renderSignificantPointsSVG(
@@ -218,7 +230,7 @@ export class ManhattanSeries extends BaseSeries {
   ): void {
     const lineWidth = this.config.marker?.lineWidth ?? 0;
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDur = animOpts.duration ?? 600;
+    const entryDur = animOpts.duration ?? ENTRY_DURATION;
     const chrColorMap = this.buildChrColorMap(chrColors);
 
     const circles = this.group.selectAll('.katucharts-manhattan-point')
@@ -234,7 +246,7 @@ export class ManhattanSeries extends BaseSeries {
 
     if (animate) {
       circles.attr('r', 0)
-        .transition().duration(entryDur)
+        .transition().duration(entryDur).ease(EASE_ENTRY)
         .attr('r', radius);
     } else {
       circles.attr('r', radius);
@@ -322,9 +334,11 @@ export class ManhattanSeries extends BaseSeries {
       .on('mouseover', (event: MouseEvent, d: PointOptions) => {
         const target = event.currentTarget as SVGCircleElement;
         const i = allData.indexOf(d);
-        target.setAttribute('r', String(hoverRadius));
+        select(target).interrupt('hover')
+          .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+          .attr('r', hoverRadius)
+          .style('opacity', 1);
         target.style.filter = 'drop-shadow(0 1px 3px rgba(0,0,0,0.3))';
-        target.style.opacity = '1';
 
         this.context.events.emit('point:mouseover', {
           point: d, index: i, series: this, event,
@@ -337,9 +351,11 @@ export class ManhattanSeries extends BaseSeries {
       .on('mouseout', (event: MouseEvent, d: PointOptions) => {
         const target = event.currentTarget as SVGCircleElement;
         const i = allData.indexOf(d);
-        target.setAttribute('r', String(radius));
+        select(target).interrupt('hover')
+          .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+          .attr('r', radius)
+          .style('opacity', this.config.opacity ?? 0.75);
         target.style.filter = '';
-        target.style.opacity = String(this.config.opacity ?? 0.75);
 
         this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });
         d.events?.mouseOut?.call(d, event);

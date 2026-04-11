@@ -97,11 +97,14 @@ export function templateFormat(template: string, context: Record<string, any>): 
       val = val[k];
     }
     if (val === undefined || val === null) return '';
-    if (fmt && typeof val === 'number') {
-      try {
-        return d3Format(fmt)(val);
-      } catch {
-        return String(val);
+    if (fmt) {
+      const numVal = typeof val === 'number' ? val : parseFloat(String(val));
+      if (!isNaN(numVal)) {
+        try {
+          return d3Format(fmt)(numVal);
+        } catch {
+          return String(val);
+        }
       }
     }
     return String(val);

@@ -2,9 +2,17 @@ import { treemap, hierarchy, treemapSquarify, treemapBinary, treemapDice, treema
 import { select } from 'd3-selection';
 import { color as d3Color, hsl } from 'd3-color';
 import 'd3-transition';
-import { BaseSeries } from '../BaseSeries';
+import { BaseSeries, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig, TreemapLevelOptions, BorderRadiusOptions } from '../../types/options';
 import { templateFormat, stripHtmlTags } from '../../utils/format';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  ENTRY_DATALABEL_DELAY,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 function resolveBorderRadius(val: number | BorderRadiusOptions | undefined): number {
   if (val === undefined) return 4;
@@ -135,7 +143,8 @@ export class TreemapSeries extends BaseSeries {
 
     if (animate) {
       cells.attr('opacity', 0)
-        .transition().duration(600).delay((_: any, i: number) => i * 50)
+        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
+        .delay((_: any, i: number) => staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, leaves.length))
         .attr('opacity', seriesOpacity);
     } else if (seriesOpacity !== 1) {
       cells.attr('opacity', seriesOpacity);
@@ -148,11 +157,13 @@ export class TreemapSeries extends BaseSeries {
           const fill = target.attr('fill');
           const brightness = this.config.states?.hover?.brightness ?? 0.3;
           const brighter = d3Color(fill)?.brighter(brightness)?.toString() || fill;
-          target.transition('fill').duration(150).attr('fill', brighter);
+          target.transition('fill').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill', brighter);
           target.style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.2))');
           cells.interrupt('highlight');
           cells.attr('opacity', 1);
-          cells.filter((o: any) => o !== d).transition('highlight').duration(150).attr('opacity', inactiveOpacity);
+          cells.filter((o: any) => o !== d)
+            .transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('opacity', inactiveOpacity);
 
           const i = leaves.indexOf(d);
           this.context.events.emit('point:mouseover', {
@@ -165,10 +176,10 @@ export class TreemapSeries extends BaseSeries {
           const target = select(event.currentTarget as SVGRectElement);
           const i = leaves.indexOf(d);
           const origColor = getNodeColor(d, i);
-          target.transition('fill').duration(150).attr('fill', origColor);
+          target.transition('fill').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill', origColor);
           target.style('filter', '');
           cells.interrupt('highlight');
-          cells.transition('highlight').duration(150).attr('opacity', 1);
+          cells.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
 
           this.context.events.emit('point:mouseout', { point: d.data, index: i, series: this, event });
           d.data.events?.mouseOut?.call(d.data, event);
@@ -324,7 +335,8 @@ export class TreemapSeries extends BaseSeries {
 
     if (this.context.animate) {
       labels.attr('opacity', 0)
-        .transition().duration(400).delay((_: any, i: number) => 300 + i * 50)
+        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
+        .delay((_: any, i: number) => ENTRY_DATALABEL_DELAY + i * ENTRY_STAGGER_PER_ITEM)
         .attr('opacity', 1);
     }
   }

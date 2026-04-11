@@ -4,6 +4,13 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 type PolarSubType = 'line' | 'area' | 'column';
 
@@ -86,7 +93,7 @@ export class PolarSeries extends BaseSeries {
 
       if (animate) {
         areaPath.attr('d', areaGen(zeroData) || '')
-          .transition().duration(800)
+          .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
           .attr('d', areaGen(data) || '');
       } else {
         areaPath.attr('d', areaGen as any);
@@ -95,7 +102,7 @@ export class PolarSeries extends BaseSeries {
 
     if (animate) {
       linePath.attr('d', lineGen(zeroData) || '')
-        .transition().duration(800)
+        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
         .attr('d', lineGen(data) || '');
     } else {
       linePath.attr('d', lineGen as any);
@@ -115,7 +122,8 @@ export class PolarSeries extends BaseSeries {
 
       if (animate) {
         points.attr('r', 0).attr('opacity', 0)
-          .transition().duration(400).delay(600)
+          .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
+          .delay((_: any, i: number) => i * ENTRY_STAGGER_PER_ITEM)
           .attr('r', markerRadius).attr('opacity', 1);
       } else {
         points.attr('r', markerRadius);
@@ -127,9 +135,8 @@ export class PolarSeries extends BaseSeries {
         points
           .on('mouseover', (event: MouseEvent, d: PointOptions) => {
             const target = select(event.currentTarget as SVGCircleElement);
-            target.transition().duration(150).attr('r', hoverRadius);
+            target.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER).attr('r', hoverRadius);
             target.style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))');
-            points.filter((o: any) => o !== d).transition().duration(150).attr('opacity', inactiveOpacity);
 
             const i = data.indexOf(d);
             const px = rScale(d.y ?? 0) * Math.cos(i * angleStep - Math.PI / 2 + placementOffset);
@@ -142,9 +149,8 @@ export class PolarSeries extends BaseSeries {
           })
           .on('mouseout', (event: MouseEvent, d: PointOptions) => {
             const target = select(event.currentTarget as SVGCircleElement);
-            target.transition().duration(150).attr('r', markerRadius);
+            target.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER).attr('r', markerRadius);
             target.style('filter', '');
-            points.transition().duration(150).attr('opacity', 1);
 
             const i = data.indexOf(d);
             this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });
@@ -213,7 +219,7 @@ export class PolarSeries extends BaseSeries {
         const targetR = baseR + rScale(d.y ?? 0);
 
         el.attr('d', arcGen({ innerRadius: baseR, outerRadius: baseR, startAngle: startA + Math.PI / 2, endAngle: endA + Math.PI / 2 } as any) || '')
-          .transition().duration(600).delay(i * 40)
+          .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY).delay(i * ENTRY_STAGGER_PER_ITEM)
           .attrTween('d', () => {
             return (t: number) => arcGen({
               innerRadius: baseR,
@@ -254,7 +260,7 @@ export class PolarSeries extends BaseSeries {
           target.style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))');
           bars.interrupt('highlight');
           bars.attr('opacity', 1);
-          bars.filter((o: any) => o !== d).transition('highlight').duration(150).attr('opacity', inactiveOpacity);
+          bars.filter((o: any) => o !== d).transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', inactiveOpacity);
 
           const i = data.indexOf(d);
           const midAngle = i * angleStep + angleStep / 2 - Math.PI / 2 + placementOffset;
@@ -269,7 +275,7 @@ export class PolarSeries extends BaseSeries {
           const target = select(event.currentTarget as SVGPathElement);
           target.style('filter', '');
           bars.interrupt('highlight');
-          bars.transition('highlight').duration(150).attr('opacity', 1);
+          bars.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
 
           const i = data.indexOf(d);
           this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });

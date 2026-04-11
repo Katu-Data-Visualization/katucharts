@@ -11,6 +11,12 @@ import { BaseSeries, resolveDashArray, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions, MarkerOptions } from '../../types/options';
 import { lttbDecimate } from '../../utils/decimation';
 import { HoverManager } from '../../interaction/HoverManager';
+import {
+  ENTRY_DURATION,
+  ENTRY_DATALABEL_DELAY,
+  ENTRY_STAGGER_PER_ITEM,
+  EASE_ENTRY,
+} from '../../core/animationConstants';
 
 const symbolMap: Record<string, any> = {
   circle: symbolCircle,
@@ -50,7 +56,7 @@ export class LineSeries extends BaseSeries {
     );
 
     if (animate) {
-      this.emitAfterAnimate(1200);
+      this.emitAfterAnimate(ENTRY_DURATION + ENTRY_DATALABEL_DELAY);
     }
   }
 
@@ -230,10 +236,11 @@ export class LineSeries extends BaseSeries {
   protected buildLineGenerator() {
     const { xAxis, yAxis } = this.context;
     const connectNulls = this.config.connectNulls;
+    const inverted = !!this.context.inverted;
 
     const gen = line<PointOptions>()
-      .x(d => xAxis.getPixelForValue(d.x ?? 0))
-      .y(d => yAxis.getPixelForValue(d.y ?? 0))
+      .x(d => inverted ? yAxis.getPixelForValue(d.y ?? 0) : xAxis.getPixelForValue(d.x ?? 0))
+      .y(d => inverted ? xAxis.getPixelForValue(d.x ?? 0) : yAxis.getPixelForValue(d.y ?? 0))
       .curve(this.getCurve());
 
     if (!connectNulls) {
@@ -274,13 +281,13 @@ export class LineSeries extends BaseSeries {
     const totalLength = (path.node() as SVGPathElement)?.getTotalLength?.() || 0;
     if (totalLength > 0) {
       const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-      const duration = animOpts.duration ?? 1000;
+      const duration = animOpts.duration ?? ENTRY_DURATION;
       const defer = animOpts.defer ?? 0;
       const origDash = path.attr('stroke-dasharray');
       path
         .attr('stroke-dasharray', `${totalLength} ${totalLength}`)
         .attr('stroke-dashoffset', totalLength)
-        .transition().delay(defer).duration(duration)
+        .transition().delay(defer).duration(duration).ease(EASE_ENTRY)
         .attr('stroke-dashoffset', 0)
         .on('end', () => {
           path.attr('stroke-dasharray', origDash === 'none' ? null : origDash);
@@ -315,7 +322,9 @@ export class LineSeries extends BaseSeries {
 
       if (animate) {
         circles.attr('r', 0)
-          .transition().delay((_, i) => staggerDelay(i, 800, 30, validData.length)).duration(300)
+          .transition()
+          .delay((_, i) => staggerDelay(i, ENTRY_DATALABEL_DELAY, ENTRY_STAGGER_PER_ITEM, validData.length))
+          .duration(ENTRY_DURATION).ease(EASE_ENTRY)
           .attr('r', (d) => d.marker?.radius ?? radius);
       } else {
         circles.attr('r', (d) => d.marker?.radius ?? radius);
@@ -339,7 +348,9 @@ export class LineSeries extends BaseSeries {
       if (animate) {
         const zeroGen = d3Symbol().type(symbolType).size(0);
         paths.attr('d', zeroGen as any)
-          .transition().delay((_, i) => staggerDelay(i, 800, 30, validData.length)).duration(300)
+          .transition()
+          .delay((_, i) => staggerDelay(i, ENTRY_DATALABEL_DELAY, ENTRY_STAGGER_PER_ITEM, validData.length))
+          .duration(ENTRY_DURATION).ease(EASE_ENTRY)
           .attr('d', (d) => {
             const r = d.marker?.radius ?? radius;
             return d3Symbol().type(symbolType).size(Math.PI * r * r)() as string;

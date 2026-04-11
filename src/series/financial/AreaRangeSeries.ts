@@ -1,6 +1,7 @@
 import { BaseSeries } from '../BaseSeries';
 import { area as d3area, line as d3line, curveLinear } from 'd3-shape';
 import type { InternalSeriesConfig } from '../../types/options';
+import { ENTRY_DURATION, EASE_ENTRY } from '../../core/animationConstants';
 
 export class AreaRangeSeries extends BaseSeries {
   constructor(config: InternalSeriesConfig) {
@@ -83,7 +84,7 @@ export class AreaRangeSeries extends BaseSeries {
 
       areaPath
         .attr('d', flatArea)
-        .transition().duration(800)
+        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
         .attr('d', areaGen);
 
       if (lineWidth > 0) {
@@ -98,16 +99,16 @@ export class AreaRangeSeries extends BaseSeries {
 
         this.group.select('.katucharts-arearange-line-top')
           .attr('d', flatLinePath)
-          .transition().duration(800)
+          .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
           .attr('d', topLinePath);
 
         this.group.select('.katucharts-arearange-line-bottom')
           .attr('d', flatLinePath)
-          .transition().duration(800)
+          .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
           .attr('d', bottomLinePath);
       }
 
-      this.emitAfterAnimate(800);
+      this.emitAfterAnimate(ENTRY_DURATION);
     }
   }
 

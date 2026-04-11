@@ -167,6 +167,12 @@ export const defaultOptions: KatuChartsOptions = {
       connectNulls: false,
       clip: true,
     },
+    bubble: {
+      lineWidth: 1,
+    },
+    scatter: {
+      marker: { symbol: null },
+    },
     pie: {
       tooltip: {
         pointFormat: '<span style="color:{point.color}">\u25CF</span> {series.name}: <b>{point.percentage:.1f}%</b><br/>',

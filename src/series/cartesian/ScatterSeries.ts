@@ -8,6 +8,13 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 const symbolMap: Record<string, any> = {
   circle: symbolCircle,
@@ -18,11 +25,26 @@ const symbolMap: Record<string, any> = {
   cross: symbolCross,
 };
 
+const DEFAULT_SYMBOL_CYCLE = ['circle', 'diamond', 'square', 'triangle', 'triangle-down'];
+
 export class ScatterSeries extends BaseSeries {
   private cachedPositions: { cx: number; cy: number }[] = [];
 
   constructor(config: InternalSeriesConfig) {
     super(config);
+  }
+
+  private resolveMarkerSymbol(): string {
+    if (this.config.marker?.symbol) return this.config.marker.symbol;
+    const all = this.context.allSeries || [];
+    const scatterSeries = all.filter(s => s.config._internalType === 'scatter');
+    if (scatterSeries.length <= 1) return 'circle';
+    const idx = scatterSeries.indexOf(this);
+    return DEFAULT_SYMBOL_CYCLE[idx % DEFAULT_SYMBOL_CYCLE.length];
+  }
+
+  getLegendSymbolShape(): string | null {
+    return this.resolveMarkerSymbol();
   }
 
   render(): void {
@@ -32,7 +54,7 @@ export class ScatterSeries extends BaseSeries {
     const radius = this.config.marker?.radius ?? 4;
     const hoverRadius = this.config.marker?.states?.hover?.radius ?? (radius + 3);
     const animate = this.context.animate;
-    const markerSymbol = this.config.marker?.symbol || 'circle';
+    const markerSymbol = this.resolveMarkerSymbol();
     const jitter = this.config.jitter;
 
     this.cachedPositions = data.map(d => ({
@@ -61,7 +83,7 @@ export class ScatterSeries extends BaseSeries {
     );
 
     if (animate) {
-      this.emitAfterAnimate(600 + data.length * 20);
+      this.emitAfterAnimate(ENTRY_DURATION + data.length * ENTRY_STAGGER_PER_ITEM);
     }
   }
 
@@ -77,7 +99,7 @@ export class ScatterSeries extends BaseSeries {
       cy: this.applyJitter(yAxis.getPixelForValue(d.y ?? 0), plotArea.height, jitter?.y),
     }));
 
-    const markerSymbol = this.config.marker?.symbol || 'circle';
+    const markerSymbol = this.resolveMarkerSymbol();
     const useCircles = markerSymbol === 'circle';
 
     if (useCircles) {
@@ -144,7 +166,7 @@ export class ScatterSeries extends BaseSeries {
 
   private getEntryDuration(): number {
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    return animOpts.duration ?? 600;
+    return animOpts.duration ?? ENTRY_DURATION;
   }
 
   private renderCircles(
@@ -166,7 +188,8 @@ export class ScatterSeries extends BaseSeries {
     if (animate) {
       circles
         .attr('r', 0)
-        .transition().duration(this.getEntryDuration()).delay((_, i) => staggerDelay(i, 0, 20, data.length))
+        .transition().duration(this.getEntryDuration()).ease(EASE_ENTRY)
+        .delay((_, i) => staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length))
         .attr('r', radius);
     } else {
       circles.attr('r', radius);
@@ -201,7 +224,8 @@ export class ScatterSeries extends BaseSeries {
       const zeroGen = d3Symbol().type(symbolType).size(0);
       symbols
         .attr('d', zeroGen as any)
-        .transition().duration(this.getEntryDuration()).delay((_, i) => staggerDelay(i, 0, 20, data.length))
+        .transition().duration(this.getEntryDuration()).ease(EASE_ENTRY)
+        .delay((_, i) => staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length))
         .attr('d', gen as any);
     } else {
       symbols.attr('d', gen as any);
@@ -239,26 +263,25 @@ export class ScatterSeries extends BaseSeries {
 
     elements
       .on('mouseover', (event: MouseEvent, d: PointOptions) => {
-        const target = event.currentTarget;
+        const target = event.currentTarget as SVGElement;
         const i = data.indexOf(d);
 
         if (i >= 0 && halos[i]) {
-          halos[i].transition().duration(150)
+          halos[i].transition('halo').duration(HOVER_DURATION).ease(EASE_HOVER)
             .attr('r', haloSize)
             .attr('opacity', haloOpacity);
         }
 
+        const targetSel = select(target).interrupt('hover');
+        const tween = targetSel.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER);
         if (type === 'circle') {
-          (target as SVGCircleElement).setAttribute('r', String(hoverRadius));
+          tween.attr('r', hoverRadius);
         } else if (hoverGen) {
-          (target as SVGPathElement).setAttribute('d', hoverGen() as string);
+          tween.attr('d', hoverGen() as string);
         }
-        (target as SVGElement).style.filter = 'drop-shadow(0 1px 4px rgba(0,0,0,0.3))';
-        if (hoverFillColor) (target as SVGElement).style.fill = hoverFillColor;
-        if (hoverLineWidth !== undefined) (target as SVGElement).style.strokeWidth = String(hoverLineWidth);
-
-        this.group.attr('opacity', 0.5);
-        (target as SVGElement).style.opacity = '1';
+        target.style.filter = 'drop-shadow(0 1px 4px rgba(0,0,0,0.3))';
+        if (hoverFillColor) tween.style('fill', hoverFillColor);
+        if (hoverLineWidth !== undefined) tween.style('stroke-width', String(hoverLineWidth));
 
         this.context.events.emit('point:mouseover', {
           point: d, index: i, series: this, event,
@@ -269,26 +292,24 @@ export class ScatterSeries extends BaseSeries {
         this.config.point?.events?.mouseOver?.call(d, event);
       })
       .on('mouseout', (event: MouseEvent, d: PointOptions) => {
-        const target = event.currentTarget;
+        const target = event.currentTarget as SVGElement;
         const i = data.indexOf(d);
 
         if (i >= 0 && halos[i]) {
-          halos[i].transition().duration(150)
+          halos[i].transition('halo').duration(HOVER_DURATION).ease(EASE_HOVER)
             .attr('r', 0)
             .attr('opacity', 0);
         }
 
+        const targetSel = select(target).interrupt('hover');
+        const tween = targetSel.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER);
         if (type === 'circle') {
-          (target as SVGCircleElement).setAttribute('r', String(radius));
+          tween.attr('r', radius);
         } else if (gen) {
-          (target as SVGPathElement).setAttribute('d', gen() as string);
+          tween.attr('d', gen() as string);
         }
-        (target as SVGElement).style.filter = '';
-        (target as SVGElement).style.fill = '';
-        (target as SVGElement).style.strokeWidth = '';
-
-        this.group.attr('opacity', this.config.opacity ?? null);
-        (target as SVGElement).style.opacity = '';
+        target.style.filter = '';
+        tween.style('fill', null).style('stroke-width', null);
 
         this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });
         d.events?.mouseOut?.call(d, event);

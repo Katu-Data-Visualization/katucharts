@@ -5,6 +5,13 @@
 
 import { BaseSeries, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 interface PnFColumn {
   index: number;
@@ -137,8 +144,8 @@ export class PointAndFigureSeries extends BaseSeries {
         if (animate) {
           text.attr('opacity', 0)
             .transition()
-            .duration(300)
-            .delay(staggerDelay(totalBoxIndex, 100, 15, this.getTotalBoxCount()))
+            .duration(ENTRY_DURATION).ease(EASE_ENTRY)
+            .delay(staggerDelay(totalBoxIndex, 0, ENTRY_STAGGER_PER_ITEM, this.getTotalBoxCount()))
             .attr('opacity', 1);
           totalBoxIndex++;
         }
@@ -159,9 +166,12 @@ export class PointAndFigureSeries extends BaseSeries {
           .attr('fill', 'transparent')
           .style('cursor', this.config.cursor || 'pointer')
           .on('mouseover', (event: MouseEvent) => {
-            colGroup.selectAll('text').attr('font-size', `${fontSize * 1.2}px`);
+            colGroup.selectAll('text')
+              .interrupt('hover')
+              .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+              .attr('font-size', `${fontSize * 1.2}px`);
             columnGroups.forEach((g, j) => {
-              if (j !== ci) g.transition('highlight').duration(150).attr('opacity', inactiveOpacity);
+              if (j !== ci) g.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', inactiveOpacity);
             });
             this.context.events.emit('point:mouseover', {
               point: {
@@ -175,9 +185,12 @@ export class PointAndFigureSeries extends BaseSeries {
             });
           })
           .on('mouseout', (event: MouseEvent) => {
-            colGroup.selectAll('text').attr('font-size', `${fontSize}px`);
+            colGroup.selectAll('text')
+              .interrupt('hover')
+              .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+              .attr('font-size', `${fontSize}px`);
             columnGroups.forEach(g => g.interrupt('highlight'));
-            columnGroups.forEach(g => g.transition('highlight').duration(150).attr('opacity', 1));
+            columnGroups.forEach(g => g.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1));
             this.context.events.emit('point:mouseout', {
               point: { x: col.index, y: col.endPrice },
               index: ci, series: this, event,
@@ -195,7 +208,7 @@ export class PointAndFigureSeries extends BaseSeries {
 
     if (animate) {
       const totalBoxes = this.getTotalBoxCount();
-      this.emitAfterAnimate(100 + totalBoxes * 15 + 300);
+      this.emitAfterAnimate(ENTRY_DURATION + totalBoxes * ENTRY_STAGGER_PER_ITEM);
     }
   }
 

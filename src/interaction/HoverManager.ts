@@ -9,6 +9,7 @@ import type { PointOptions, PlotArea } from '../types/options';
 import type { AxisInstance } from '../axis/Axis';
 import type { EventBus } from '../core/EventBus';
 import type { BaseSeries } from '../series/BaseSeries';
+import { HOVER_DURATION, EASE_HOVER } from '../core/animationConstants';
 
 export interface HoverManagerConfig {
   series: BaseSeries;
@@ -193,20 +194,20 @@ export class HoverManager {
     this.halo
       .attr('cx', cx).attr('cy', cy)
       .attr('fill', color)
-      .transition().duration(150)
+      .transition().duration(HOVER_DURATION).ease(EASE_HOVER)
       .attr('r', haloSize)
       .attr('opacity', haloOpacity);
 
     this.hoverMarker
       .attr('cx', cx).attr('cy', cy)
       .attr('fill', color)
-      .transition().duration(150)
+      .transition().duration(HOVER_DURATION).ease(EASE_HOVER)
       .attr('r', hoverRadius)
       .attr('opacity', 1)
       .attr('stroke-width', hoverLineWidth);
 
     if (lineWidthPlus && pathSelection) {
-      pathSelection.transition('hover').duration(150)
+      pathSelection.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
         .attr('stroke-width', baseLineWidth + lineWidthPlus);
     }
 
@@ -227,11 +228,13 @@ export class HoverManager {
       (series.config as any).point?.events?.mouseOut?.call(d, event);
     }
 
-    this.halo.transition().duration(150).attr('r', 0).attr('opacity', 0);
-    this.hoverMarker.transition().duration(150).attr('r', this.config.markerRadius).attr('opacity', 0);
+    this.halo.transition().duration(HOVER_DURATION).ease(EASE_HOVER)
+      .attr('r', 0).attr('opacity', 0);
+    this.hoverMarker.transition().duration(HOVER_DURATION).ease(EASE_HOVER)
+      .attr('r', this.config.markerRadius).attr('opacity', 0);
 
     if (pathSelection) {
-      pathSelection.transition('hover').duration(150)
+      pathSelection.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
         .attr('stroke-width', baseLineWidth);
     }
 

@@ -6,8 +6,15 @@
 
 import { select } from 'd3-selection';
 import 'd3-transition';
-import { BaseSeries, brightenColor, resolveDashArray } from '../BaseSeries';
+import { BaseSeries, brightenColor, resolveDashArray, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions, BorderRadiusOptions } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 function resolveBorderRadius(val: number | BorderRadiusOptions | undefined): number {
   if (val === undefined) return 4;
@@ -54,13 +61,14 @@ export class WaterfallSeries extends BaseSeries {
     const baseline = yAxis.getPixelForValue(0);
 
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDuration = animOpts.duration ?? 700;
+    const entryDuration = animOpts.duration ?? ENTRY_DURATION;
 
     if (animate) {
       bars
         .attr('y', baseline)
         .attr('height', 0)
-        .transition().duration(entryDuration).delay((_: any, i: number) => i * 80)
+        .transition().duration(entryDuration).ease(EASE_ENTRY)
+        .delay((_: any, i: number) => staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, this.processed.length))
         .attr('y', (d: ProcessedWaterfallPoint) => Math.min(yAxis.getPixelForValue(d._start), yAxis.getPixelForValue(d._end)))
         .attr('height', (d: ProcessedWaterfallPoint) => Math.max(Math.abs(yAxis.getPixelForValue(d._start) - yAxis.getPixelForValue(d._end)), this.config.minPointLength ?? 0));
     } else {
@@ -79,7 +87,7 @@ export class WaterfallSeries extends BaseSeries {
     );
 
     if (animate) {
-      this.emitAfterAnimate(entryDuration + data.length * 80);
+      this.emitAfterAnimate(entryDuration + data.length * ENTRY_STAGGER_PER_ITEM);
     }
   }
 
@@ -220,7 +228,8 @@ export class WaterfallSeries extends BaseSeries {
 
     if (animate) {
       connectors.attr('opacity', 0)
-        .transition().duration(300).delay((_: any, i: number) => 400 + i * 80)
+        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
+        .delay((_: any, i: number) => ENTRY_DURATION + i * ENTRY_STAGGER_PER_ITEM)
         .attr('opacity', 1);
     }
   }
@@ -238,11 +247,9 @@ export class WaterfallSeries extends BaseSeries {
         const origFill = target.getAttribute('fill') || '';
         target.setAttribute('data-orig-fill', origFill);
         target.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.25))';
-        target.style.fill = brightenColor(origFill, 0.15);
-
-        (bars.nodes() as SVGRectElement[]).forEach((el: SVGRectElement) => {
-          if (el !== target) el.style.opacity = '0.4';
-        });
+        select(target).interrupt('hover')
+          .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+          .style('fill', brightenColor(origFill, 0.15));
 
         const idx = processed.indexOf(d);
         this.context.events.emit('point:mouseover', {
@@ -256,8 +263,9 @@ export class WaterfallSeries extends BaseSeries {
       .on('mouseout', (event: MouseEvent, d: ProcessedWaterfallPoint) => {
         const target = event.currentTarget as SVGRectElement;
         target.style.filter = '';
-        target.style.fill = '';
-        (bars.nodes() as SVGRectElement[]).forEach((el: SVGRectElement) => { el.style.opacity = ''; });
+        select(target).interrupt('hover')
+          .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+          .style('fill', null);
 
         const idx = processed.indexOf(d);
         this.context.events.emit('point:mouseout', { point: d, index: idx, series: this, event });

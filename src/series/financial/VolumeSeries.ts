@@ -1,5 +1,12 @@
 import { BaseSeries, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 export class VolumeSeries extends BaseSeries {
   constructor(config: InternalSeriesConfig) {
@@ -55,8 +62,8 @@ export class VolumeSeries extends BaseSeries {
           .attr('y', yBottom)
           .attr('height', 0)
           .transition()
-          .duration(600)
-          .delay(staggerDelay(i, 0, 30, data.length))
+          .duration(ENTRY_DURATION).ease(EASE_ENTRY)
+          .delay(staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length))
           .attr('y', yTop)
           .attr('height', barHeight);
       } else {
@@ -69,12 +76,12 @@ export class VolumeSeries extends BaseSeries {
         rect
           .style('cursor', this.config.cursor || 'pointer')
           .on('mouseover', (event: MouseEvent) => {
-            rect.transition('hover').duration(150).attr('opacity', 0.8);
+            rect.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 0.8);
             bars.forEach((b, j) => {
               if (j !== i) b.interrupt('highlight');
             });
             bars.forEach((b, j) => {
-              if (j !== i) b.transition('highlight').duration(150).attr('opacity', inactiveOpacity);
+              if (j !== i) b.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', inactiveOpacity);
             });
 
             this.context.events.emit('point:mouseover', {
@@ -84,10 +91,10 @@ export class VolumeSeries extends BaseSeries {
             d.events?.mouseOver?.call(d, event);
           })
           .on('mouseout', (event: MouseEvent) => {
-            rect.transition('hover').duration(150).attr('opacity', 1);
+            rect.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
             bars.forEach(b => {
               b.interrupt('highlight');
-              b.transition('highlight').duration(150).attr('opacity', 1);
+              b.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
             });
 
             this.context.events.emit('point:mouseout', {
@@ -106,7 +113,7 @@ export class VolumeSeries extends BaseSeries {
     }
 
     if (animate) {
-      this.emitAfterAnimate(600 + data.length * 30);
+      this.emitAfterAnimate(ENTRY_DURATION + data.length * ENTRY_STAGGER_PER_ITEM);
     }
 
     this.renderDataLabels(

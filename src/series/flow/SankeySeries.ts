@@ -3,6 +3,12 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, SankeyNodeOptions, SankeyLevelOptions } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 export class SankeySeries extends BaseSeries {
   constructor(config: InternalSeriesConfig) {
@@ -121,7 +127,7 @@ export class SankeySeries extends BaseSeries {
 
     if (animate) {
       linkPaths.attr('stroke-opacity', 0)
-        .transition().duration(600).delay(300)
+        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
         .attr('stroke-opacity', (d: any) => getLinkOpacity(d));
     } else {
       linkPaths.attr('stroke-opacity', (d: any) => getLinkOpacity(d));
@@ -134,9 +140,9 @@ export class SankeySeries extends BaseSeries {
         linkPaths.interrupt('highlight');
         nodeRects.interrupt('highlight');
         target.attr('stroke-opacity', Math.min(opacity + 0.3, 1));
-        linkPaths.filter((l: any) => l !== d).transition('highlight').duration(150).attr('stroke-opacity', opacity * 0.375);
+        linkPaths.filter((l: any) => l !== d).transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('stroke-opacity', opacity * 0.375);
         nodeRects.attr('opacity', 1);
-        nodeRects.transition('highlight').duration(150)
+        nodeRects.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
           .attr('opacity', (n: any) => n === d.source || n === d.target ? 1 : 0.4);
         const linkPoint = {
           from: d.source.name, to: d.target.name, y: d.value,
@@ -154,9 +160,9 @@ export class SankeySeries extends BaseSeries {
       .on('mouseout', (event: MouseEvent, d: any) => {
         linkPaths.interrupt('highlight');
         nodeRects.interrupt('highlight');
-        linkPaths.transition('highlight').duration(150)
+        linkPaths.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
           .attr('stroke-opacity', (l: any) => getLinkOpacity(l));
-        nodeRects.transition('highlight').duration(150).attr('opacity', 1);
+        nodeRects.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
         this.context.events.emit('point:mouseout', {
           point: { from: d.source.name, to: d.target.name, y: d.value, weight: d.value,
             fromNode: { name: d.source.name }, toNode: { name: d.target.name } },
@@ -192,7 +198,7 @@ export class SankeySeries extends BaseSeries {
 
     if (animate) {
       nodeRects.attr('opacity', 0)
-        .transition().duration(500)
+        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
         .attr('opacity', 1);
     }
 
@@ -203,8 +209,8 @@ export class SankeySeries extends BaseSeries {
         nodeRects.interrupt('highlight');
         linkPaths.interrupt('highlight');
         nodeRects.attr('opacity', 1);
-        nodeRects.filter((n: any) => n !== d).transition('highlight').duration(150).attr('opacity', 0.4);
-        linkPaths.transition('highlight').duration(150)
+        nodeRects.filter((n: any) => n !== d).transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 0.4);
+        linkPaths.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
           .attr('stroke-opacity', (l: any) =>
             l.source === d || l.target === d ? Math.min(getLinkOpacity(l) + 0.3, 1) : getLinkOpacity(l) * 0.375
           );
@@ -220,8 +226,8 @@ export class SankeySeries extends BaseSeries {
         target.style('filter', '');
         nodeRects.interrupt('highlight');
         linkPaths.interrupt('highlight');
-        nodeRects.transition('highlight').duration(150).attr('opacity', 1);
-        linkPaths.transition('highlight').duration(150)
+        nodeRects.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
+        linkPaths.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
           .attr('stroke-opacity', (l: any) => getLinkOpacity(l));
         this.context.events.emit('point:mouseout', {
           point: { name: d.name || d.id, y: d.value, sum: d.value },

@@ -10,6 +10,14 @@ import { interpolate } from 'd3-interpolate';
 import { BaseSeries, brightenColor, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions, BorderRadiusOptions } from '../../types/options';
 import { CategoryAxis } from '../../axis/Axis';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  HOVER_INACTIVE_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 interface RectParams { x: number; y: number; w: number; h: number; }
 
@@ -66,7 +74,7 @@ export class ColumnSeries extends BaseSeries {
 
   private getEntryDuration(): number {
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    return animOpts.duration ?? 800;
+    return animOpts.duration ?? ENTRY_DURATION;
   }
 
   render(): void {
@@ -134,7 +142,7 @@ export class ColumnSeries extends BaseSeries {
       this.renderStackedBars(bars, data, barWidth, barOffset, getStackedY, getStackedBase, color, minPointLength, crisp, !!animate, borderRadius);
       this.attachHoverEffects(bars, data);
       this.renderColumnDataLabels(data, barWidth, barOffset, baseline, getStackedY, getStackedBase);
-      if (animate) this.emitAfterAnimate(800 + data.length * 30);
+      if (animate) this.emitAfterAnimate(ENTRY_DURATION + data.length * ENTRY_STAGGER_PER_ITEM);
       return;
     }
 
@@ -143,8 +151,8 @@ export class ColumnSeries extends BaseSeries {
       .join('rect')
       .attr('class', 'katucharts-column')
       .attr('rx', borderRadius)
-      .attr('stroke', this.config.borderColor || 'none')
-      .attr('stroke-width', this.config.borderWidth ?? 0);
+      .attr('stroke', (d: any) => (d as any).borderColor || this.config.borderColor || 'none')
+      .attr('stroke-width', (d: any) => (d as any).borderWidth ?? this.config.borderWidth ?? 0);
 
     if (this.isHorizontal) {
       this.renderHorizontalBars(bars, data, barWidth, barOffset, baseline, color, minPointLength, crisp, !!animate);
@@ -156,7 +164,7 @@ export class ColumnSeries extends BaseSeries {
     this.renderColumnDataLabels(data, barWidth, barOffset, baseline, stacking ? getStackedY : undefined, stacking ? getStackedBase : undefined);
 
     if (animate) {
-      this.emitAfterAnimate(800 + data.length * 30);
+      this.emitAfterAnimate(ENTRY_DURATION + data.length * ENTRY_STAGGER_PER_ITEM);
     }
   }
 
@@ -179,7 +187,8 @@ export class ColumnSeries extends BaseSeries {
       bars
         .attr('y', baseline)
         .attr('height', 0)
-        .transition().duration(dur).delay((_: any, i: number) => staggerDelay(i, 0, 30, data.length))
+        .transition().duration(dur).ease(EASE_ENTRY)
+        .delay((_: any, i: number) => staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length))
         .attr('y', (d: PointOptions) => this.getBarY(d, yAxis, baseline, minPointLength))
         .attr('height', (d: PointOptions) => this.getBarHeight(d, yAxis, baseline, minPointLength));
     } else {
@@ -209,7 +218,8 @@ export class ColumnSeries extends BaseSeries {
       bars
         .attr('x', baseline)
         .attr('width', 0)
-        .transition().duration(dur).delay((_: any, i: number) => staggerDelay(i, 0, 30, data.length))
+        .transition().duration(dur).ease(EASE_ENTRY)
+        .delay((_: any, i: number) => staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length))
         .attr('x', (d: PointOptions) => {
           const py = yAxis.getPixelForValue(d.y ?? 0);
           return Math.min(baseline, py);
@@ -248,7 +258,8 @@ export class ColumnSeries extends BaseSeries {
         (d as any)._rectParams = endP;
 
         el.attr('d', this.rectParamsToPath(startP, r, isTop, isBottom))
-          .transition().duration(dur).delay(staggerDelay(i, 0, 30, data.length))
+          .transition().duration(dur).ease(EASE_ENTRY)
+          .delay(staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length))
           .attrTween('d', () => {
             const iX = interpolate(startP.x, endP.x);
             const iY = interpolate(startP.y, endP.y);
@@ -358,6 +369,7 @@ export class ColumnSeries extends BaseSeries {
       .attr('class', 'katucharts-column')
       .attr('rx', resolveBorderRadius(this.config.borderRadius))
       .attr('fill', (d, i) => this.getPointColor(d, i, color, negColor, threshold))
+      .attr('display', (d: PointOptions) => d.y == null ? 'none' : null)
       .attr('stroke', this.config.borderColor || 'none')
       .attr('stroke-width', this.config.borderWidth ?? 0);
 
@@ -370,6 +382,7 @@ export class ColumnSeries extends BaseSeries {
     }
 
     const merged = enter.merge(bars);
+    merged.attr('display', (d: PointOptions) => d.y == null ? 'none' : null);
 
     if (this.isHorizontal) {
       merged.transition().duration(duration)
@@ -602,13 +615,15 @@ export class ColumnSeries extends BaseSeries {
         const origFill = target.getAttribute('fill') || '';
 
         target.setAttribute('data-orig-fill', origFill);
+        const targetSel = select(target).interrupt('hover');
+        const tween = targetSel.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER);
         if (hoverColor) {
-          target.style.fill = hoverColor;
+          tween.style('fill', hoverColor);
         } else {
-          target.style.fill = brightenColor(origFill, brightness);
+          tween.style('fill', brightenColor(origFill, brightness));
         }
-        if (hoverBorderColor) target.style.stroke = hoverBorderColor;
-        if (hoverBorderWidth !== undefined) target.style.strokeWidth = String(hoverBorderWidth);
+        if (hoverBorderColor) tween.style('stroke', hoverBorderColor);
+        if (hoverBorderWidth !== undefined) tween.style('stroke-width', String(hoverBorderWidth));
         target.style.filter = 'drop-shadow(0 1px 3px rgba(0,0,0,0.2))';
 
         if (isStacked) {
@@ -619,15 +634,14 @@ export class ColumnSeries extends BaseSeries {
                 (other as any).group?.selectAll('.katucharts-column')
                   .filter(function(this: SVGElement) { return this !== target; })
                   .interrupt('stackDim')
-                  .transition('stackDim').duration(150)
+                  .transition('stackDim').duration(HOVER_INACTIVE_DURATION).ease(EASE_HOVER)
                   .attr('opacity', 0.3);
               }
             }
           }
           target.setAttribute('data-orig-stroke', target.getAttribute('stroke') || '');
           target.setAttribute('data-orig-stroke-width', target.getAttribute('stroke-width') || '');
-          target.style.stroke = '#ffffff';
-          target.style.strokeWidth = '2';
+          tween.style('stroke', '#ffffff').style('stroke-width', '2');
         }
 
         const i = data.indexOf(d);
@@ -644,7 +658,9 @@ export class ColumnSeries extends BaseSeries {
       .on('mouseout', (event: MouseEvent, d: PointOptions) => {
         const target = event.currentTarget as SVGRectElement;
         const origFill = target.getAttribute('data-orig-fill') || '';
-        target.style.fill = origFill;
+        const targetSel = select(target).interrupt('hover');
+        const tween = targetSel.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER);
+        tween.style('fill', origFill);
         target.style.filter = '';
 
         if (isStacked) {
@@ -654,19 +670,19 @@ export class ColumnSeries extends BaseSeries {
               if (other.visible && (other as any).config?.stacking) {
                 (other as any).group?.selectAll('.katucharts-column')
                   .interrupt('stackDim')
-                  .transition('stackDim').duration(150)
+                  .transition('stackDim').duration(HOVER_INACTIVE_DURATION).ease(EASE_HOVER)
                   .attr('opacity', 1);
               }
             }
           }
-          target.style.stroke = target.getAttribute('data-orig-stroke') || '';
-          target.style.strokeWidth = target.getAttribute('data-orig-stroke-width') || '';
+          tween
+            .style('stroke', target.getAttribute('data-orig-stroke') || '')
+            .style('stroke-width', target.getAttribute('data-orig-stroke-width') || '');
         } else {
-          target.style.stroke = '';
-          target.style.strokeWidth = '';
+          tween.style('stroke', '').style('stroke-width', '');
         }
 
-        requestAnimationFrame(() => {
+        tween.on('end', () => {
           if (!target.matches(':hover')) {
             target.style.fill = '';
           }

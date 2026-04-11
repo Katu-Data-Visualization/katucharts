@@ -7,6 +7,7 @@ import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, ColorAxisOptions, BorderRadiusOptions } from '../../types/options';
 import { templateFormat, stripHtmlTags } from '../../utils/format';
+import { HOVER_DURATION, EASE_HOVER } from '../../core/animationConstants';
 
 function resolveBorderRadius(val: number | BorderRadiusOptions | undefined): number {
   if (val === undefined) return 4;
@@ -119,16 +120,21 @@ export class HeatmapSeries extends BaseSeries {
           const target = select(event.currentTarget as SVGRectElement);
           const fill = getCellColor(d);
           const brighter = d3Color(fill)?.brighter(0.4)?.toString() || fill;
-          target.attr('fill', brighter);
-          target.attr('stroke', '#333').attr('stroke-width', 2);
+          target.interrupt('hover')
+            .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('fill', brighter)
+            .attr('stroke', '#333').attr('stroke-width', 2);
           target.style('filter', 'drop-shadow(0 1px 3px rgba(0,0,0,0.3))');
           cells.interrupt('highlight');
           cells.attr('opacity', 1);
-          cells.filter((o: any) => o !== d).transition('highlight').duration(150).attr('opacity', inactiveOpacity);
+          cells.filter((o: any) => o !== d)
+            .transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('opacity', inactiveOpacity);
 
           const i = data.indexOf(d);
+          const val = (d as any).value ?? (d as any).z ?? d.y;
           this.context.events.emit('point:mouseover', {
-            point: d, index: i, series: this, event,
+            point: { ...d, value: val }, index: i, series: this, event,
             plotX: getCellX(d) + cellWidth / 2,
             plotY: getCellY(d) + cellHeight / 2,
           });
@@ -136,12 +142,15 @@ export class HeatmapSeries extends BaseSeries {
         })
         .on('mouseout', (event: MouseEvent, d: any) => {
           const target = select(event.currentTarget as SVGRectElement);
-          target.attr('fill', getCellColor(d));
-          target.attr('stroke', this.config.borderColor || '#ffffff')
+          target.interrupt('hover')
+            .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('fill', getCellColor(d))
+            .attr('stroke', this.config.borderColor || '#ffffff')
             .attr('stroke-width', this.config.borderWidth ?? 1);
           target.style('filter', '');
           cells.interrupt('highlight');
-          cells.transition('highlight').duration(150).attr('opacity', 1);
+          cells.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('opacity', 1);
 
           const i = data.indexOf(d);
           this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });
@@ -318,10 +327,8 @@ export class HeatmapSeries extends BaseSeries {
     if (colorAxisCfg.labels?.enabled === false) return;
 
     const { plotArea } = this.context;
-    const barHeight = 12;
-    const barWidth = Math.min(plotArea.width * 0.6, 300);
-    const x = (plotArea.width - barWidth) / 2;
-    const y = plotArea.height + 60;
+    const legendCfg = this.context.legendConfig || {};
+    const isVertical = legendCfg.layout === 'vertical';
     const steps = 50;
 
     const parentGroup = this.context.plotGroup || this.group;
@@ -333,8 +340,25 @@ export class HeatmapSeries extends BaseSeries {
     const fontSize = (labelStyle.fontSize as string) || '11px';
     const fontColor = (labelStyle.color as string) || '#666';
 
+    const range = maxVal - minVal;
+    const rawStep = range / 6;
+    const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const nice = [1, 2, 2.5, 5, 10].find(n => n * mag >= rawStep)! * mag;
+    const tickStart = Math.ceil(minVal / nice) * nice;
+    const ticks: number[] = [];
+    for (let v = tickStart; v <= maxVal + nice * 0.01; v += nice) {
+      ticks.push(Math.round(v * 1e6) / 1e6);
+    }
+    if (ticks.length === 0 || ticks[0] > minVal) ticks.unshift(minVal);
+    if (ticks[ticks.length - 1] < maxVal) ticks.push(maxVal);
+    const precision = nice >= 1 ? 0 : nice >= 0.1 ? 1 : 2;
+
     if (colorAxisCfg.dataClasses && colorAxisCfg.dataClasses.length > 0) {
       const classes = colorAxisCfg.dataClasses;
+      const barWidth = Math.min(plotArea.width * 0.6, 300);
+      const barHeight = 12;
+      const x = (plotArea.width - barWidth) / 2;
+      const y = plotArea.height + 60;
       const segW = barWidth / classes.length;
       for (let i = 0; i < classes.length; i++) {
         const cls = classes[i];
@@ -356,77 +380,103 @@ export class HeatmapSeries extends BaseSeries {
       return;
     }
 
-    const defs = axisGroup.append('defs');
-    const gradientId = `katucharts-heatmap-grad-${Math.random().toString(36).slice(2, 8)}`;
-    const gradient = defs.append('linearGradient')
-      .attr('id', gradientId)
-      .attr('x1', '0%').attr('y1', '0%')
-      .attr('x2', '100%').attr('y2', '0%');
+    if (isVertical) {
+      const barWidth = 12;
+      const barLength = Math.min(plotArea.height * 0.7, 200);
+      const x = plotArea.width + 20;
+      const y = (plotArea.height - barLength) / 2;
 
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const val = minVal + t * (maxVal - minVal);
-      gradient.append('stop')
-        .attr('offset', `${t * 100}%`)
-        .attr('stop-color', colorScale(val));
-    }
+      const defs = axisGroup.append('defs');
+      const segCount = ticks.length - 1;
+      const segH = barLength / segCount;
 
-    const range = maxVal - minVal;
-    const rawStep = range / 6;
-    const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
-    const nice = [1, 2, 2.5, 5, 10].find(n => n * mag >= rawStep)! * mag;
-    const tickStart = Math.ceil(minVal / nice) * nice;
-    const ticks: number[] = [];
-    for (let v = tickStart; v <= maxVal + nice * 0.01; v += nice) {
-      ticks.push(Math.round(v * 1e6) / 1e6);
-    }
-    if (ticks.length === 0 || ticks[0] > minVal) ticks.unshift(minVal);
-    if (ticks[ticks.length - 1] < maxVal) ticks.push(maxVal);
-
-    const segCount = ticks.length - 1;
-    const segW = barWidth / segCount;
-
-    for (let i = 0; i < segCount; i++) {
-      const segGradId = `katucharts-heatmap-seg-${Math.random().toString(36).slice(2, 8)}`;
-      const segGrad = defs.append('linearGradient')
-        .attr('id', segGradId)
-        .attr('x1', '0%').attr('y1', '0%')
-        .attr('x2', '100%').attr('y2', '0%');
-      segGrad.append('stop').attr('offset', '0%').attr('stop-color', colorScale(ticks[i]));
-      segGrad.append('stop').attr('offset', '100%').attr('stop-color', colorScale(ticks[i + 1]));
+      for (let i = 0; i < segCount; i++) {
+        const fromIdx = segCount - 1 - i;
+        const segGradId = `katucharts-heatmap-seg-${Math.random().toString(36).slice(2, 8)}`;
+        const segGrad = defs.append('linearGradient')
+          .attr('id', segGradId)
+          .attr('x1', '0%').attr('y1', '0%')
+          .attr('x2', '0%').attr('y2', '100%');
+        segGrad.append('stop').attr('offset', '0%').attr('stop-color', colorScale(ticks[fromIdx + 1]));
+        segGrad.append('stop').attr('offset', '100%').attr('stop-color', colorScale(ticks[fromIdx]));
+        axisGroup.append('rect')
+          .attr('x', x).attr('y', y + i * segH)
+          .attr('width', barWidth).attr('height', segH + 0.5)
+          .attr('fill', `url(#${segGradId})`)
+          .attr('stroke', 'none');
+      }
 
       axisGroup.append('rect')
-        .attr('x', x + i * segW).attr('y', y)
-        .attr('width', segW + 0.5).attr('height', barHeight)
-        .attr('fill', `url(#${segGradId})`)
-        .attr('stroke', 'none');
-    }
+        .attr('x', x).attr('y', y)
+        .attr('width', barWidth).attr('height', barLength)
+        .attr('fill', 'none')
+        .attr('stroke', '#ccc').attr('stroke-width', 0.5)
+        .attr('rx', 2);
 
-    axisGroup.append('rect')
-      .attr('x', x).attr('y', y)
-      .attr('width', barWidth).attr('height', barHeight)
-      .attr('fill', 'none')
-      .attr('stroke', '#ccc').attr('stroke-width', 0.5)
-      .attr('rx', 2);
+      for (let i = 0; i < ticks.length; i++) {
+        const ty = y + barLength - (ticks[i] - minVal) / range * barLength;
+        axisGroup.append('line')
+          .attr('x1', x + barWidth).attr('y1', ty)
+          .attr('x2', x + barWidth + 4).attr('y2', ty)
+          .attr('stroke', '#999').attr('stroke-width', 0.5);
+        axisGroup.append('text')
+          .attr('x', x + barWidth + 7).attr('y', ty + 4)
+          .attr('font-size', fontSize).attr('fill', fontColor)
+          .attr('text-anchor', 'start')
+          .text(ticks[i].toFixed(precision));
+      }
+    } else {
+      const barHeight = 12;
+      const barWidth = Math.min(plotArea.width * 0.6, 300);
+      const x = (plotArea.width - barWidth) / 2;
+      const y = plotArea.height + 60;
 
-    const precision = nice >= 1 ? 0 : nice >= 0.1 ? 1 : 2;
-    for (let i = 0; i < ticks.length; i++) {
-      const tx = x + (ticks[i] - minVal) / range * barWidth;
-      axisGroup.append('line')
-        .attr('x1', tx).attr('y1', y + barHeight)
-        .attr('x2', tx).attr('y2', y + barHeight + 4)
-        .attr('stroke', '#999').attr('stroke-width', 0.5);
-      axisGroup.append('text')
-        .attr('x', tx).attr('y', y + barHeight + 15)
-        .attr('font-size', fontSize).attr('fill', fontColor)
-        .attr('text-anchor', i === 0 ? 'start' : i === ticks.length - 1 ? 'end' : 'middle')
-        .text(ticks[i].toFixed(precision));
+      const defs = axisGroup.append('defs');
+      const segCount = ticks.length - 1;
+      const segW = barWidth / segCount;
+
+      for (let i = 0; i < segCount; i++) {
+        const segGradId = `katucharts-heatmap-seg-${Math.random().toString(36).slice(2, 8)}`;
+        const segGrad = defs.append('linearGradient')
+          .attr('id', segGradId)
+          .attr('x1', '0%').attr('y1', '0%')
+          .attr('x2', '100%').attr('y2', '0%');
+        segGrad.append('stop').attr('offset', '0%').attr('stop-color', colorScale(ticks[i]));
+        segGrad.append('stop').attr('offset', '100%').attr('stop-color', colorScale(ticks[i + 1]));
+        axisGroup.append('rect')
+          .attr('x', x + i * segW).attr('y', y)
+          .attr('width', segW + 0.5).attr('height', barHeight)
+          .attr('fill', `url(#${segGradId})`)
+          .attr('stroke', 'none');
+      }
+
+      axisGroup.append('rect')
+        .attr('x', x).attr('y', y)
+        .attr('width', barWidth).attr('height', barHeight)
+        .attr('fill', 'none')
+        .attr('stroke', '#ccc').attr('stroke-width', 0.5)
+        .attr('rx', 2);
+
+      for (let i = 0; i < ticks.length; i++) {
+        const tx = x + (ticks[i] - minVal) / range * barWidth;
+        axisGroup.append('line')
+          .attr('x1', tx).attr('y1', y + barHeight)
+          .attr('x2', tx).attr('y2', y + barHeight + 4)
+          .attr('stroke', '#999').attr('stroke-width', 0.5);
+        axisGroup.append('text')
+          .attr('x', tx).attr('y', y + barHeight + 15)
+          .attr('font-size', fontSize).attr('fill', fontColor)
+          .attr('text-anchor', i === 0 ? 'start' : i === ticks.length - 1 ? 'end' : 'middle')
+          .text(ticks[i].toFixed(precision));
+      }
     }
   }
 
   private renderHeatmapLabels(data: any[], getCellX: (d: any) => number, getCellY: (d: any) => number, cellWidth: number, cellHeight: number): void {
     const dlCfg = this.config.dataLabels;
     if (!dlCfg?.enabled) return;
+    const minCellHeight = (dlCfg as any).minCellHeight ?? 20;
+    if (cellHeight < minCellHeight) return;
 
     const fontSize = (dlCfg.style?.fontSize as string) || '11px';
     const fontColor = dlCfg.color || (dlCfg.style?.color as string) || '#333';

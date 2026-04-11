@@ -7,6 +7,11 @@
 import { BaseSeries, staggerDelay } from '../BaseSeries';
 import type { SeriesContext } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  EASE_ENTRY,
+} from '../../core/animationConstants';
 
 type FlagShape = 'flag' | 'circlepin' | 'squarepin';
 
@@ -57,9 +62,9 @@ export class FlagsSeries extends BaseSeries {
       this.renderShape(g, shape, px, poleTop, fillColor, title);
 
       if (animate) {
-        const delay = staggerDelay(i, 100, 30, data.length);
+        const delay = staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length);
         g.attr('opacity', 0)
-          .transition().duration(400).delay(delay)
+          .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY).delay(delay)
           .attr('opacity', 1);
       }
 

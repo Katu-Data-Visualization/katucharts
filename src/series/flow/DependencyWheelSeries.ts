@@ -5,6 +5,12 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, SankeyNodeOptions } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 export class DependencyWheelSeries extends BaseSeries {
   constructor(config: InternalSeriesConfig) {
@@ -189,7 +195,7 @@ export class DependencyWheelSeries extends BaseSeries {
 
       if (animate) {
         colorGroups.attr('opacity', 0)
-          .transition().duration(600).delay(400)
+          .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
           .attr('opacity', linkOpacity);
       }
     } else {
@@ -223,7 +229,7 @@ export class DependencyWheelSeries extends BaseSeries {
 
       if (animate) {
         ribbons.attr('fill-opacity', 0)
-          .transition().duration(600).delay(400)
+          .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
           .attr('fill-opacity', linkOpacity);
       } else {
         ribbons.attr('fill-opacity', linkOpacity);
@@ -235,10 +241,10 @@ export class DependencyWheelSeries extends BaseSeries {
         ribbons.interrupt('highlight');
         arcs.interrupt('highlight');
         if (colorGroups) colorGroups.interrupt('highlight').attr('opacity', 1);
-        ribbons.transition('highlight').duration(150)
+        ribbons.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
           .attr('fill-opacity', (o: any) => o === d ? Math.min(linkOpacity + 0.35, 1) : 0.05);
         arcs.attr('opacity', 1);
-        arcs.transition('highlight').duration(150)
+        arcs.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
           .attr('opacity', (a: any) =>
             a.index === d.source.index || a.index === d.target.index ? 1 : 0.3
           );
@@ -258,12 +264,12 @@ export class DependencyWheelSeries extends BaseSeries {
         arcs.interrupt('highlight');
         if (colorGroups) {
           colorGroups.interrupt('highlight');
-          colorGroups.transition('highlight').duration(150).attr('opacity', linkOpacity);
-          ribbons.transition('highlight').duration(150).attr('fill-opacity', 1);
+          colorGroups.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', linkOpacity);
+          ribbons.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill-opacity', 1);
         } else {
-          ribbons.transition('highlight').duration(150).attr('fill-opacity', linkOpacity);
+          ribbons.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill-opacity', linkOpacity);
         }
-        arcs.transition('highlight').duration(150).attr('opacity', 1);
+        arcs.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
         this.context.events.emit('point:mouseout', {
           point: { from: names[d.source.index], to: names[d.target.index], y: d.source.value,
             weight: d.source.value,
@@ -305,7 +311,7 @@ export class DependencyWheelSeries extends BaseSeries {
         const self = select(this);
         const startArc = { startAngle: d.startAngle, endAngle: d.startAngle };
         const interp = interpolate(startArc, d);
-        self.transition().duration(800)
+        self.transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
           .attrTween('d', () => (t: number) => arcGen(interp(t))!);
       });
     } else {
@@ -315,17 +321,17 @@ export class DependencyWheelSeries extends BaseSeries {
     arcs
       .on('mouseover', (event: MouseEvent, d: any) => {
         const target = select(event.currentTarget as SVGPathElement);
-        target.transition('arc').duration(150).attr('d', arcHover(d)!);
+        target.transition('arc').duration(HOVER_DURATION).ease(EASE_HOVER).attr('d', arcHover(d)!);
         ribbons.interrupt('highlight');
         arcs.interrupt('highlight');
         if (colorGroups) colorGroups.interrupt('highlight').attr('opacity', 1);
-        ribbons.transition('highlight').duration(150)
+        ribbons.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
           .attr('fill-opacity', (r: any) =>
             r.source.index === d.index || r.target.index === d.index ? Math.min(linkOpacity + 0.35, 1) : 0.05
           );
         arcs.attr('opacity', 1);
         arcs.filter((o: any) => o !== d)
-          .transition('highlight').duration(150).attr('opacity', (a: any) => {
+          .transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', (a: any) => {
             const connected = chords.some((r: any) =>
               (r.source.index === d.index && r.target.index === a.index) ||
               (r.target.index === d.index && r.source.index === a.index)
@@ -333,7 +339,7 @@ export class DependencyWheelSeries extends BaseSeries {
             return connected ? 1 : 0.3;
           });
         labels.filter((l: any) => l.index === d.index)
-          .transition('label').duration(150).attr('opacity', 1);
+          .transition('label').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
         this.context.events.emit('point:mouseover', {
           point: { name: names[d.index], y: d.value, sum: d.value },
           index: d.index, series: this, event,
@@ -342,19 +348,19 @@ export class DependencyWheelSeries extends BaseSeries {
       })
       .on('mouseout', (event: MouseEvent, d: any) => {
         const target = select(event.currentTarget as SVGPathElement);
-        target.transition('arc').duration(150).attr('d', arcGen(d)!);
+        target.transition('arc').duration(HOVER_DURATION).ease(EASE_HOVER).attr('d', arcGen(d)!);
         ribbons.interrupt('highlight');
         arcs.interrupt('highlight');
         if (colorGroups) {
           colorGroups.interrupt('highlight');
-          colorGroups.transition('highlight').duration(150).attr('opacity', linkOpacity);
-          ribbons.transition('highlight').duration(150).attr('fill-opacity', 1);
+          colorGroups.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', linkOpacity);
+          ribbons.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill-opacity', 1);
         } else {
-          ribbons.transition('highlight').duration(150).attr('fill-opacity', linkOpacity);
+          ribbons.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill-opacity', linkOpacity);
         }
-        arcs.transition('highlight').duration(150).attr('opacity', 1);
+        arcs.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
         labels.filter((l: any) => l.index === d.index)
-          .transition('label').duration(150).attr('opacity', (l: any) => labelVisible(l) ? 1 : 0);
+          .transition('label').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', (l: any) => labelVisible(l) ? 1 : 0);
         this.context.events.emit('point:mouseout', {
           point: { name: names[d.index], y: d.value, sum: d.value },
           index: d.index, series: this, event,

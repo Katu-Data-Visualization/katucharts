@@ -5,6 +5,13 @@
 
 import { BaseSeries, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 interface RenkoBrick {
   index: number;
@@ -98,8 +105,8 @@ export class RenkoSeries extends BaseSeries {
       if (animate) {
         rect.attr('opacity', 0)
           .transition()
-          .duration(400)
-          .delay(staggerDelay(i, 100, 20, bricks.length))
+          .duration(ENTRY_DURATION).ease(EASE_ENTRY)
+          .delay(staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, bricks.length))
           .attr('opacity', 1);
       }
 
@@ -108,7 +115,7 @@ export class RenkoSeries extends BaseSeries {
           .on('mouseover', (event: MouseEvent) => {
             rect.style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.25))');
             groups.forEach((g, j) => {
-              if (j !== i) g.transition('highlight').duration(150).attr('opacity', inactiveOpacity);
+              if (j !== i) g.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', inactiveOpacity);
             });
             this.context.events.emit('point:mouseover', {
               point: { x: brick.index, y: brick.top, low: brick.bottom, high: brick.top, direction: brick.direction },
@@ -119,7 +126,7 @@ export class RenkoSeries extends BaseSeries {
           .on('mouseout', (event: MouseEvent) => {
             rect.style('filter', '');
             groups.forEach(g => g.interrupt('highlight'));
-            groups.forEach(g => g.transition('highlight').duration(150).attr('opacity', 1));
+            groups.forEach(g => g.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1));
             this.context.events.emit('point:mouseout', {
               point: { x: brick.index, y: brick.top },
               index: i, series: this, event,
@@ -136,7 +143,7 @@ export class RenkoSeries extends BaseSeries {
     }
 
     if (animate) {
-      this.emitAfterAnimate(100 + bricks.length * 20 + 400);
+      this.emitAfterAnimate(ENTRY_DURATION + bricks.length * ENTRY_STAGGER_PER_ITEM);
     }
   }
 

@@ -22,6 +22,12 @@ import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
 import { templateFormat, stripHtmlTags } from '../../utils/format';
+import {
+  ENTRY_DURATION,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 const projectionMap: Record<string, () => GeoProjection> = {
   'naturalEarth': geoNaturalEarth1,
@@ -184,7 +190,7 @@ export class MapSeries extends BaseSeries {
       this.featurePaths
         .attr('fill', nullColor)
         .attr('fill-opacity', 0)
-        .transition().duration(800)
+        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
         .attr('fill-opacity', 1)
         .attr('fill', (d: any) => this.getFeatureColor(d, featureField, nullColor));
     } else {
@@ -251,17 +257,17 @@ export class MapSeries extends BaseSeries {
         const origFill = target.attr('fill');
 
         if (hoverColor) {
-          target.transition('hover').duration(150).attr('fill', hoverColor);
+          target.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill', hoverColor);
         } else {
           const brighter = d3Color(origFill)?.brighter(hoverBrightness)?.toString() || origFill;
-          target.transition('hover').duration(150).attr('fill', brighter);
+          target.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill', brighter);
         }
         target.attr('stroke', hoverBorderColor).attr('stroke-width', hoverBorderWidth);
         target.raise();
 
         this.featurePaths.interrupt('highlight');
         this.featurePaths.filter((o: any) => o !== d)
-          .transition('highlight').duration(150).attr('opacity', 0.7);
+          .transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 0.7);
 
         const ptData = point || { name: d.properties?.name || key };
         const centroid = (event.currentTarget as SVGPathElement).getBBox();
@@ -277,11 +283,11 @@ export class MapSeries extends BaseSeries {
       .on('mouseout', (event: MouseEvent, d: any) => {
         const target = select(event.currentTarget as SVGPathElement);
         const origColor = this.getFeatureColor(d, featureField, nullColor);
-        target.transition('hover').duration(150).attr('fill', origColor);
+        target.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill', origColor);
         target.attr('stroke', borderColor).attr('stroke-width', borderWidth);
 
         this.featurePaths.interrupt('highlight');
-        this.featurePaths.transition('highlight').duration(150).attr('opacity', 1);
+        this.featurePaths.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
 
         const key = this.getFeatureKey(d, featureField);
         const point = this.dataMap.get(key) || { name: d.properties?.name || key };

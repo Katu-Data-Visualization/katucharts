@@ -6,8 +6,15 @@
 
 import { select } from 'd3-selection';
 import 'd3-transition';
-import { BaseSeries } from '../BaseSeries';
+import { BaseSeries, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 export class ForestPlotSeries extends BaseSeries {
   constructor(config: InternalSeriesConfig) {
@@ -33,7 +40,7 @@ export class ForestPlotSeries extends BaseSeries {
     const lineWidth = this.config.lineWidth ?? 1.5;
 
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDur = animOpts.duration ?? 600;
+    const entryDur = animOpts.duration ?? ENTRY_DURATION;
 
     const maxWeight = Math.max(...data.map(d => d.custom?.weight ?? 1));
 
@@ -73,11 +80,11 @@ export class ForestPlotSeries extends BaseSeries {
 
         if (animate) {
           ciLine.attr('x1', effectX).attr('x2', effectX)
-            .transition().duration(entryDur).delay(i * 60)
+            .transition().duration(entryDur).ease(EASE_ENTRY).delay(staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length))
             .attr('x1', ciLowerX).attr('x2', ciUpperX);
 
           marker.attr('x', effectX - markerSize / 2).attr('opacity', 0)
-            .transition().duration(entryDur).delay(i * 60)
+            .transition().duration(entryDur).ease(EASE_ENTRY).delay(staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length))
             .attr('x', effectX - markerSize / 2).attr('opacity', 1);
         } else {
           ciLine.attr('x1', ciLowerX).attr('x2', ciUpperX);
@@ -124,7 +131,7 @@ export class ForestPlotSeries extends BaseSeries {
     }
 
     if (animate) {
-      this.emitAfterAnimate(entryDur + data.length * 60);
+      this.emitAfterAnimate(entryDur + data.length * ENTRY_STAGGER_PER_ITEM);
     }
   }
 
@@ -159,7 +166,7 @@ export class ForestPlotSeries extends BaseSeries {
 
     if (animate) {
       diamond.attr('opacity', 0)
-        .transition().duration(duration).delay(idx * 60)
+        .transition().duration(duration).ease(EASE_ENTRY).delay(idx * ENTRY_STAGGER_PER_ITEM)
         .attr('opacity', 1);
     }
   }
@@ -169,6 +176,9 @@ export class ForestPlotSeries extends BaseSeries {
 
     g.on('mouseover', (event: MouseEvent) => {
       g.style('filter', 'drop-shadow(0 1px 3px rgba(0,0,0,0.2))');
+      g.interrupt('hover')
+        .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+        .attr('opacity', 1);
       this.context.events.emit('point:mouseover', {
         point: d, index: i, series: this, event,
         plotX: cx, plotY: cy,
@@ -178,6 +188,9 @@ export class ForestPlotSeries extends BaseSeries {
     })
     .on('mouseout', (event: MouseEvent) => {
       g.style('filter', '');
+      g.interrupt('hover')
+        .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+        .attr('opacity', 1);
       this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });
       d.events?.mouseOut?.call(d, event);
       this.config.point?.events?.mouseOut?.call(d, event);

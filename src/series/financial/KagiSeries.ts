@@ -5,6 +5,13 @@
 
 import { BaseSeries, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  HOVER_DURATION,
+  HOVER_INACTIVE_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 interface KagiSegment {
   x: number;
@@ -176,8 +183,11 @@ export class KagiSeries extends BaseSeries {
             .attr('stroke-dasharray', `${totalLength} ${totalLength}`)
             .attr('stroke-dashoffset', totalLength)
             .transition()
-            .duration(1200)
-            .attr('stroke-dashoffset', 0);
+            .duration(ENTRY_DURATION).ease(EASE_ENTRY)
+            .attr('stroke-dashoffset', 0)
+            .on('end', () => {
+              path.attr('stroke-dasharray', null);
+            });
         }
       }
     }
@@ -199,6 +209,17 @@ export class KagiSeries extends BaseSeries {
           .attr('fill', 'transparent')
           .style('cursor', this.config.cursor || 'pointer')
           .on('mouseover', (event: MouseEvent) => {
+            const targetClass = `katucharts-kagi-${seg.type}`;
+            const baseStrokeWidth = seg.type === 'yang' ? 3 : 1;
+            this.group.selectAll(`path.${targetClass}`)
+              .interrupt('hover')
+              .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+              .attr('stroke-width', baseStrokeWidth + 1.5);
+            const otherClass = seg.type === 'yang' ? 'katucharts-kagi-yin' : 'katucharts-kagi-yang';
+            this.group.selectAll(`path.${otherClass}`)
+              .interrupt('hover')
+              .transition('hover').duration(HOVER_INACTIVE_DURATION).ease(EASE_HOVER)
+              .attr('opacity', 0.3);
             this.context.events.emit('point:mouseover', {
               point: { x: seg.x, y: seg.endPrice, open: seg.startPrice, close: seg.endPrice, type: seg.type },
               index: i, series: this, event,
@@ -206,6 +227,16 @@ export class KagiSeries extends BaseSeries {
             });
           })
           .on('mouseout', (event: MouseEvent) => {
+            this.group.selectAll('path.katucharts-kagi-yang')
+              .interrupt('hover')
+              .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+              .attr('stroke-width', 3)
+              .attr('opacity', 1);
+            this.group.selectAll('path.katucharts-kagi-yin')
+              .interrupt('hover')
+              .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+              .attr('stroke-width', 1)
+              .attr('opacity', 1);
             this.context.events.emit('point:mouseout', {
               point: { x: seg.x, y: seg.endPrice },
               index: i, series: this, event,
@@ -222,7 +253,7 @@ export class KagiSeries extends BaseSeries {
     }
 
     if (animate) {
-      this.emitAfterAnimate(1200);
+      this.emitAfterAnimate(ENTRY_DURATION);
     }
   }
 

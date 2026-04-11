@@ -2,6 +2,13 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 export class TimelineSeries extends BaseSeries {
   constructor(config: InternalSeriesConfig) {
@@ -42,7 +49,7 @@ export class TimelineSeries extends BaseSeries {
 
       if (animate) {
         circle.attr('r', 0)
-          .transition().duration(400).delay(i * 100)
+          .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY).delay(i * ENTRY_STAGGER_PER_ITEM)
           .attr('r', markerRadius);
       } else {
         circle.attr('r', markerRadius);
@@ -58,7 +65,7 @@ export class TimelineSeries extends BaseSeries {
 
         if (animate) {
           line.attr('opacity', 0)
-            .transition().duration(300).delay(i * 100 + 200)
+            .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY).delay(i * ENTRY_STAGGER_PER_ITEM)
             .attr('opacity', 1);
         }
       }
@@ -75,7 +82,7 @@ export class TimelineSeries extends BaseSeries {
 
       if (animate) {
         el.attr('opacity', 0)
-          .transition().duration(400).delay(i * 100 + 100)
+          .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY).delay(i * ENTRY_STAGGER_PER_ITEM)
           .attr('opacity', 1);
       }
 
@@ -93,14 +100,14 @@ export class TimelineSeries extends BaseSeries {
 
         if (animate) {
           descEl.attr('opacity', 0)
-            .transition().duration(400).delay(i * 100 + 150)
+            .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY).delay(i * ENTRY_STAGGER_PER_ITEM)
             .attr('opacity', 1);
         }
       }
 
       rows.push({ circle, text: el, desc: descEl });
       const onOver = (event: MouseEvent) => {
-        circle.transition('size').duration(150).attr('r', markerRadius + 3);
+        circle.transition('size').duration(HOVER_DURATION).ease(EASE_HOVER).attr('r', markerRadius + 3);
         circle.style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))');
         el.attr('font-weight', 'bold');
         rows.forEach(r => {
@@ -112,9 +119,9 @@ export class TimelineSeries extends BaseSeries {
         });
         rows.forEach((r, j) => {
           if (j !== i) {
-            r.circle.transition('highlight').duration(150).attr('opacity', 0.4);
-            r.text.transition('highlight').duration(150).attr('opacity', 0.4);
-            if (r.desc) r.desc.transition('highlight').duration(150).attr('opacity', 0.4);
+            r.circle.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 0.4);
+            r.text.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 0.4);
+            if (r.desc) r.desc.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 0.4);
           }
         });
         this.context.events.emit('point:mouseover', {
@@ -123,15 +130,15 @@ export class TimelineSeries extends BaseSeries {
         });
       };
       const onOut = (event: MouseEvent) => {
-        circle.transition('size').duration(150).attr('r', markerRadius);
+        circle.transition('size').duration(HOVER_DURATION).ease(EASE_HOVER).attr('r', markerRadius);
         circle.style('filter', '');
         el.attr('font-weight', 'normal');
         rows.forEach(r => {
           r.circle.interrupt('highlight');
           r.text.interrupt('highlight');
-          r.circle.transition('highlight').duration(150).attr('opacity', 1);
-          r.text.transition('highlight').duration(150).attr('opacity', 1);
-          if (r.desc) { r.desc.interrupt('highlight'); r.desc.transition('highlight').duration(150).attr('opacity', 1); }
+          r.circle.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
+          r.text.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
+          if (r.desc) { r.desc.interrupt('highlight'); r.desc.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1); }
         });
         this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });
       };
@@ -190,10 +197,9 @@ export class GanttSeries extends BaseSeries {
       const allBars = this.group.selectAll('.katucharts-gantt-bar');
       el.on('mouseover', (event: MouseEvent) => {
         el.style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))');
-        el.attr('stroke', '#333').attr('stroke-width', 1.5);
-        allBars.nodes().forEach((node: any) => {
-          if (node !== el.node()) node.style.opacity = '0.4';
-        });
+        el.interrupt('hover')
+          .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+          .attr('stroke', '#333').attr('stroke-width', 1.5);
         this.context.events.emit('point:mouseover', {
           point: d, index: i, series: this, event,
           plotX: (x1 + x2) / 2, plotY: y + barHeight / 2,
@@ -201,8 +207,9 @@ export class GanttSeries extends BaseSeries {
       })
       .on('mouseout', (event: MouseEvent) => {
         el.style('filter', '');
-        el.attr('stroke', 'none').attr('stroke-width', 0);
-        allBars.nodes().forEach((node: any) => { node.style.opacity = ''; });
+        el.interrupt('hover')
+          .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+          .attr('stroke', 'none').attr('stroke-width', 0);
         this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });
       })
       .on('click', (event: MouseEvent) => {

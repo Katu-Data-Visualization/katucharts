@@ -4,6 +4,12 @@ import { drag as d3Drag } from 'd3-drag';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 export class NetworkGraphSeries extends BaseSeries {
   private simulation: any = null;
@@ -109,7 +115,7 @@ export class NetworkGraphSeries extends BaseSeries {
 
     if (animate) {
       linkLines.attr('stroke-opacity', 0)
-        .transition().duration(500).delay(300)
+        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
         .attr('stroke-opacity', 0.6);
     } else {
       linkLines.attr('stroke-opacity', 0.6);
@@ -128,7 +134,7 @@ export class NetworkGraphSeries extends BaseSeries {
 
     if (animate) {
       nodeCircles.attr('r', 0)
-        .transition().duration(500)
+        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
         .attr('r', (d: any) => d.marker?.radius || 10);
     } else {
       nodeCircles.attr('r', (d: any) => d.marker?.radius || 10);
@@ -167,13 +173,13 @@ export class NetworkGraphSeries extends BaseSeries {
       .on('mouseover', (event: MouseEvent, d: any) => {
         const target = select(event.currentTarget as SVGCircleElement);
         const baseR = d.marker?.radius || 10;
-        target.transition('size').duration(150).attr('r', baseR + 4);
+        target.transition('size').duration(HOVER_DURATION).ease(EASE_HOVER).attr('r', baseR + 4);
         target.style('filter', 'drop-shadow(0 2px 6px rgba(0,0,0,0.3))');
 
         nodeCircles.interrupt('highlight');
         linkLines.interrupt('highlight');
         nodeCircles.attr('opacity', 1);
-        linkLines.transition('highlight').duration(150)
+        linkLines.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
           .attr('stroke-opacity', (l: any) =>
             l.source === d || l.target === d ? 0.9 : 0.1
           )
@@ -182,7 +188,7 @@ export class NetworkGraphSeries extends BaseSeries {
           );
 
         nodeCircles.filter((n: any) => n !== d)
-          .transition('highlight').duration(150).attr('opacity', (n: any) => {
+          .transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', (n: any) => {
             const connected = links.some((l: any) =>
               (l.source === d && l.target === n) || (l.target === d && l.source === n)
             );
@@ -197,16 +203,16 @@ export class NetworkGraphSeries extends BaseSeries {
       })
       .on('mouseout', (event: MouseEvent, d: any) => {
         const target = select(event.currentTarget as SVGCircleElement);
-        target.transition('size').duration(150).attr('r', d.marker?.radius || 10);
+        target.transition('size').duration(HOVER_DURATION).ease(EASE_HOVER).attr('r', d.marker?.radius || 10);
         target.style('filter', '');
 
         nodeCircles.interrupt('highlight');
         linkLines.interrupt('highlight');
-        linkLines.transition('highlight').duration(150)
+        linkLines.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
           .attr('stroke-opacity', 0.6)
           .attr('stroke-width', (l: any) => linkWidth ?? Math.sqrt(l.value || 1));
 
-        nodeCircles.transition('highlight').duration(150).attr('opacity', 1);
+        nodeCircles.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
 
         const i = nodes.indexOf(d);
         this.context.events.emit('point:mouseout', {
@@ -234,7 +240,7 @@ export class NetworkGraphSeries extends BaseSeries {
 
     if (animate) {
       labels.attr('opacity', 0)
-        .transition().duration(400).delay(400)
+        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
         .attr('opacity', 1);
     }
   }

@@ -6,6 +6,14 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  ENTRY_DELAY_BASE,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 interface LevelConfig {
   level: number;
@@ -115,7 +123,7 @@ export class SunburstSeries extends BaseSeries {
       const rootHoverColor = '#f0f0f0';
       rootCircle
         .on('mouseover', function(event: MouseEvent) {
-          select(this).transition('fill').duration(150).attr('fill', rootHoverColor);
+          select(this).transition('fill').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill', rootHoverColor);
           select(this).style('filter', 'drop-shadow(0 1px 3px rgba(0,0,0,0.15))');
           self.context.events.emit('point:mouseover', {
             point: { ...rootNode.data, value: rootNode.value, y: rootNode.value ?? rootNode.data.value },
@@ -124,7 +132,7 @@ export class SunburstSeries extends BaseSeries {
           });
         })
         .on('mouseout', function(event: MouseEvent) {
-          select(this).transition('fill').duration(150).attr('fill', rootColor);
+          select(this).transition('fill').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill', rootColor);
           select(this).style('filter', '');
           self.context.events.emit('point:mouseout', { point: { ...rootNode.data, value: rootNode.value, y: rootNode.value ?? rootNode.data.value }, index: -1, series: self, event });
         });
@@ -183,12 +191,13 @@ export class SunburstSeries extends BaseSeries {
     }
 
     if (animate) {
-      slices.each(function(d: any) {
+      slices.each(function(d: any, i: number) {
         const self = select(this);
         const startArc = { x0: d.x0, x1: d.x0, _y0: d._y0, _y1: d._y1 };
         const endArc = { x0: d.x0, x1: d.x1, _y0: d._y0, _y1: d._y1 };
         const interp = interpolate(startArc, endArc);
-        self.transition().duration(800).delay(100)
+        self.transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
+          .delay(ENTRY_DELAY_BASE + i * ENTRY_STAGGER_PER_ITEM)
           .attrTween('d', () => (t: number) => arcGen(interp(t))!);
       });
     } else {
@@ -217,13 +226,14 @@ export class SunburstSeries extends BaseSeries {
         .on('mouseover', function(event: MouseEvent, d: any) {
           const target = select(this);
           const brighter = d3Color(d._color)?.brighter(0.3)?.toString() || d._color;
-          target.transition('fill').duration(150).attr('fill', brighter);
+          target.transition('fill').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill', brighter);
           target.style('filter', 'drop-shadow(0 1px 3px rgba(0,0,0,0.2))');
 
           slices.interrupt('highlight');
           slices.attr('opacity', 1);
           slices.filter((o: any) => o !== d && !self.isAncestorOf(o, d))
-            .transition('highlight').duration(150).attr('opacity', inactiveOpacity);
+            .transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('opacity', inactiveOpacity);
 
           const i = nonRoot.indexOf(d);
           const centroid = arcGen.centroid(d);
@@ -236,10 +246,10 @@ export class SunburstSeries extends BaseSeries {
         })
         .on('mouseout', function(event: MouseEvent, d: any) {
           const target = select(this);
-          target.transition('fill').duration(150).attr('fill', d._color);
+          target.transition('fill').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill', d._color);
           target.style('filter', '');
           slices.interrupt('highlight');
-          slices.transition('highlight').duration(150).attr('opacity', 1);
+          slices.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
 
           const i = nonRoot.indexOf(d);
           self.context.events.emit('point:mouseout', { point: { ...d.data, value: d.value, y: d.value ?? d.data.value }, index: i, series: self, event });

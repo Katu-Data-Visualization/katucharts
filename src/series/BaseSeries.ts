@@ -9,6 +9,13 @@ import type { InternalSeriesConfig, PointOptions, PlotArea, DataLabelOptions, Da
 import type { AxisInstance } from '../axis/Axis';
 import { EventBus } from '../core/EventBus';
 import { templateFormat, stripHtmlTags } from '../utils/format';
+import {
+  ENTRY_DATALABEL_DELAY,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_INACTIVE_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../core/animationConstants';
 
 export interface SeriesContext {
   plotArea: PlotArea;
@@ -26,6 +33,7 @@ export interface SeriesContext {
   stackTotals?: Map<number | string, number>;
   allSeries?: BaseSeries[];
   inverted?: boolean;
+  legendConfig?: { align?: string; layout?: string; verticalAlign?: string; [key: string]: any };
 }
 
 type AnimatedRedrawFn = (duration?: number) => void;
@@ -151,6 +159,14 @@ export abstract class BaseSeries {
 
   getColor(): string {
     return this.config.color || this.context.colors[this.context.colorIndex % this.context.colors.length];
+  }
+
+  getMultiLegendItems(): { label: string; color: string }[] | null {
+    return null;
+  }
+
+  getLegendSymbolShape(): string | null {
+    return null;
   }
 
   abstract render(): void;
@@ -459,12 +475,12 @@ export abstract class BaseSeries {
     if (!allSeries || allSeries.length <= 1) return;
 
     const inactiveOpacity = this.config.states?.inactive?.opacity ?? 0.2;
-    const dur = this.config.states?.inactive?.animation?.duration ?? 50;
+    const dur = this.config.states?.inactive?.animation?.duration ?? HOVER_INACTIVE_DURATION;
 
     for (const other of allSeries) {
       if (other !== this && other.visible) {
         other.group
-          .transition('inactive').duration(dur)
+          .transition('inactive').duration(dur).ease(EASE_HOVER)
           .attr('opacity', inactiveOpacity);
       }
     }
@@ -475,12 +491,12 @@ export abstract class BaseSeries {
     if (!allSeries || allSeries.length <= 1) return;
 
     const dur = this.config.states?.normal?.animation?.duration
-      ?? this.config.states?.inactive?.animation?.duration ?? 50;
+      ?? this.config.states?.inactive?.animation?.duration ?? HOVER_INACTIVE_DURATION;
 
     for (const other of allSeries) {
       if (other !== this && other.visible) {
         other.group
-          .transition('inactive').duration(dur)
+          .transition('inactive').duration(dur).ease(EASE_HOVER)
           .attr('opacity', other.config.opacity ?? 1);
       }
     }
@@ -530,7 +546,11 @@ export abstract class BaseSeries {
         });
       } else if (merged.format) {
         text = stripHtmlTags(templateFormat(merged.format, {
-          point: d, series: { name: this.config.name ?? '' },
+          point: d,
+          series: { name: this.config.name ?? '' },
+          x: d.x,
+          y: d.y,
+          percentage: (d as any)._percentage ?? (d as any).percentage,
         }));
       } else {
         text = String(d.y);
@@ -598,7 +618,9 @@ export abstract class BaseSeries {
 
       if (this.context.animate && merged.defer !== false) {
         label.attr('opacity', 0)
-          .transition().delay(800).duration(300)
+          .transition()
+          .delay(ENTRY_DATALABEL_DELAY + i * ENTRY_STAGGER_PER_ITEM)
+          .duration(400).ease(EASE_ENTRY)
           .attr('opacity', 1);
       }
     });

@@ -10,6 +10,14 @@ import 'd3-transition';
 import { BaseSeries, resolveDashArray, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
 import { lttbDecimate } from '../../utils/decimation';
+import {
+  ENTRY_DURATION,
+  ENTRY_DATALABEL_DELAY,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 const symbolMap: Record<string, any> = {
   circle: symbolCircle,
@@ -58,7 +66,7 @@ export class AreaSeries extends BaseSeries {
     );
 
     if (animate) {
-      this.emitAfterAnimate(1200);
+      this.emitAfterAnimate(ENTRY_DURATION + ENTRY_DATALABEL_DELAY);
     }
   }
 
@@ -84,10 +92,10 @@ export class AreaSeries extends BaseSeries {
 
     if (animate) {
       const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-      const duration = animOpts.duration ?? 1000;
+      const duration = animOpts.duration ?? ENTRY_DURATION;
       this.areaPath
         .attr('fill-opacity', 0)
-        .transition().duration(duration)
+        .transition().duration(duration).ease(EASE_ENTRY)
         .attr('fill-opacity', this.config.fillOpacity ?? 0.75);
 
       this.animateLineEntry(this.linePath);
@@ -157,14 +165,16 @@ export class AreaSeries extends BaseSeries {
 
     if (animate) {
       const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-      const duration = animOpts.duration ?? 1000;
+      const duration = animOpts.duration ?? ENTRY_DURATION;
       if (this.areaPath) {
         this.areaPath.attr('fill-opacity', 0)
-          .transition().duration(duration).attr('fill-opacity', fillOpacity);
+          .transition().duration(duration).ease(EASE_ENTRY)
+          .attr('fill-opacity', fillOpacity);
       }
       if (this.negAreaPath) {
         this.negAreaPath.attr('fill-opacity', 0)
-          .transition().duration(duration).attr('fill-opacity', fillOpacity);
+          .transition().duration(duration).ease(EASE_ENTRY)
+          .attr('fill-opacity', fillOpacity);
       }
       this.animateLineEntry(this.linePath);
     }
@@ -348,13 +358,13 @@ export class AreaSeries extends BaseSeries {
     const totalLen = (path.node() as SVGPathElement)?.getTotalLength?.() || 0;
     if (totalLen > 0) {
       const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-      const duration = animOpts.duration ?? 1000;
+      const duration = animOpts.duration ?? ENTRY_DURATION;
       const defer = animOpts.defer ?? 0;
       const origDash = path.attr('stroke-dasharray');
       path
         .attr('stroke-dasharray', `${totalLen} ${totalLen}`)
         .attr('stroke-dashoffset', totalLen)
-        .transition().delay(defer).duration(duration)
+        .transition().delay(defer).duration(duration).ease(EASE_ENTRY)
         .attr('stroke-dashoffset', 0)
         .on('end', () => path.attr('stroke-dasharray', origDash === 'none' ? null : origDash));
     }
@@ -383,7 +393,9 @@ export class AreaSeries extends BaseSeries {
 
       if (animate) {
         circles.attr('r', 0)
-          .transition().delay((_, i) => staggerDelay(i, 800, 30, validData.length)).duration(300)
+          .transition()
+          .delay((_, i) => staggerDelay(i, ENTRY_DATALABEL_DELAY, ENTRY_STAGGER_PER_ITEM, validData.length))
+          .duration(ENTRY_DURATION).ease(EASE_ENTRY)
           .attr('r', (d) => d.marker?.radius ?? radius);
       } else {
         circles.attr('r', (d) => d.marker?.radius ?? radius);
@@ -405,7 +417,9 @@ export class AreaSeries extends BaseSeries {
       if (animate) {
         const zeroGen = d3Symbol().type(symbolType).size(0);
         paths.attr('d', zeroGen as any)
-          .transition().delay((_, i) => staggerDelay(i, 800, 30, validData.length)).duration(300)
+          .transition()
+          .delay((_, i) => staggerDelay(i, ENTRY_DATALABEL_DELAY, ENTRY_STAGGER_PER_ITEM, validData.length))
+          .duration(ENTRY_DURATION).ease(EASE_ENTRY)
           .attr('d', (d) => {
             const r = d.marker?.radius ?? radius;
             return d3Symbol().type(symbolType).size(Math.PI * r * r)() as string;
@@ -524,10 +538,10 @@ export class AreaSeries extends BaseSeries {
 
       hitArea
         .on('mouseover', (event: MouseEvent) => {
-          halo.transition().duration(150)
+          halo.transition().duration(HOVER_DURATION).ease(EASE_HOVER)
             .attr('r', haloSize)
             .attr('opacity', haloOpacity);
-          marker.transition().duration(150).attr('r', hoverRadius);
+          marker.transition().duration(HOVER_DURATION).ease(EASE_HOVER).attr('r', hoverRadius);
           this.context.events.emit('point:mouseover', {
             point: d, index: i, series: this, event, plotX: cx, plotY: cy,
           });
@@ -535,10 +549,10 @@ export class AreaSeries extends BaseSeries {
           this.config.point?.events?.mouseOver?.call(d, event);
         })
         .on('mouseout', (event: MouseEvent) => {
-          halo.transition().duration(150)
+          halo.transition().duration(HOVER_DURATION).ease(EASE_HOVER)
             .attr('r', 0)
             .attr('opacity', 0);
-          marker.transition().duration(150).attr('r', 0);
+          marker.transition().duration(HOVER_DURATION).ease(EASE_HOVER).attr('r', 0);
           this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });
           d.events?.mouseOut?.call(d, event);
           this.config.point?.events?.mouseOut?.call(d, event);

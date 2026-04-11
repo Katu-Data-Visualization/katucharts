@@ -378,8 +378,11 @@ export class Tooltip {
     const footer = templateFormat(footerFmt, context);
 
     let totalLine = '';
-    if ((data.point as any).total !== undefined && !footerFmt) {
-      const totalVal = this.formatValue((data.point as any).total);
+    const hasCustomPointFmt = !!(seriesTooltip?.pointFormat ?? this.config.pointFormat);
+    if ((data.point as any).total !== undefined && !footerFmt && !hasCustomPointFmt) {
+      const raw = (data.point as any).total as number;
+      const rounded = Math.round(raw * 1e6) / 1e6;
+      const totalVal = this.formatValue(rounded);
       totalLine = `<span style="font-size:10px">Total: <b>${totalVal}</b></span><br/>`;
     }
 

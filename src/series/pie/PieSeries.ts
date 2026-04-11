@@ -2,15 +2,24 @@ import { pie as d3Pie, arc as d3Arc } from 'd3-shape';
 import { interpolate } from 'd3-interpolate';
 import { select } from 'd3-selection';
 import 'd3-transition';
-import { BaseSeries, type SeriesContext } from '../BaseSeries';
+import { BaseSeries, staggerDelay, type SeriesContext } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions, DataLabelOptions, BorderRadiusOptions } from '../../types/options';
 import { templateFormat, stripHtmlTags } from '../../utils/format';
+import {
+  ENTRY_DURATION,
+  ENTRY_DELAY_BASE,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 export class PieSeries extends BaseSeries {
   private selectedIndices: Set<number> = new Set();
 
   constructor(config: InternalSeriesConfig) {
     super(config);
+    config.showInLegend = false;
   }
 
   init(context: SeriesContext): void {
@@ -47,7 +56,7 @@ export class PieSeries extends BaseSeries {
     const cy = this.resolvePercent(center[1], plotArea.height);
 
     const availableW = plotArea.width - labelMargin * 2;
-    const availableH = plotArea.height - (labelsEnabled ? labelMargin * 0.8 : 0);
+    const availableH = plotArea.height - (labelsEnabled ? labelMargin * 2 : 0);
     const availableSpace = Math.min(availableW, availableH);
     const minDim = Math.min(plotArea.width, plotArea.height);
     const hasExplicitSize = this.config.size !== undefined && this.config.size !== null;
@@ -151,14 +160,15 @@ export class PieSeries extends BaseSeries {
     });
 
     if (animate) {
-      slices.each(function(d: any) {
+      slices.each(function(d: any, i: number) {
         const el = select(this);
         const startArc = { startAngle: d.startAngle, endAngle: d.startAngle };
         const interp = interpolate(startArc, d);
         el
           .transition()
-          .duration(800)
-          .delay(100)
+          .duration(ENTRY_DURATION)
+          .ease(EASE_ENTRY)
+          .delay(ENTRY_DELAY_BASE + i * ENTRY_STAGGER_PER_ITEM)
           .attrTween('d', () => (t: number) => arcGen(interp(t))!);
       });
     } else {
@@ -173,13 +183,15 @@ export class PieSeries extends BaseSeries {
           const isSelected = self.selectedIndices.has(i);
 
           if (!isSelected) {
-            target.transition('arc').duration(150).attr('d', arcHover(d)!);
+            target.transition('arc').duration(HOVER_DURATION).ease(EASE_HOVER).attr('d', arcHover(d)!);
           }
           target.style('filter', 'drop-shadow(0 2px 6px rgba(0,0,0,0.25))');
 
           slices.interrupt('highlight');
           slices.attr('opacity', self.config.opacity ?? 1);
-          slices.filter((o: any) => o !== d).transition('highlight').duration(150).attr('opacity', inactiveOpacity);
+          slices.filter((o: any) => o !== d)
+            .transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('opacity', inactiveOpacity);
 
           const centroid = arcGen.centroid(d);
           self.context.events.emit('point:mouseover', {
@@ -195,11 +207,12 @@ export class PieSeries extends BaseSeries {
           const isSelected = self.selectedIndices.has(i);
 
           if (!isSelected) {
-            target.transition('arc').duration(150).attr('d', arcGen(d)!);
+            target.transition('arc').duration(HOVER_DURATION).ease(EASE_HOVER).attr('d', arcGen(d)!);
           }
           target.style('filter', '');
           slices.interrupt('highlight');
-          slices.transition('highlight').duration(150).attr('opacity', self.config.opacity ?? 1);
+          slices.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('opacity', self.config.opacity ?? 1);
 
           self.context.events.emit('point:mouseout', { point: d.data, index: i, series: self, event });
           d.data.events?.mouseOut?.call(d.data, event);
@@ -212,12 +225,12 @@ export class PieSeries extends BaseSeries {
             const wasSelected = self.selectedIndices.has(i);
             if (wasSelected) {
               self.selectedIndices.delete(i);
-              select(this).transition('slice').duration(200).attr('transform', '');
+              select(this).transition('slice').duration(HOVER_DURATION).ease(EASE_HOVER).attr('transform', '');
               d.data.events?.unselect?.call(d.data, event);
               self.config.point?.events?.unselect?.call(d.data, event);
             } else {
               self.selectedIndices.add(i);
-              select(this).transition('slice').duration(200).attr('transform', computeSlicedTranslate(d));
+              select(this).transition('slice').duration(HOVER_DURATION).ease(EASE_HOVER).attr('transform', computeSlicedTranslate(d));
               d.data.events?.select?.call(d.data, event);
               self.config.point?.events?.select?.call(d.data, event);
             }
@@ -247,7 +260,7 @@ export class PieSeries extends BaseSeries {
     this.renderPieLabels(g, pieData, arcGen, outerRadius, endAngle - startAngle);
 
     if (animate) {
-      this.emitAfterAnimate(1000);
+      this.emitAfterAnimate(ENTRY_DURATION + pieData.length * ENTRY_STAGGER_PER_ITEM);
     }
   }
 
@@ -613,7 +626,8 @@ export class FunnelSeries extends BaseSeries {
 
       if (animate) {
         el.attr('fill', color).attr('opacity', 0)
-          .transition().duration(500).delay(i * 80)
+          .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
+          .delay(staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length))
           .attr('opacity', 1);
       } else {
         el.attr('fill', color);
@@ -652,23 +666,25 @@ export class FunnelSeries extends BaseSeries {
 
       if (this.config.enableMouseTracking !== false) {
         el.on('mouseover', (event: MouseEvent) => {
-          el.transition('move').duration(150)
+          el.transition('move').duration(HOVER_DURATION).ease(EASE_HOVER)
             .attr('transform', `translate(0, -3)`)
             .style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.2))');
           segments.forEach(s => s.interrupt('highlight'));
           segments.forEach(s => s.attr('opacity', 1));
-          segments.forEach((s, j) => { if (j !== i) s.transition('highlight').duration(150).attr('opacity', inactiveOpacity); });
+          segments.forEach((s, j) => {
+            if (j !== i) s.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', inactiveOpacity);
+          });
           this.context.events.emit('point:mouseover', {
             point: d, index: i, series: this, event,
             plotX: centerX, plotY: y + segmentHeight / 2,
           });
           d.events?.mouseOver?.call(d, event);
         }).on('mouseout', (event: MouseEvent) => {
-          el.transition('move').duration(150)
+          el.transition('move').duration(HOVER_DURATION).ease(EASE_HOVER)
             .attr('transform', '')
             .style('filter', '');
           segments.forEach(s => s.interrupt('highlight'));
-          segments.forEach(s => s.transition('highlight').duration(150).attr('opacity', 1));
+          segments.forEach(s => s.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1));
           this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });
           d.events?.mouseOut?.call(d, event);
         }).on('click', (event: MouseEvent) => {

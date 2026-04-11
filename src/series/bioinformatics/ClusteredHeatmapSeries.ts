@@ -10,6 +10,12 @@ import { hierarchy, cluster } from 'd3-hierarchy';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 interface DendrogramNode {
   children?: DendrogramNode[];
@@ -64,7 +70,7 @@ export class ClusteredHeatmapSeries extends BaseSeries {
     const cellHeight = heatmapArea.height / nRows;
 
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDur = animOpts.duration ?? 600;
+    const entryDur = animOpts.duration ?? ENTRY_DURATION;
 
     this.renderHeatmapCells(data, heatmapArea, xValues, yValues, cellWidth, cellHeight, colorScale, nullColor, !!animate, entryDur);
 
@@ -119,7 +125,7 @@ export class ClusteredHeatmapSeries extends BaseSeries {
 
       if (animate) {
         cell.attr('opacity', 0)
-          .transition().duration(duration)
+          .transition().duration(duration).ease(EASE_ENTRY)
           .attr('opacity', 1);
       }
 
@@ -127,7 +133,9 @@ export class ClusteredHeatmapSeries extends BaseSeries {
         const idx = data.indexOf(d);
         cell
           .on('mouseover', (event: MouseEvent) => {
-            cell.attr('stroke', '#333').attr('stroke-width', 2);
+            cell.interrupt('hover')
+              .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+              .attr('stroke', '#333').attr('stroke-width', 2);
             this.context.events.emit('point:mouseover', {
               point: d, index: idx, series: this, event,
               plotX: area.x + xi * cellWidth + cellWidth / 2,
@@ -135,7 +143,9 @@ export class ClusteredHeatmapSeries extends BaseSeries {
             });
           })
           .on('mouseout', (event: MouseEvent) => {
-            cell.attr('stroke', borderColor).attr('stroke-width', borderWidth);
+            cell.interrupt('hover')
+              .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+              .attr('stroke', borderColor).attr('stroke-width', borderWidth);
             this.context.events.emit('point:mouseout', { point: d, index: idx, series: this, event });
           })
           .on('click', (event: MouseEvent) => {
@@ -180,7 +190,7 @@ export class ClusteredHeatmapSeries extends BaseSeries {
 
     if (animate) {
       links.attr('opacity', 0)
-        .transition().duration(duration)
+        .transition().duration(duration).ease(EASE_ENTRY)
         .attr('opacity', 1);
     }
   }
@@ -220,7 +230,7 @@ export class ClusteredHeatmapSeries extends BaseSeries {
 
     if (animate) {
       links.attr('opacity', 0)
-        .transition().duration(duration)
+        .transition().duration(duration).ease(EASE_ENTRY)
         .attr('opacity', 1);
     }
   }

@@ -5,9 +5,16 @@
  */
 
 import { hierarchy, cluster } from 'd3-hierarchy';
+import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 interface PhyloNode {
   name?: string;
@@ -39,7 +46,7 @@ export class PhyloTreeSeries extends BaseSeries {
     const colorByAttribute = this.config.colorByAttribute as string | undefined;
 
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDur = animOpts.duration ?? 800;
+    const entryDur = animOpts.duration ?? ENTRY_DURATION;
 
     const root = hierarchy<PhyloNode>(treeData);
     const leaves = root.leaves();
@@ -123,7 +130,7 @@ export class PhyloTreeSeries extends BaseSeries {
 
     if (animate) {
       linkPaths.attr('opacity', 0)
-        .transition().duration(duration)
+        .transition().duration(duration).ease(EASE_ENTRY)
         .attr('opacity', 1);
     }
 
@@ -155,7 +162,7 @@ export class PhyloTreeSeries extends BaseSeries {
 
     if (animate) {
       leafGroup.attr('opacity', 0)
-        .transition().duration(duration).delay(duration * 0.3)
+        .transition().duration(duration).ease(EASE_ENTRY)
         .attr('opacity', 1);
     }
 
@@ -265,7 +272,7 @@ export class PhyloTreeSeries extends BaseSeries {
 
     if (animate) {
       treeGroup.attr('opacity', 0)
-        .transition().duration(duration)
+        .transition().duration(duration).ease(EASE_ENTRY)
         .attr('opacity', 1);
     }
 
@@ -325,7 +332,12 @@ export class PhyloTreeSeries extends BaseSeries {
     leafGroup
       .on('mouseover', (event: MouseEvent, d: any) => {
         const target = event.currentTarget as SVGGElement;
-        target.querySelector('circle')?.setAttribute('r', '5');
+        const c = target.querySelector('circle');
+        if (c) {
+          select(c).interrupt('hover')
+            .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('r', 5);
+        }
 
         const i = leaves.indexOf(d);
         this.context.events.emit('point:mouseover', {
@@ -336,7 +348,12 @@ export class PhyloTreeSeries extends BaseSeries {
       })
       .on('mouseout', (event: MouseEvent, d: any) => {
         const target = event.currentTarget as SVGGElement;
-        target.querySelector('circle')?.setAttribute('r', '3');
+        const c = target.querySelector('circle');
+        if (c) {
+          select(c).interrupt('hover')
+            .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('r', 3);
+        }
 
         const i = leaves.indexOf(d);
         this.context.events.emit('point:mouseout', {

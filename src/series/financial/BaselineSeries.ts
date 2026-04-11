@@ -2,6 +2,7 @@ import { select } from 'd3-selection';
 import { BaseSeries } from '../BaseSeries';
 import { area as d3area, line as d3line, curveLinear } from 'd3-shape';
 import type { InternalSeriesConfig } from '../../types/options';
+import { ENTRY_DURATION, EASE_ENTRY } from '../../core/animationConstants';
 
 interface ZoneConfig {
   color: string;
@@ -149,7 +150,7 @@ export class BaselineSeries extends BaseSeries {
         sel
           .attr('stroke-dasharray', `${totalLength} ${totalLength}`)
           .attr('stroke-dashoffset', totalLength)
-          .transition().duration(1000)
+          .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
           .attr('stroke-dashoffset', 0)
           .on('end', () => {
             sel.attr('stroke-dasharray', null);
@@ -158,10 +159,10 @@ export class BaselineSeries extends BaseSeries {
 
     this.group.selectAll<SVGPathElement, unknown>('[class*="katucharts-baseline-area-"]')
       .attr('opacity', 0)
-      .transition().delay(400).duration(600)
+      .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
       .attr('opacity', 1);
 
-    this.emitAfterAnimate(1000);
+    this.emitAfterAnimate(ENTRY_DURATION);
   }
 
   getDataExtents(): { xMin: number; xMax: number; yMin: number; yMax: number } {

@@ -7,6 +7,7 @@
 
 import { BaseSeries } from '../../BaseSeries';
 import type { InternalSeriesConfig } from '../../../types/options';
+import { ENTRY_DURATION } from '../../../core/animationConstants';
 import { CircosLayoutEngine } from './CircosLayoutEngine';
 import type { ChromosomeDef, CircosTrack, TrackRenderOptions } from './CircosTypes';
 import { DEFAULT_CANVAS_THRESHOLD } from './CircosTypes';
@@ -57,7 +58,7 @@ export class CircosSeries extends BaseSeries {
     });
 
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDur = animOpts.duration ?? 800;
+    const entryDur = animOpts.duration ?? ENTRY_DURATION;
 
     const mainGroup = this.group.append('g')
       .attr('class', 'katucharts-circos')
@@ -115,7 +116,7 @@ export class CircosSeries extends BaseSeries {
     }
 
     if (animate) {
-      this.emitAfterAnimate(entryDur + 200);
+      this.emitAfterAnimate(entryDur + 100);
     }
   }
 

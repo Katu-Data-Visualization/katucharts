@@ -6,6 +6,12 @@ import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, GaugeDialOptions, GaugePivotOptions, PaneOptions, PlotBandOptions } from '../../types/options';
 import { templateFormat, stripHtmlTags } from '../../utils/format';
+import {
+  ENTRY_DURATION,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 export class GaugeSeries extends BaseSeries {
   constructor(config: InternalSeriesConfig) {
@@ -115,7 +121,7 @@ export class GaugeSeries extends BaseSeries {
     if (animate) {
       const startPath = this.buildNeedlePath(startAngle, dialRadius, dialRearLength, dialBaseWidth, dialTopWidth);
       needle.attr('d', startPath)
-        .transition().duration(1000)
+        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
         .attrTween('d', () => {
           const interp = interpolate(startAngle, needleAngle);
           return (t: number) => this.buildNeedlePath(interp(t), dialRadius, dialRearLength, dialBaseWidth, dialTopWidth);
@@ -125,8 +131,12 @@ export class GaugeSeries extends BaseSeries {
     }
 
     if (this.config.enableMouseTracking !== false) {
+      const baseStrokeWidth = dialBorderWidth;
       needle
         .on('mouseover', (event: MouseEvent) => {
+          needle.interrupt('hover')
+            .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('stroke-width', baseStrokeWidth + 2);
           needle.style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.4))');
           this.context.events.emit('point:mouseover', {
             point: this.data[0], index: 0, series: this, event,
@@ -135,6 +145,9 @@ export class GaugeSeries extends BaseSeries {
           this.data[0]?.events?.mouseOver?.call(this.data[0], event);
         })
         .on('mouseout', (event: MouseEvent) => {
+          needle.interrupt('hover')
+            .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('stroke-width', baseStrokeWidth);
           needle.style('filter', 'drop-shadow(0 1px 2px rgba(0,0,0,0.3))');
           this.context.events.emit('point:mouseout', { point: this.data[0], index: 0, series: this, event });
           this.data[0]?.events?.mouseOut?.call(this.data[0], event);
@@ -158,7 +171,7 @@ export class GaugeSeries extends BaseSeries {
     this.renderValueLabel(g, radius, value);
 
     if (animate) {
-      this.emitAfterAnimate(1100);
+      this.emitAfterAnimate(ENTRY_DURATION + 100);
     }
   }
 
@@ -421,7 +434,7 @@ export class SolidGaugeSeries extends BaseSeries {
     }
 
     if (animate) {
-      this.emitAfterAnimate(1100);
+      this.emitAfterAnimate(ENTRY_DURATION + 100);
     }
   }
 
@@ -480,7 +493,7 @@ export class SolidGaugeSeries extends BaseSeries {
     if (animate) {
       const interp = interpolate(startAngle, valueAngle);
       const self = this;
-      valPath.transition().duration(1000)
+      valPath.transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
         .attrTween('d', () => (t: number) => {
           const currentAngle = interp(t);
           const path = valArcGen.startAngle(startAngle).endAngle(currentAngle)({}) as string;
@@ -497,7 +510,8 @@ export class SolidGaugeSeries extends BaseSeries {
     if (this.config.enableMouseTracking !== false) {
       valPath
         .on('mouseover', (event: MouseEvent) => {
-          valPath.transition().duration(150)
+          valPath.interrupt('hover')
+            .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
             .attr('d', hoverArcGen.startAngle(startAngle).endAngle(valueAngle)({}) as string);
           valPath.style('filter', 'drop-shadow(0 2px 6px rgba(0,0,0,0.25))');
           this.context.events.emit('point:mouseover', {
@@ -507,7 +521,8 @@ export class SolidGaugeSeries extends BaseSeries {
           d?.events?.mouseOver?.call(d, event);
         })
         .on('mouseout', (event: MouseEvent) => {
-          valPath.transition().duration(150)
+          valPath.interrupt('hover')
+            .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
             .attr('d', valArcGen.startAngle(startAngle).endAngle(valueAngle)({}) as string);
           valPath.style('filter', '');
           this.context.events.emit('point:mouseout', { point: d, index: idx, series: this, event });

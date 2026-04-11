@@ -10,11 +10,18 @@ import { arc as d3Arc } from 'd3-shape';
 import { scaleSequential } from 'd3-scale';
 import { color as d3Color } from 'd3-color';
 import 'd3-transition';
+import { select } from 'd3-selection';
 import { BaseSeries } from '../../BaseSeries';
 import type { InternalSeriesConfig } from '../../../types/options';
 import { CircosLayoutEngine, parseRadius, safeMinMax } from './CircosLayoutEngine';
 import type { ChromosomeDef, ChromosomeArc, CircosColorScaleName } from './CircosTypes';
 import { getColorInterpolator } from './CircosColorScales';
+import {
+  ENTRY_DURATION,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../../core/animationConstants';
 
 interface SpeciesDef {
   name: string;
@@ -97,7 +104,7 @@ export class CircosComparativeSeries extends BaseSeries {
     });
 
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDur = animOpts.duration ?? 800;
+    const entryDur = animOpts.duration ?? ENTRY_DURATION;
 
     const mainGroup = this.group.append('g')
       .attr('class', 'katucharts-circos-comparative')
@@ -130,7 +137,7 @@ export class CircosComparativeSeries extends BaseSeries {
     );
 
     if (animate) {
-      this.emitAfterAnimate(entryDur + 200);
+      this.emitAfterAnimate(entryDur + 100);
     }
   }
 
@@ -266,7 +273,7 @@ export class CircosComparativeSeries extends BaseSeries {
     const md = minDim || 600;
     const animate = !!this.context.animate;
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDur = animOpts.duration ?? 800;
+    const entryDur = animOpts.duration ?? ENTRY_DURATION;
 
     let chrIdx = 0;
     const speciesArcs: {
@@ -326,10 +333,10 @@ export class CircosComparativeSeries extends BaseSeries {
 
     if (animate) {
       arcs.attr('opacity', 0)
-        .transition().duration(entryDur * 0.3).delay(entryDur * 0.5)
+        .transition().duration(entryDur).ease(EASE_ENTRY)
         .attr('opacity', 0.7);
       labels.attr('opacity', 0)
-        .transition().duration(entryDur * 0.3).delay(entryDur * 0.5)
+        .transition().duration(entryDur).ease(EASE_ENTRY)
         .attr('opacity', 1);
     }
   }
@@ -346,7 +353,7 @@ export class CircosComparativeSeries extends BaseSeries {
     animate?: boolean,
     entryDur?: number,
   ): void {
-    const dur = entryDur ?? 800;
+    const dur = entryDur ?? ENTRY_DURATION;
     const ribbonOpacity = (this.config as any).ribbonOpacity ?? 0.4;
 
     let scoreColorScale: ((v: number) => string) | null = null;
@@ -374,14 +381,16 @@ export class CircosComparativeSeries extends BaseSeries {
 
     if (animate) {
       ribbons.attr('opacity', 0)
-        .transition().duration(dur * 0.4).delay(dur * 0.7)
+        .transition().duration(dur).ease(EASE_ENTRY)
         .attr('opacity', ribbonOpacity);
     }
 
     if (this.context.events) {
       ribbons
         .on('mouseover', (event: MouseEvent, d: PrefixedBlock) => {
-          (event.currentTarget as SVGElement).setAttribute('opacity', String(Math.min(ribbonOpacity + 0.3, 1)));
+          select(event.currentTarget as SVGElement).interrupt('hover')
+            .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('opacity', Math.min(ribbonOpacity + 0.3, 1));
           this.context.events.emit('point:mouseover', {
             point: { name: `${d.sourceChrPrefixed}→${d.targetChrPrefixed}`, custom: d },
             index: blocks.indexOf(d), series: this, event,
@@ -389,7 +398,9 @@ export class CircosComparativeSeries extends BaseSeries {
           });
         })
         .on('mouseout', (event: MouseEvent, d: PrefixedBlock) => {
-          (event.currentTarget as SVGElement).setAttribute('opacity', String(ribbonOpacity));
+          select(event.currentTarget as SVGElement).interrupt('hover')
+            .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('opacity', ribbonOpacity);
           this.context.events.emit('point:mouseout', {
             point: { name: `${d.sourceChrPrefixed}→${d.targetChrPrefixed}` },
             index: blocks.indexOf(d), series: this, event,
@@ -412,7 +423,7 @@ export class CircosComparativeSeries extends BaseSeries {
     animate?: boolean,
     entryDur?: number,
   ): void {
-    const dur = entryDur ?? 800;
+    const dur = entryDur ?? ENTRY_DURATION;
     const scores = blocks.map(b => b.score);
     const { min: minScore, max: maxScore } = safeMinMax(scores);
     const interpolator = getColorInterpolator(colorScaleName || 'Viridis');
@@ -440,7 +451,7 @@ export class CircosComparativeSeries extends BaseSeries {
 
     if (animate) {
       cells.attr('opacity', 0)
-        .transition().duration(dur * 0.3).delay(dur * 0.6)
+        .transition().duration(dur).ease(EASE_ENTRY)
         .attr('opacity', 1);
     }
   }

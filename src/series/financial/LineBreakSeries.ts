@@ -5,6 +5,13 @@
 
 import { BaseSeries, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 interface LineBreakBlock {
   index: number;
@@ -115,8 +122,8 @@ export class LineBreakSeries extends BaseSeries {
           .attr('y', midY)
           .attr('height', 0)
           .transition()
-          .duration(400)
-          .delay(staggerDelay(i, 100, 25, blocks.length))
+          .duration(ENTRY_DURATION).ease(EASE_ENTRY)
+          .delay(staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, blocks.length))
           .attr('y', yTop)
           .attr('height', height);
       } else {
@@ -128,7 +135,7 @@ export class LineBreakSeries extends BaseSeries {
           .on('mouseover', (event: MouseEvent) => {
             rect.style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.25))');
             groups.forEach((g, j) => {
-              if (j !== i) g.transition('highlight').duration(150).attr('opacity', inactiveOpacity);
+              if (j !== i) g.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', inactiveOpacity);
             });
             this.context.events.emit('point:mouseover', {
               point: { x: block.index, y: block.close, open: block.open, close: block.close, direction: block.direction },
@@ -139,7 +146,7 @@ export class LineBreakSeries extends BaseSeries {
           .on('mouseout', (event: MouseEvent) => {
             rect.style('filter', '');
             groups.forEach(g => g.interrupt('highlight'));
-            groups.forEach(g => g.transition('highlight').duration(150).attr('opacity', 1));
+            groups.forEach(g => g.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1));
             this.context.events.emit('point:mouseout', {
               point: { x: block.index, y: block.close },
               index: i, series: this, event,
@@ -156,7 +163,7 @@ export class LineBreakSeries extends BaseSeries {
     }
 
     if (animate) {
-      this.emitAfterAnimate(100 + blocks.length * 25 + 400);
+      this.emitAfterAnimate(ENTRY_DURATION + blocks.length * ENTRY_STAGGER_PER_ITEM);
     }
   }
 

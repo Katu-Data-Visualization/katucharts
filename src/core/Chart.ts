@@ -77,13 +77,42 @@ export class Chart {
     this.layoutEngine = new LayoutEngine();
 
     const dims = getElementDimensions(this.container);
-    this.chartWidth = (this.options.chart.width as number) || dims.width || 600;
-    this.chartHeight = this.resolveHeight(this.options.chart.height, dims.height);
+    const outerWidth = (this.options.chart.width as number) || dims.width || 600;
+    const outerHeight = this.resolveHeight(this.options.chart.height, dims.height);
+
+    const scrollable = (this.options.chart as any).scrollablePlotArea as { minWidth?: number; minHeight?: number; scrollPositionX?: number; scrollPositionY?: number } | undefined;
+    const useVerticalScroll = scrollable?.minHeight && scrollable.minHeight > outerHeight;
+    const useHorizontalScroll = scrollable?.minWidth && scrollable.minWidth > outerWidth;
+
+    this.chartWidth = useHorizontalScroll ? scrollable!.minWidth! : outerWidth;
+    this.chartHeight = useVerticalScroll ? scrollable!.minHeight! : outerHeight;
+    this.scrollableOuterWidth = outerWidth;
+    this.scrollableOuterHeight = outerHeight;
+    this.useVerticalScroll = !!useVerticalScroll;
+    this.useHorizontalScroll = !!useHorizontalScroll;
+
+    if (useVerticalScroll || useHorizontalScroll) {
+      this.container.style.position = 'relative';
+      const existingInners = this.container.querySelectorAll(':scope > [data-katu-scrollable-inner]');
+      existingInners.forEach(el => el.parentElement?.removeChild(el));
+      const existingOverlays = this.container.querySelectorAll(':scope > svg[data-katu-fixed-overlay]');
+      existingOverlays.forEach(el => el.parentElement?.removeChild(el));
+      this.scrollableInner = document.createElement('div');
+      this.scrollableInner.setAttribute('data-katu-scrollable-inner', '1');
+      this.scrollableInner.style.overflowX = useHorizontalScroll ? 'auto' : 'hidden';
+      this.scrollableInner.style.overflowY = useVerticalScroll ? 'auto' : 'hidden';
+      this.scrollableInner.style.width = outerWidth + 'px';
+      this.scrollableInner.style.height = outerHeight + 'px';
+      this.container.appendChild(this.scrollableInner);
+    }
 
     this.setupResponsive();
     this.applyInitialResponsiveRules();
 
-    this.renderer = new SVGRenderer(this.container, this.chartWidth, this.chartHeight);
+    this.renderer = new SVGRenderer(this.scrollableInner || this.container, this.chartWidth, this.chartHeight);
+    if (this.scrollableInner) {
+      this.renderer.svg.style('max-width', 'none');
+    }
     this.applyChartStyles();
 
     this.computeLayout();
@@ -91,6 +120,10 @@ export class Chart {
     this.buildAxes();
     this.buildSeries();
     this.renderAll();
+
+    if (useVerticalScroll || useHorizontalScroll) {
+      this.createFixedAxisOverlay();
+    }
 
     if (this.options.chart.reflow) {
       this.setupReflow();
@@ -101,6 +134,174 @@ export class Chart {
     this.setupZoom();
     this.setupAccessibility();
     this.fireEvent('load');
+  }
+
+  private scrollableInner: HTMLDivElement | null = null;
+  private scrollableOuterWidth = 0;
+  private scrollableOuterHeight = 0;
+  private useVerticalScroll = false;
+  private useHorizontalScroll = false;
+  private fixedAxisOverlay: SVGSVGElement | null = null;
+
+  private createFixedAxisOverlay(): void {
+    if (!this.scrollableInner) return;
+    const mainSvg = this.renderer.getSVGNode();
+    if (!mainSvg) return;
+
+    if (this.fixedAxisOverlay && this.fixedAxisOverlay.parentElement) {
+      this.fixedAxisOverlay.parentElement.removeChild(this.fixedAxisOverlay);
+      this.fixedAxisOverlay = null;
+    }
+    const existingOverlays = this.container.querySelectorAll(':scope > svg[data-katu-fixed-overlay]');
+    existingOverlays.forEach(el => el.parentElement?.removeChild(el));
+
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const scrollbarW = this.scrollableInner.offsetWidth - this.scrollableInner.clientWidth;
+    const scrollbarH = this.scrollableInner.offsetHeight - this.scrollableInner.clientHeight;
+    const overlayWidth = this.scrollableOuterWidth - scrollbarW;
+    const overlayHeight = this.scrollableOuterHeight - scrollbarH;
+    const overlay = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+    overlay.setAttribute('data-katu-fixed-overlay', '1');
+    overlay.setAttribute('width', overlayWidth.toString());
+    overlay.setAttribute('height', overlayHeight.toString());
+    overlay.style.position = 'absolute';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.pointerEvents = 'none';
+    overlay.style.overflow = 'hidden';
+
+    const bgColor = (this.options.chart.backgroundColor as string) || '#ffffff';
+    const plotGroupTransform = (this.plotGroup as any).attr('transform') || '';
+    const plotMatch = plotGroupTransform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+    const plotOffsetX = plotMatch ? parseFloat(plotMatch[1]) : 0;
+    const plotOffsetY = plotMatch ? parseFloat(plotMatch[2]) : 0;
+    const isInverted = !!this.options.chart.inverted;
+    const bottomAxisSelector = isInverted ? '.katucharts-axis-y' : '.katucharts-axis-x';
+    const leftAxisSelector = isInverted ? '.katucharts-axis-x' : '.katucharts-axis-y';
+
+    const defs = document.createElementNS(SVG_NS, 'defs');
+    const gradientIdPrefix = `katucharts-fixed-grad-${Math.random().toString(36).slice(2, 8)}`;
+    const makeGradient = (id: string, x1: string, y1: string, x2: string, y2: string, stops: [string, string][]) => {
+      const grad = document.createElementNS(SVG_NS, 'linearGradient');
+      grad.setAttribute('id', id);
+      grad.setAttribute('x1', x1); grad.setAttribute('y1', y1);
+      grad.setAttribute('x2', x2); grad.setAttribute('y2', y2);
+      stops.forEach(([offset, stopColor]) => {
+        const stop = document.createElementNS(SVG_NS, 'stop');
+        stop.setAttribute('offset', offset);
+        stop.setAttribute('stop-color', bgColor);
+        stop.setAttribute('stop-opacity', stopColor);
+        grad.appendChild(stop);
+      });
+      defs.appendChild(grad);
+    };
+
+    const titleArea = this.layout.titleArea;
+    const subtitleArea = this.layout.subtitleArea;
+    const lastTextBottom = Math.max(
+      (titleArea?.y ?? 0) + (titleArea?.height ?? 0),
+      (subtitleArea?.y ?? 0) + (subtitleArea?.height ?? 0),
+    );
+    const fadeDistance = 30;
+    const topBandHeight = Math.max(0, Math.min(lastTextBottom + fadeDistance, plotOffsetY));
+    const topOpaquePct = topBandHeight > 0 ? Math.max(0, Math.min(100, (lastTextBottom / topBandHeight) * 100)) : 100;
+
+    makeGradient(`${gradientIdPrefix}-top`, '0%', '0%', '0%', '100%', [['0%', '1'], [`${topOpaquePct}%`, '1'], ['100%', '0']]);
+    makeGradient(`${gradientIdPrefix}-bottom`, '0%', '0%', '0%', '100%', [['0%', '0'], ['30%', '1'], ['100%', '1']]);
+    makeGradient(`${gradientIdPrefix}-left`, '0%', '0%', '100%', '0%', [['0%', '1'], ['70%', '1'], ['100%', '0']]);
+    overlay.appendChild(defs);
+
+    if (this.useVerticalScroll && topBandHeight > 0) {
+      const topBg = document.createElementNS(SVG_NS, 'rect');
+      topBg.setAttribute('x', '0');
+      topBg.setAttribute('y', '0');
+      topBg.setAttribute('width', overlayWidth.toString());
+      topBg.setAttribute('height', topBandHeight.toString());
+      topBg.setAttribute('fill', `url(#${gradientIdPrefix}-top)`);
+      overlay.appendChild(topBg);
+    }
+
+    // Pin chart title and subtitle in the overlay so they don't scroll with the plot
+    const titleGroups = mainSvg.querySelectorAll('.katucharts-title-group');
+    titleGroups.forEach(g => {
+      (g as SVGElement).style.visibility = 'hidden';
+      const clone = g.cloneNode(true) as SVGGElement;
+      (clone as SVGElement).style.visibility = 'visible';
+      const xShift = (this.chartWidth - overlayWidth) / 2;
+      if (xShift !== 0) {
+        clone.setAttribute('transform', `translate(${-xShift}, 0)`);
+      }
+      overlay.appendChild(clone);
+    });
+
+    if (this.useVerticalScroll) {
+      const bottomAxisOrigY = plotOffsetY + this.layout.plotArea.height;
+      const bottomBandHeight = this.chartHeight - bottomAxisOrigY + 10;
+      const bgRect = document.createElementNS(SVG_NS, 'rect');
+      bgRect.setAttribute('x', '0');
+      bgRect.setAttribute('y', (overlayHeight - bottomBandHeight).toString());
+      bgRect.setAttribute('width', overlayWidth.toString());
+      bgRect.setAttribute('height', bottomBandHeight.toString());
+      bgRect.setAttribute('fill', `url(#${gradientIdPrefix}-bottom)`);
+      overlay.appendChild(bgRect);
+
+      const bottomAxisGroups = mainSvg.querySelectorAll(bottomAxisSelector);
+      bottomAxisGroups.forEach(axisG => {
+        (axisG as SVGElement).style.visibility = 'hidden';
+        const wrapper = document.createElementNS(SVG_NS, 'g') as SVGGElement;
+        const fixedY = overlayHeight - (this.chartHeight - bottomAxisOrigY);
+        wrapper.setAttribute('transform', `translate(${plotOffsetX}, ${fixedY})`);
+        const clone = axisG.cloneNode(true) as SVGGElement;
+        clone.removeAttribute('transform');
+        (clone as SVGElement).style.visibility = 'visible';
+        wrapper.appendChild(clone);
+        overlay.appendChild(wrapper);
+      });
+    }
+
+    if (this.useHorizontalScroll) {
+      const leftBandWidth = plotOffsetX + 5;
+      const bgRect = document.createElementNS(SVG_NS, 'rect');
+      bgRect.setAttribute('x', '0');
+      bgRect.setAttribute('y', '0');
+      bgRect.setAttribute('width', leftBandWidth.toString());
+      bgRect.setAttribute('height', overlayHeight.toString());
+      bgRect.setAttribute('fill', `url(#${gradientIdPrefix}-left)`);
+      overlay.appendChild(bgRect);
+
+      const leftAxisGroups = mainSvg.querySelectorAll(leftAxisSelector);
+      leftAxisGroups.forEach(axisG => {
+        (axisG as SVGElement).style.visibility = 'hidden';
+        const wrapper = document.createElementNS(SVG_NS, 'g') as SVGGElement;
+        wrapper.setAttribute('transform', `translate(${plotOffsetX}, ${plotOffsetY})`);
+        const clone = axisG.cloneNode(true) as SVGGElement;
+        clone.removeAttribute('transform');
+        (clone as SVGElement).style.visibility = 'visible';
+        wrapper.appendChild(clone);
+        overlay.appendChild(wrapper);
+      });
+    }
+
+    // Pin legends in the overlay so they don't scroll with the plot content
+    const legendGroups = mainSvg.querySelectorAll('.katucharts-legend');
+    legendGroups.forEach(legG => {
+      const origTransform = (legG as SVGGElement).getAttribute('transform') || '';
+      const m = origTransform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+      const origX = m ? parseFloat(m[1]) : 0;
+      const origY = m ? parseFloat(m[2]) : 0;
+      const xShift = (this.chartWidth - overlayWidth) / 2;
+      const yShift = this.useVerticalScroll ? (this.chartHeight - overlayHeight) : 0;
+      const newX = origX - xShift;
+      const newY = origY - yShift;
+      (legG as SVGElement).style.visibility = 'hidden';
+      const clone = legG.cloneNode(true) as SVGGElement;
+      (clone as SVGElement).style.visibility = 'visible';
+      clone.setAttribute('transform', `translate(${newX}, ${newY})`);
+      overlay.appendChild(clone);
+    });
+
+    this.container.appendChild(overlay);
+    this.fixedAxisOverlay = overlay;
   }
 
   private resolveHeight(configured: number | string | null | undefined, containerHeight: number): number {
@@ -175,20 +376,17 @@ export class Chart {
       );
     }
 
-    const hasOverflowSeries = this.options.series.some(
-      s => s._internalType === 'bubble' || s._internalType === 'scatter' || s.clip === false
-    );
-    const clipPad = hasOverflowSeries ? 40 : 0;
     this.clipPathId = this.renderer.createClipPath(
-      -clipPad, -clipPad,
-      this.layout.plotArea.width + clipPad * 2,
-      this.layout.plotArea.height + clipPad * 2
+      0, 0,
+      this.layout.plotArea.width,
+      this.layout.plotArea.height
     );
 
     this.axisGroup = this.renderer.createGroup('katucharts-axis-group', this.plotGroup as any);
     this.seriesGroup = this.renderer.createGroup('katucharts-series-group', this.plotGroup as any);
-    const hasZoom = this.options.chart.zoomType || this.options.chart.panKey;
-    if (!this.isNonCartesian() && hasZoom) {
+
+    const clipDisabled = this.options.series.some(s => s.clip === false);
+    if (!this.isNonCartesian() && !clipDisabled) {
       this.seriesGroup.attr('clip-path', `url(#${this.clipPathId})`);
     }
 
@@ -400,7 +598,16 @@ export class Chart {
         xMax = Math.max(xMax, ext.xMax);
       }
       if (isFinite(xMin) && isFinite(xMax)) {
-        axis.updateDomain({ min: xMin, max: xMax });
+        const xConfigs = this.options.series.filter(
+          (cfg, si) => this.seriesInstances[si]?.visible && cfg._xAxisIndex === ai && !noAxesTypes.has(cfg._internalType)
+        );
+        const bubblePad = this.computeBubbleRadiusPadding(xConfigs, this.layout.plotArea.width);
+        axis.updateDomain({
+          min: xMin,
+          max: xMax,
+          extraMinPadding: bubblePad,
+          extraMaxPadding: bubblePad,
+        });
       }
     }
 
@@ -437,10 +644,15 @@ export class Chart {
       }
 
       const hasPercentStacking = relatedConfigs.some(cfg => cfg?.stacking === 'percent');
+      if (hasPercentStacking) {
+        yMin = 0;
+        yMax = 100;
+        axis.config.min = 0;
+        axis.config.max = 100;
+      }
       for (const accum of stackGroups.values()) {
         if (hasPercentStacking) {
-          yMin = 0;
-          yMax = Math.max(yMax, 100);
+          // already handled above
         } else {
           for (const total of accum.values()) {
             yMin = Math.min(yMin, 0);
@@ -457,9 +669,31 @@ export class Chart {
       }
 
       if (isFinite(yMin) && isFinite(yMax)) {
-        axis.updateDomain({ min: yMin, max: yMax });
+        const bubblePad = this.computeBubbleRadiusPadding(relatedConfigs, this.layout.plotArea.height);
+        axis.updateDomain({
+          min: yMin,
+          max: yMax,
+          extraMinPadding: bubblePad,
+          extraMaxPadding: bubblePad,
+        });
       }
     }
+  }
+
+  private computeBubbleRadiusPadding(configs: any[], plotSize: number): number {
+    const bubbleConfigs = configs.filter(cfg => cfg && cfg._internalType === 'bubble');
+    if (bubbleConfigs.length === 0 || plotSize <= 0) return 0;
+    let maxRadius = 0;
+    for (const cfg of bubbleConfigs) {
+      const ms = (cfg as any).maxSize;
+      let r: number;
+      if (typeof ms === 'number') r = ms;
+      else if (typeof ms === 'string' && ms.endsWith('%')) {
+        r = Math.min(this.layout.plotArea.width, this.layout.plotArea.height) * parseFloat(ms) / 100 / 2;
+      } else r = 30;
+      maxRadius = Math.max(maxRadius, r);
+    }
+    return maxRadius / Math.max(plotSize - 2 * maxRadius, 1);
   }
 
   private isNonCartesian(): boolean {
@@ -618,6 +852,7 @@ export class Chart {
     const stackSeriesCount = new Map<string, number>();
     const stackSeriesIndex = new Map<string, number>();
     const stackTotalsMap = new Map<string, Map<number | string, number>>();
+    const precomputedOffsets = new Map<number, Map<number | string, number>>();
     for (let i = 0; i < this.options.series.length; i++) {
       const cfg = this.options.series[i];
       if (cfg.stacking) {
@@ -634,6 +869,21 @@ export class Chart {
       }
     }
 
+    const reverseStackAccum = new Map<string, Map<number | string, number>>();
+    for (let i = this.options.series.length - 1; i >= 0; i--) {
+      const cfg = this.options.series[i];
+      if (!cfg.stacking) continue;
+      const sk = buildStackKey(cfg);
+      if (!reverseStackAccum.has(sk)) reverseStackAccum.set(sk, new Map());
+      const accum = reverseStackAccum.get(sk)!;
+      precomputedOffsets.set(i, new Map(accum));
+      const s = this.seriesInstances[i];
+      for (const d of s.data) {
+        const xKey = d.x ?? 0;
+        accum.set(xKey, (accum.get(xKey) || 0) + (d.y ?? 0));
+      }
+    }
+
     for (let i = 0; i < this.seriesInstances.length; i++) {
       const series = this.seriesInstances[i];
       const cfg = this.options.series[i];
@@ -646,11 +896,7 @@ export class Chart {
 
       let stackOffsets: Map<number | string, number> | undefined;
       if (cfg.stacking) {
-        const stackKey = buildStackKey(cfg);
-        if (!stackAccum.has(stackKey)) {
-          stackAccum.set(stackKey, new Map());
-        }
-        stackOffsets = new Map(stackAccum.get(stackKey)!);
+        stackOffsets = precomputedOffsets.get(i) || new Map();
       }
 
       const context: SeriesContext = {
@@ -669,6 +915,7 @@ export class Chart {
         stackTotals: cfg.stacking ? stackTotalsMap.get(buildStackKey(cfg)) : undefined,
         allSeries: this.seriesInstances,
         inverted: !!this.options.chart.inverted,
+        legendConfig: this.options.legend,
       };
 
       series.processData();
@@ -678,11 +925,6 @@ export class Chart {
       if (cfg.stacking) {
         const stackKey = buildStackKey(cfg);
         stackSeriesIndex.set(stackKey, (stackSeriesIndex.get(stackKey) || 0) + 1);
-        const accum = stackAccum.get(stackKey)!;
-        for (const d of series.data) {
-          const xKey = d.x ?? 0;
-          accum.set(xKey, (accum.get(xKey) || 0) + (d.y ?? 0));
-        }
       }
       series.setOnVisibilityChange((dur) => this.animatedRedraw(dur));
 
@@ -692,7 +934,13 @@ export class Chart {
         'timeline', 'gantt', 'map', 'heatmap', 'polar', 'radar', 'barchartrace', 'venn',
         'clusteredheatmap', 'phylotree', 'circos',
       ]);
-      if (cfg.dataLabels?.enabled && !nonCartesianTypes.has(cfg._internalType)) {
+      const selfRenderedDataLabelTypes = new Set([
+        'line', 'spline', 'column', 'bar', 'scatter', 'bubble',
+        'area', 'areaspline', 'boxplot', 'waterfall', 'volume',
+      ]);
+      if (cfg.dataLabels?.enabled
+          && !nonCartesianTypes.has(cfg._internalType)
+          && !selfRenderedDataLabelTypes.has(cfg._internalType)) {
         DataLabels.render(
           series['group'],
           series.data,
@@ -792,7 +1040,7 @@ export class Chart {
         g.style('pointer-events', 'none');
         return g;
       },
-      get plotArea() { return { ...pa }; },
+      get plotArea() { return { x: 0, y: 0, width: pa.width, height: pa.height }; },
       xAxis: {
         toPixels(val: number, axisIdx = 0) { return xAxes[axisIdx]?.getPixelForValue(val) ?? 0; },
       },
@@ -993,6 +1241,29 @@ export class Chart {
     return this.yAxes.find(a => a.config.id === id);
   }
 
+  private canReuseSeriesInstances(newConfig: InternalConfig): boolean {
+    if (this.seriesInstances.length !== newConfig.series.length) return false;
+
+    return this.seriesInstances.every((series, index) =>
+      series.config._internalType === newConfig.series[index]?._internalType
+    );
+  }
+
+  private syncSeriesInstances(newConfig: InternalConfig): void {
+    for (let i = 0; i < this.seriesInstances.length; i++) {
+      const series = this.seriesInstances[i];
+      const nextConfig = {
+        ...newConfig.series[i],
+        visible: series.visible,
+      };
+
+      this.options.series[i] = nextConfig;
+      series.config = nextConfig;
+      series.visible = nextConfig.visible !== false;
+      series.processData();
+    }
+  }
+
   update(options: Partial<KatuChartsOptions>, redraw = true): void {
     if (!this.isResponsiveUpdate) {
       this.originalUserOptions = deepMerge(
@@ -1002,15 +1273,16 @@ export class Chart {
     }
     const parser = new OptionsParser();
     const newConfig = parser.parse(deepMerge(this.optionsToExternal(), options) as KatuChartsOptions);
-    const prevSeriesCount = this.seriesInstances.length;
-    const newSeriesCount = newConfig.series?.length ?? 0;
+    const canReuseSeries = this.canReuseSeriesInstances(newConfig);
     this.state.updateConfig(newConfig);
     this.options = this.state.getConfig();
 
     if (redraw) {
-      if (prevSeriesCount !== newSeriesCount) {
+      if (!canReuseSeries) {
         this.redraw();
       } else {
+        this.buildAxes();
+        this.syncSeriesInstances(newConfig);
         try {
           this.animatedRedraw(300);
         } catch {
@@ -1127,8 +1399,12 @@ export class Chart {
     if (this.options.chart.width) return;
 
     const dims = getElementDimensions(this.container);
-    const newWidth = dims.width;
-    const newHeight = this.resolveHeight(this.options.chart.height, dims.height);
+    let newWidth = dims.width;
+    let newHeight = this.resolveHeight(this.options.chart.height, dims.height);
+
+    const scrollable = (this.options.chart as any).scrollablePlotArea as { minWidth?: number; minHeight?: number } | undefined;
+    if (scrollable?.minWidth && scrollable.minWidth > newWidth) newWidth = scrollable.minWidth;
+    if (scrollable?.minHeight && scrollable.minHeight > newHeight) newHeight = scrollable.minHeight;
 
     if (newWidth === this.chartWidth && newHeight === this.chartHeight) return;
 

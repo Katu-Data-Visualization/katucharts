@@ -1,5 +1,13 @@
 import { CandlestickSeries } from './CandlestickSeries';
 import type { InternalSeriesConfig } from '../../types/options';
+import { staggerDelay } from '../BaseSeries';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 export class HollowCandlestickSeries extends CandlestickSeries {
   private hollowSelectedIndices: Set<number> = new Set();
@@ -84,12 +92,13 @@ export class HollowCandlestickSeries extends CandlestickSeries {
 
       if (animate) {
         const midY = yAxis.getPixelForValue((high + low) / 2);
+        const delay = staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length);
         wick.attr('y1', midY).attr('y2', midY)
-          .transition().duration(600).delay(i * 40)
+          .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY).delay(delay)
           .attr('y1', yAxis.getPixelForValue(high))
           .attr('y2', yAxis.getPixelForValue(low));
         rect.attr('y', midY).attr('height', 0).attr('fill', bodyFill)
-          .transition().duration(600).delay(i * 40)
+          .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY).delay(delay)
           .attr('y', bodyY).attr('height', bodyH);
       } else {
         wick.attr('y1', yAxis.getPixelForValue(high))
@@ -100,15 +109,17 @@ export class HollowCandlestickSeries extends CandlestickSeries {
       if (this.config.enableMouseTracking !== false) {
         g.on('mouseover', (event: MouseEvent) => {
           const hoverWidthPlus = this.config.states?.hover?.lineWidthPlus ?? 2;
-          g.select('rect').transition('size').duration(150)
+          g.select('rect').transition('size').duration(HOVER_DURATION).ease(EASE_HOVER)
             .attr('x', cx - barWidth * 0.7)
             .attr('width', barWidth * 1.4);
-          g.select('line').transition('size').duration(150)
+          g.select('line').transition('size').duration(HOVER_DURATION).ease(EASE_HOVER)
             .attr('stroke-width', candleLineWidth + hoverWidthPlus);
           g.style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.25))');
           candles.forEach(c => c.interrupt('highlight'));
           candles.forEach(c => c.attr('opacity', 1));
-          candles.forEach((c, j) => { if (j !== i) c.transition('highlight').duration(150).attr('opacity', inactiveOpacity); });
+          candles.forEach((c, j) => {
+            if (j !== i) c.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', inactiveOpacity);
+          });
 
           this.context.events.emit('point:mouseover', {
             point: { ...d, open, high, low, close },
@@ -118,14 +129,14 @@ export class HollowCandlestickSeries extends CandlestickSeries {
           d.events?.mouseOver?.call(d, event);
         })
         .on('mouseout', (event: MouseEvent) => {
-          g.select('rect').transition('size').duration(150)
+          g.select('rect').transition('size').duration(HOVER_DURATION).ease(EASE_HOVER)
             .attr('x', cx - barWidth / 2)
             .attr('width', barWidth);
-          g.select('line').transition('size').duration(150)
+          g.select('line').transition('size').duration(HOVER_DURATION).ease(EASE_HOVER)
             .attr('stroke-width', candleLineWidth);
           g.style('filter', '');
           candles.forEach(c => c.interrupt('highlight'));
-          candles.forEach(c => c.transition('highlight').duration(150).attr('opacity', 1));
+          candles.forEach(c => c.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1));
 
           this.context.events.emit('point:mouseout', {
             point: d, index: i, series: this, event,

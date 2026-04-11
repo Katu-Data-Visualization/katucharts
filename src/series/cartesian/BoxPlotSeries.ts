@@ -5,9 +5,17 @@
  * grouping/groupPadding/pointPadding, data labels, and animated updates.
  */
 
+import { select } from 'd3-selection';
 import 'd3-transition';
-import { BaseSeries, resolveDashArray } from '../BaseSeries';
+import { BaseSeries, resolveDashArray, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions, BorderRadiusOptions } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 function resolveBorderRadius(val: number | BorderRadiusOptions | undefined): number {
   if (val === undefined) return 4;
@@ -42,7 +50,7 @@ export class BoxPlotSeries extends BaseSeries {
     const boxDash = resolveDashArray(this.config.boxDashStyle);
     const boxStrokeWidth = this.config.lineWidth ?? 1;
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDur = animOpts.duration ?? 600;
+    const entryDur = animOpts.duration ?? ENTRY_DURATION;
 
     for (let i = 0; i < data.length; i++) {
       const d = data[i] as any;
@@ -99,42 +107,42 @@ export class BoxPlotSeries extends BaseSeries {
         .attr('stroke-dasharray', whiskerDash);
 
       if (animate) {
-        const delay = i * 80;
+        const delay = staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length);
         const dur = entryDur;
 
         lowerStem
           .attr('y1', midY).attr('y2', midY)
-          .transition().duration(dur).delay(delay)
+          .transition().duration(dur).ease(EASE_ENTRY).delay(delay)
           .attr('y1', yAxis.getPixelForValue(low))
           .attr('y2', yAxis.getPixelForValue(q1));
 
         upperStem
           .attr('y1', midY).attr('y2', midY)
-          .transition().duration(dur).delay(delay)
+          .transition().duration(dur).ease(EASE_ENTRY).delay(delay)
           .attr('y1', yAxis.getPixelForValue(q3))
           .attr('y2', yAxis.getPixelForValue(high));
 
         box
           .attr('y', midY).attr('height', 0)
-          .transition().duration(dur).delay(delay)
+          .transition().duration(dur).ease(EASE_ENTRY).delay(delay)
           .attr('y', yAxis.getPixelForValue(q3))
           .attr('height', Math.abs(yAxis.getPixelForValue(q1) - yAxis.getPixelForValue(q3)));
 
         medianLine
           .attr('y1', midY).attr('y2', midY)
-          .transition().duration(dur).delay(delay)
+          .transition().duration(dur).ease(EASE_ENTRY).delay(delay)
           .attr('y1', yAxis.getPixelForValue(median))
           .attr('y2', yAxis.getPixelForValue(median));
 
         lowCap
           .attr('y1', midY).attr('y2', midY)
-          .transition().duration(dur).delay(delay)
+          .transition().duration(dur).ease(EASE_ENTRY).delay(delay)
           .attr('y1', yAxis.getPixelForValue(low))
           .attr('y2', yAxis.getPixelForValue(low));
 
         highCap
           .attr('y1', midY).attr('y2', midY)
-          .transition().duration(dur).delay(delay)
+          .transition().duration(dur).ease(EASE_ENTRY).delay(delay)
           .attr('y1', yAxis.getPixelForValue(high))
           .attr('y2', yAxis.getPixelForValue(high));
       } else {
@@ -168,7 +176,7 @@ export class BoxPlotSeries extends BaseSeries {
     );
 
     if (animate) {
-      this.emitAfterAnimate(entryDur + data.length * 80);
+      this.emitAfterAnimate(entryDur + data.length * ENTRY_STAGGER_PER_ITEM);
     }
   }
 
@@ -311,10 +319,14 @@ export class BoxPlotSeries extends BaseSeries {
 
     g.on('mouseover', (event: MouseEvent) => {
       g.style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.25))');
-      g.select('rect').attr('stroke-width', baseStrokeWidth + 1);
-      allGroups().nodes().forEach((el: any) => {
-        if (el !== g.node()) el.style.opacity = '0.4';
-      });
+      g.select('rect').interrupt('hover')
+        .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+        .attr('stroke-width', baseStrokeWidth + 1);
+      const others = allGroups()
+        .filter(function(this: any) { return this !== g.node(); });
+      others.interrupt('hover')
+        .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+        .style('opacity', 0.4);
       this.context.events.emit('point:mouseover', {
         point: d, index: i, series: this, event,
         plotX: cx, plotY: medianPx,
@@ -324,8 +336,12 @@ export class BoxPlotSeries extends BaseSeries {
     })
     .on('mouseout', (event: MouseEvent) => {
       g.style('filter', '');
-      g.select('rect').attr('stroke-width', baseStrokeWidth);
-      allGroups().nodes().forEach((el: any) => { el.style.opacity = ''; });
+      g.select('rect').interrupt('hover')
+        .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+        .attr('stroke-width', baseStrokeWidth);
+      allGroups().interrupt('hover')
+        .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+        .style('opacity', null);
       this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });
       d.events?.mouseOut?.call(d, event);
       this.config.point?.events?.mouseOut?.call(d, event);

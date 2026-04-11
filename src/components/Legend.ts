@@ -155,9 +155,22 @@ export class Legend {
     const availWidth = legendWidth || (layoutArea.width - padding * 2);
     const rowStep = lineHeight + itemMarginBottom + itemMarginTop;
 
-    const labels = visibleSeries.map(s => this.resolveLabel(s));
+    type LegendEntry = { label: string; color: string; series: BaseSeries; isLine: boolean };
+    const entries: LegendEntry[] = [];
+    for (const s of visibleSeries) {
+      const multiItems = s.getMultiLegendItems();
+      const isLine = ['line', 'spline', 'area', 'areaspline'].includes(s.config._internalType);
+      if (multiItems) {
+        for (const item of multiItems) {
+          entries.push({ label: item.label, color: item.color, series: s, isLine });
+        }
+      } else {
+        entries.push({ label: this.resolveLabel(s), color: s.getColor(), series: s, isLine });
+      }
+    }
+    const labels = entries.map(e => e.label);
 
-    const useGrid = layout === 'horizontal' && visibleSeries.length > 8;
+    const useGrid = layout === 'horizontal' && entries.length > 8;
     let gridColumns = 0;
     let gridItemWidth = 0;
     const maxGridRows = 6;
@@ -166,7 +179,7 @@ export class Legend {
 
     if (useGrid) {
       const grid = Legend.computeGridLayout(
-        visibleSeries.length,
+        entries.length,
         labels,
         availWidth,
         {
@@ -180,15 +193,16 @@ export class Legend {
       );
       gridColumns = grid.columns;
       gridItemWidth = grid.itemWidth;
-      totalGridRows = Math.ceil(visibleSeries.length / gridColumns);
+      totalGridRows = Math.ceil(entries.length / gridColumns);
     }
 
     const itemGroups: Selection<SVGGElement, unknown, null, undefined>[] = [];
 
-    visibleSeries.forEach((s, i) => {
-      const color = s.getColor();
-      const isLine = ['line', 'spline', 'area', 'areaspline'].includes(s.config._internalType);
-      const label = labels[i];
+    entries.forEach((entry, i) => {
+      const s = entry.series;
+      const color = entry.color;
+      const isLine = entry.isLine;
+      const label = entry.label;
 
       let itemX: number;
       let itemY: number;
@@ -227,6 +241,7 @@ export class Legend {
         .attr('transform', `translate(${itemX},${itemY})`)
         .style('cursor', 'pointer');
 
+      const customShape = s.getLegendSymbolShape();
       if (isLine) {
         itemGroup.append('line')
           .attr('x1', 0).attr('x2', symbolWidth)
@@ -238,6 +253,25 @@ export class Legend {
           .attr('cy', 6)
           .attr('r', 3)
           .attr('fill', color);
+      } else if (customShape) {
+        const cx = symbolWidth / 2;
+        const cy = symbolHeight / 2;
+        const r = Math.min(symbolWidth, symbolHeight) / 2;
+        if (customShape === 'circle') {
+          itemGroup.append('circle').attr('cx', cx).attr('cy', cy).attr('r', r).attr('fill', color);
+        } else if (customShape === 'square') {
+          itemGroup.append('rect').attr('x', 0).attr('y', 0).attr('width', symbolWidth).attr('height', symbolHeight).attr('fill', color);
+        } else if (customShape === 'diamond') {
+          itemGroup.append('path').attr('d', `M ${cx} 0 L ${symbolWidth} ${cy} L ${cx} ${symbolHeight} L 0 ${cy} Z`).attr('fill', color);
+        } else if (customShape === 'triangle') {
+          itemGroup.append('path').attr('d', `M ${cx} 0 L ${symbolWidth} ${symbolHeight} L 0 ${symbolHeight} Z`).attr('fill', color);
+        } else if (customShape === 'triangle-down') {
+          itemGroup.append('path').attr('d', `M 0 0 L ${symbolWidth} 0 L ${cx} ${symbolHeight} Z`).attr('fill', color);
+        } else if (customShape === 'cross') {
+          itemGroup.append('path').attr('d', `M 0 ${cy} L ${symbolWidth} ${cy} M ${cx} 0 L ${cx} ${symbolHeight}`).attr('stroke', color).attr('stroke-width', 2);
+        } else {
+          itemGroup.append('circle').attr('cx', cx).attr('cy', cy).attr('r', r).attr('fill', color);
+        }
       } else if (squareSymbol) {
         itemGroup.append('rect')
           .attr('x', 0).attr('y', 0)

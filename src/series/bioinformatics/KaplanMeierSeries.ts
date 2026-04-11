@@ -7,6 +7,12 @@ import { line as d3Line, area as d3Area, curveStepAfter } from 'd3-shape';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import {
+  ENTRY_DURATION,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../core/animationConstants';
 
 export class KaplanMeierSeries extends BaseSeries {
   constructor(config: InternalSeriesConfig) {
@@ -28,7 +34,7 @@ export class KaplanMeierSeries extends BaseSeries {
     const lineWidth = this.config.lineWidth ?? 2;
 
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDur = animOpts.duration ?? 800;
+    const entryDur = animOpts.duration ?? ENTRY_DURATION;
 
     if (showCI) {
       this.renderConfidenceInterval(data, color, ciOpacity, !!animate, entryDur);
@@ -77,7 +83,7 @@ export class KaplanMeierSeries extends BaseSeries {
       path
         .attr('stroke-dasharray', `${totalLength} ${totalLength}`)
         .attr('stroke-dashoffset', totalLength)
-        .transition().duration(duration)
+        .transition().duration(duration).ease(EASE_ENTRY)
         .attr('stroke-dashoffset', 0)
         .on('end', () => {
           path.attr('stroke-dasharray', null).attr('stroke-dashoffset', null);
@@ -109,7 +115,7 @@ export class KaplanMeierSeries extends BaseSeries {
 
     if (animate) {
       band.attr('opacity', 0)
-        .transition().duration(duration)
+        .transition().duration(duration).ease(EASE_ENTRY)
         .attr('opacity', 1);
     }
   }
@@ -139,7 +145,7 @@ export class KaplanMeierSeries extends BaseSeries {
 
       if (animate) {
         mark.attr('opacity', 0)
-          .transition().duration(300).delay(duration * 0.5)
+          .transition().duration(duration).ease(EASE_ENTRY)
           .attr('opacity', 1);
       }
 

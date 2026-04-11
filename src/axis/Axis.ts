@@ -22,7 +22,7 @@ export interface AxisInstance {
   config: InternalAxisConfig;
   scale: AnyScale;
   render(group: Selection<SVGGElement, unknown, null, undefined>, plotArea: PlotArea): void;
-  updateDomain(data: { min: number; max: number } | string[]): void;
+  updateDomain(data: { min: number; max: number; extraMinPadding?: number; extraMaxPadding?: number } | string[]): void;
   animateAxis(group: Selection<SVGGElement, unknown, null, undefined>, plotArea: PlotArea, duration: number): void;
   getPixelForValue(value: any): number;
   getValueForPixel(pixel: number): any;
@@ -598,8 +598,8 @@ class BaseAxis {
         ? (inv ? plotArea.height : plotArea.width)
         : (inv ? plotArea.width : plotArea.height);
       const rendersHoriz = this.config.isX ? !inv : !!inv;
-      const tickPixelInterval = this.config.tickPixelInterval ?? (rendersHoriz ? 100 : 72);
-      const idealTickCount = Math.min(8, Math.max(2, Math.floor(axisLength / tickPixelInterval)));
+      const tickPixelInterval = this.config.tickPixelInterval ?? 72;
+      const idealTickCount = Math.min(20, Math.max(2, Math.round(axisLength / tickPixelInterval)));
       const domain = scale.domain();
       if ((this as any).computeNiceTicks) {
         const tickValues = (this as any).computeNiceTicks(domain[0], domain[1], idealTickCount);
@@ -662,10 +662,12 @@ export class LinearAxis extends BaseAxis implements AxisInstance {
     this.scale = scaleLinear().range(this.getRange()).domain([0, 1]);
   }
 
-  updateDomain(data: { min: number; max: number }): void {
+  updateDomain(data: { min: number; max: number; extraMinPadding?: number; extraMaxPadding?: number }): void {
     let { min, max } = data;
-    if (this.config.min !== undefined && this.config.min !== null) min = this.config.min;
-    if (this.config.max !== undefined && this.config.max !== null) max = this.config.max;
+    const explicitMin = this.config.min !== undefined && this.config.min !== null;
+    const explicitMax = this.config.max !== undefined && this.config.max !== null;
+    if (explicitMin) min = this.config.min as number;
+    if (explicitMax) max = this.config.max as number;
     if (this.config.softMin !== undefined && min > this.config.softMin) min = this.config.softMin;
     if (this.config.softMax !== undefined && max < this.config.softMax) max = this.config.softMax;
 
@@ -677,9 +679,12 @@ export class LinearAxis extends BaseAxis implements AxisInstance {
       : (this.config.maxPadding || 0.05);
     const range = max - min || 1;
     const originalMin = min;
-    min -= range * (this.config.minPadding ?? padding);
-    max += range * padding;
-    if (originalMin >= 0 && min < 0) min = 0;
+    const minPadTotal = (this.config.minPadding ?? padding) + (data.extraMinPadding ?? 0);
+    const maxPadTotal = padding + (data.extraMaxPadding ?? 0);
+    if (!explicitMin) min -= range * minPadTotal;
+    if (!explicitMax) max += range * maxPadTotal;
+    const allowNegative = (data.extraMinPadding ?? 0) > 0;
+    if (originalMin >= 0 && min < 0 && !allowNegative) min = 0;
 
     if (this.config.floor !== undefined) min = Math.max(min, this.config.floor);
     if (this.config.ceiling !== undefined) max = Math.min(max, this.config.ceiling);
@@ -701,13 +706,19 @@ export class LinearAxis extends BaseAxis implements AxisInstance {
 
     this.scale.domain([min, max]).range(this.getRange());
 
-    const hasExplicitRange = this.config.min !== undefined && this.config.min !== null
-      && this.config.max !== undefined && this.config.max !== null;
-    if (!hasExplicitRange) {
+    const hasBothExplicit = explicitMin && explicitMax;
+    if (!hasBothExplicit) {
       const shouldNice = this.config.startOnTick || this.config.endOnTick
         || (!this.config.isX && this.config.startOnTick !== false && this.config.endOnTick !== false);
       if (shouldNice) {
         this.scale.nice();
+        if (explicitMin || explicitMax) {
+          const [niceMin, niceMax] = this.scale.domain();
+          this.scale.domain([
+            explicitMin ? (this.config.min as number) : niceMin,
+            explicitMax ? (this.config.max as number) : niceMax,
+          ]);
+        }
       }
     }
   }
@@ -736,10 +747,25 @@ export class LinearAxis extends BaseAxis implements AxisInstance {
         ? (inv ? plotArea.height : plotArea.width)
         : (inv ? plotArea.width : plotArea.height);
       const rendersHoriz = this.config.isX ? !inv : !!inv;
-      const tickPixelInterval = this.config.tickPixelInterval ?? (rendersHoriz ? 100 : 72);
-      const idealTickCount = Math.min(8, Math.max(2, Math.floor(axisLength / tickPixelInterval)));
+      const tickPixelInterval = this.config.tickPixelInterval ?? 72;
+      const idealTickCount = Math.min(20, Math.max(2, Math.round(axisLength / tickPixelInterval)));
       const domain = this.scale.domain();
       const tickValues = this.computeNiceTicks(domain[0], domain[1], idealTickCount);
+
+      const hasExplicitMax = this.config.max !== undefined && this.config.max !== null;
+      const hasExplicitMin = this.config.min !== undefined && this.config.min !== null;
+      const endOnTick = !this.config.isX && this.config.endOnTick !== false;
+      if (tickValues.length > 0 && endOnTick && !hasExplicitMax) {
+        const lastTick = tickValues[tickValues.length - 1];
+        if (lastTick < domain[1]) {
+          const interval = tickValues.length > 1 ? tickValues[1] - tickValues[0] : lastTick;
+          tickValues.push(lastTick + interval);
+        }
+        const newMax = tickValues[tickValues.length - 1];
+        const newMin = hasExplicitMin ? domain[0] : tickValues[0];
+        this.scale.domain([newMin, newMax]);
+      }
+
       axisGen.tickValues(tickValues);
     }
 
@@ -788,19 +814,25 @@ export class LinearAxis extends BaseAxis implements AxisInstance {
     const residual = rawInterval / magnitude;
 
     let niceInterval: number;
-    if (residual <= 1) niceInterval = magnitude;
-    else if (residual <= 2) niceInterval = 2 * magnitude;
-    else if (residual <= 2.5) niceInterval = 2.5 * magnitude;
-    else if (residual <= 5) niceInterval = 5 * magnitude;
+    if (residual <= Math.SQRT2) niceInterval = magnitude;
+    else if (residual <= Math.sqrt(2 * 2.5)) niceInterval = 2 * magnitude;
+    else if (residual <= Math.sqrt(2.5 * 5)) niceInterval = 2.5 * magnitude;
+    else if (residual <= Math.sqrt(5 * 10)) niceInterval = 5 * magnitude;
     else niceInterval = 10 * magnitude;
 
-    const tickStart = Math.ceil(min / niceInterval) * niceInterval;
+    const intervalStr = niceInterval.toString();
+    const decimals = intervalStr.includes('.') ? intervalStr.split('.')[1].length : 0;
+    const roundFactor = Math.pow(10, decimals);
+    const snap = (v: number): number => Math.round(v * roundFactor) / roundFactor;
+
+    const tickStart = snap(Math.ceil(min / niceInterval) * niceInterval);
     const ticks: number[] = [];
     const epsilon = niceInterval * 1e-6;
 
-    for (let v = tickStart; v <= max + epsilon; v += niceInterval) {
-      ticks.push(Math.round(v / niceInterval) * niceInterval);
-      if (ticks.length > maxTicks + 2) break;
+    for (let i = 0; i < maxTicks + 3; i++) {
+      const v = snap(tickStart + i * niceInterval);
+      if (v > max + epsilon) break;
+      ticks.push(v);
     }
 
     return ticks;
@@ -821,9 +853,14 @@ export class LinearAxis extends BaseAxis implements AxisInstance {
   private linearTickFormat(value: number, axisGen: D3Axis<any>): string {
     const tickValues = (axisGen as any).tickValues?.() as number[] | null;
     if (tickValues && tickValues.length >= 2) {
-      const interval = Math.abs(tickValues[1] - tickValues[0]);
+      const rawInterval = Math.abs(tickValues[1] - tickValues[0]);
+      const interval = parseFloat(rawInterval.toPrecision(6));
       if (interval < 1000) {
-        return numberFormat(value, value === Math.floor(value) ? 0 : 2);
+        const intervalStr = interval.toString();
+        const decimals = intervalStr.includes('.') ? intervalStr.split('.')[1].length : 0;
+        const formatted = numberFormat(value, decimals);
+        if (decimals === 0) return formatted;
+        return formatted.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
       }
     }
     return siFormat(value);
@@ -1070,12 +1107,15 @@ export class CategoryAxis extends BaseAxis implements AxisInstance {
   getPixelForValue(value: any): number {
     const domain = this.scale.domain();
     let key: string;
-    if (typeof value === 'number' && !domain.includes(String(value))) {
+    if (typeof value === 'number') {
       const idx = Math.round(value);
-      key = domain[idx] ?? String(value);
-      const basePixel = (this.scale(key) ?? 0) + this.scale.bandwidth() / 2;
-      const offset = (value - idx) * this.scale.bandwidth();
-      return basePixel + offset;
+      if (idx >= 0 && idx < domain.length) {
+        key = domain[idx];
+        const basePixel = (this.scale(key) ?? 0) + this.scale.bandwidth() / 2;
+        const offset = (value - idx) * this.scale.bandwidth();
+        return basePixel + offset;
+      }
+      key = String(value);
     } else {
       key = String(value);
     }

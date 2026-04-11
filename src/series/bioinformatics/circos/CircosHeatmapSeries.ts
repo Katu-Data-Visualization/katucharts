@@ -13,6 +13,13 @@ import { BaseSeries } from '../../BaseSeries';
 import type { InternalSeriesConfig } from '../../../types/options';
 import { getColorInterpolator } from './CircosColorScales';
 import type { CircosColorScaleName } from './CircosTypes';
+import {
+  ENTRY_DURATION,
+  ENTRY_STAGGER_PER_ITEM,
+  HOVER_DURATION,
+  EASE_ENTRY,
+  EASE_HOVER,
+} from '../../../core/animationConstants';
 
 interface HeatmapRow {
   id: string;
@@ -74,7 +81,7 @@ export class CircosHeatmapSeries extends BaseSeries {
     const colHeight = (ringAreaOuter - ringAreaInner) / nCols;
 
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDur = animOpts.duration ?? 800;
+    const entryDur = animOpts.duration ?? ENTRY_DURATION;
 
     const g = this.group.append('g')
       .attr('transform', `translate(${cx},${cy})`);
@@ -111,9 +118,9 @@ export class CircosHeatmapSeries extends BaseSeries {
           .style('cursor', 'pointer');
 
         if (animate) {
-          const delay = ri * (entryDur * 0.6 / nRows);
+          const delay = ri * ENTRY_STAGGER_PER_ITEM;
           cell.attr('opacity', 0)
-            .transition().duration(400).delay(delay)
+            .transition().duration(entryDur).ease(EASE_ENTRY).delay(delay)
             .attr('opacity', 1);
         }
 
@@ -127,7 +134,7 @@ export class CircosHeatmapSeries extends BaseSeries {
     this.renderColumnLabels(g, columns, ringAreaInner, colHeight);
 
     if (animate) {
-      this.emitAfterAnimate(entryDur + 200);
+      this.emitAfterAnimate(entryDur + 100);
     }
   }
 
@@ -204,8 +211,10 @@ export class CircosHeatmapSeries extends BaseSeries {
     element
       .on('mouseover', (event: MouseEvent) => {
         const target = select(event.currentTarget as SVGPathElement);
-        target.attr('opacity', 0.8)
-          .style('filter', 'drop-shadow(0 0 3px rgba(0,0,0,0.3))');
+        target.interrupt('hover')
+          .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+          .attr('opacity', 0.8);
+        target.style('filter', 'drop-shadow(0 0 3px rgba(0,0,0,0.3))');
         this.context.events.emit('point:mouseover', {
           point: { name: colName, row: row.id, y: value, rowIndex: rowIdx, colIndex: colIdx },
           index: rowIdx * colIdx,
@@ -215,7 +224,10 @@ export class CircosHeatmapSeries extends BaseSeries {
       })
       .on('mouseout', (event: MouseEvent) => {
         const target = select(event.currentTarget as SVGPathElement);
-        target.attr('opacity', 1).style('filter', '');
+        target.interrupt('hover')
+          .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+          .attr('opacity', 1);
+        target.style('filter', '');
         this.context.events.emit('point:mouseout', {
           point: { name: colName, row: row.id, y: value, rowIndex: rowIdx, colIndex: colIdx },
           index: rowIdx * colIdx,
