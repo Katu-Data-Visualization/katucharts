@@ -4,6 +4,7 @@
 
 import type { KatuChartsOptions } from '../types/options';
 import { DEFAULT_COLORS } from '../utils/color';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../utils/chartText';
 
 export const defaultOptions: KatuChartsOptions = {
   chart: {
@@ -36,10 +37,10 @@ export const defaultOptions: KatuChartsOptions = {
   },
   xAxis: {
     type: 'linear',
-    title: { text: null },
+    title: { text: null, style: { color: DEFAULT_CHART_TEXT_COLOR, fontSize: DEFAULT_CHART_TEXT_SIZE } },
     labels: {
       enabled: true,
-      style: { color: '#666666', fontSize: '11px' },
+      style: { color: DEFAULT_CHART_TEXT_COLOR, fontSize: DEFAULT_CHART_TEXT_SIZE },
       autoRotation: [-45],
       autoRotationLimit: 80,
       padding: 5,
@@ -66,10 +67,10 @@ export const defaultOptions: KatuChartsOptions = {
   },
   yAxis: {
     type: 'linear',
-    title: { text: 'Values', style: { color: '#666666' } },
+    title: { text: 'Values', style: { color: DEFAULT_CHART_TEXT_COLOR, fontSize: DEFAULT_CHART_TEXT_SIZE } },
     labels: {
       enabled: true,
-      style: { color: '#666666', fontSize: '11px' },
+      style: { color: DEFAULT_CHART_TEXT_COLOR, fontSize: DEFAULT_CHART_TEXT_SIZE },
       padding: 5,
     },
     tickLength: 0,
@@ -127,7 +128,7 @@ export const defaultOptions: KatuChartsOptions = {
     itemMarginTop: 0,
     itemMarginBottom: 0,
     itemDistance: 20,
-    itemStyle: { color: '#333333', cursor: 'pointer', fontSize: '12px', fontWeight: 'normal' },
+    itemStyle: { color: DEFAULT_CHART_TEXT_COLOR, cursor: 'pointer', fontSize: DEFAULT_CHART_TEXT_SIZE, fontWeight: 'normal' },
     itemHoverStyle: { color: '#000000' },
     itemHiddenStyle: { color: '#cccccc' },
     symbolWidth: 12,
@@ -178,6 +179,10 @@ export const defaultOptions: KatuChartsOptions = {
         pointFormat: '<span style="color:{point.color}">\u25CF</span> {series.name}: <b>{point.percentage:.1f}%</b><br/>',
       },
       dataLabels: { enabled: true },
+      showInLegend: false,
+    },
+    donut: {
+      showInLegend: false,
     },
     sankey: { dataLabels: { enabled: true } },
     dependencywheel: { dataLabels: { enabled: true } },

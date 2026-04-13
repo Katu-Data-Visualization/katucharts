@@ -233,13 +233,17 @@ export class OptionsParser {
       const xAxisIdx = typeof s.xAxis === 'number' ? s.xAxis : 0;
       const yAxisIdx = typeof s.yAxis === 'number' ? s.yAxis : 0;
 
+      const seriesType = (s.type || options.chart?.type || 'line') as SeriesType;
+      const isPieLike = seriesType === 'pie' || seriesType === 'donut';
+
       return {
         ...s,
         index: i,
-        _internalType: (s.type || options.chart?.type || 'line') as SeriesType,
+        _internalType: seriesType,
         _xAxisIndex: xAxisIdx,
         _yAxisIndex: yAxisIdx,
         _processedData: (s.data as PointOptions[]) || [],
+        ...(isPieLike && s.showInLegend === undefined ? { showInLegend: false } : {}),
       } as InternalSeriesConfig;
     });
 

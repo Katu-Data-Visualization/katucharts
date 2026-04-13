@@ -5,6 +5,7 @@ import 'd3-transition';
 import { BaseSeries, staggerDelay, type SeriesContext } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions, DataLabelOptions, BorderRadiusOptions } from '../../types/options';
 import { templateFormat, stripHtmlTags } from '../../utils/format';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   ENTRY_DELAY_BASE,
@@ -56,7 +57,7 @@ export class PieSeries extends BaseSeries {
     const cy = this.resolvePercent(center[1], plotArea.height);
 
     const availableW = plotArea.width - labelMargin * 2;
-    const availableH = plotArea.height - (labelsEnabled ? labelMargin * 2 : 0);
+    const availableH = plotArea.height - labelMargin;
     const availableSpace = Math.min(availableW, availableH);
     const minDim = Math.min(plotArea.width, plotArea.height);
     const hasExplicitSize = this.config.size !== undefined && this.config.size !== null;
@@ -280,8 +281,8 @@ export class PieSeries extends BaseSeries {
     const connectorColor = dlCfg.connectorColor || '#999';
     const connectorPadding = dlCfg.connectorPadding ?? 5;
     const softConnector = dlCfg.softConnector !== false;
-    const fontSize = (dlCfg.style?.fontSize as string) || '11px';
-    const fontColor = dlCfg.color || (dlCfg.style?.color as string) || '#333';
+    const fontSize = (dlCfg.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
+    const fontColor = dlCfg.color || (dlCfg.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
     const alignTo = dlCfg.alignTo;
     const isInside = labelDistance < 0;
 
@@ -635,8 +636,8 @@ export class FunnelSeries extends BaseSeries {
 
       if (this.config.dataLabels?.enabled) {
         const dlCfg = this.config.dataLabels;
-        const fontSize = (dlCfg.style?.fontSize as string) || '11px';
-        const fontColor = dlCfg.color || (dlCfg.style?.color as string) || '#333';
+        const fontSize = (dlCfg.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
+        const fontColor = dlCfg.color || (dlCfg.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
 
         let text: string;
         if (dlCfg.formatter) {

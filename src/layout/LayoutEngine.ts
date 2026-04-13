@@ -3,6 +3,7 @@
  */
 
 import type { InternalConfig, PlotArea } from '../types/options';
+import { DEFAULT_CHART_TEXT_SIZE } from '../utils/chartText';
 
 export interface LayoutResult {
   plotArea: PlotArea;
@@ -21,8 +22,9 @@ export class LayoutEngine {
 
     const titleWidthAdjust = config.title?.widthAdjust ?? -44;
     const titleAvailableWidth = chartWidth + titleWidthAdjust;
+    const titleStyle = config.title?.style?.fontSize ? config.title.style : { ...config.title?.style, fontSize: '18px' };
     const titleTextHeight = config.title?.text
-      ? this.estimateWrappedTextHeight(config.title.text, config.title.style, titleAvailableWidth)
+      ? this.estimateWrappedTextHeight(config.title.text, titleStyle, titleAvailableWidth)
       : 0;
     const titleMargin = config.title?.margin ?? 8;
     const subtitleTextHeight = config.subtitle?.text
@@ -33,7 +35,8 @@ export class LayoutEngine {
       top = spacing.top + titleTextHeight + titleMargin;
     }
     if (subtitleTextHeight > 0) {
-      top += subtitleTextHeight + 2;
+      const subtitleMargin = config.subtitle?.margin ?? 15;
+      top += subtitleTextHeight + subtitleMargin;
     }
 
     const hasHeatmap = config.series.some(s => s._internalType === 'heatmap');
@@ -158,7 +161,7 @@ export class LayoutEngine {
     const margin = config.legend.margin ?? 8;
     const layout = config.legend.layout || 'horizontal';
     const itemStyle = config.legend.itemStyle || {};
-    const baseFontSize = itemStyle.fontSize as string || '12px';
+    const baseFontSize = itemStyle.fontSize as string || DEFAULT_CHART_TEXT_SIZE;
     const effectiveFontSize = this.computeAutoFontSize(numSeries, baseFontSize);
     const lineHeight = config.legend.lineHeight ?? 16;
     const itemMarginBottom = config.legend.itemMarginBottom ?? 2;
@@ -244,7 +247,7 @@ export class LayoutEngine {
       for (const cat of axis.categories) {
         if (cat.length > maxLen) maxLen = cat.length;
       }
-      const fontSize = parseInt(axis.labels?.style?.fontSize as string || '11', 10);
+      const fontSize = parseInt(axis.labels?.style?.fontSize as string || DEFAULT_CHART_TEXT_SIZE, 10);
       return Math.max(25, Math.min(maxLen * fontSize * 0.6, 150));
     }
     const min = axis.min ?? null;
@@ -275,7 +278,7 @@ export class LayoutEngine {
           for (const cat of axis.categories) {
             if (cat.length > maxLen) maxLen = cat.length;
           }
-          const fontSize = parseInt(axis.labels?.style?.fontSize as string || '11', 10);
+          const fontSize = parseInt(axis.labels?.style?.fontSize as string || DEFAULT_CHART_TEXT_SIZE, 10);
           const angleRad = Math.abs(axis.labels!.rotation!) * (Math.PI / 180);
           const rotatedHeight = Math.min(maxLen * fontSize * 0.55 * Math.sin(angleRad), 150);
           labelHeight = Math.max(30, rotatedHeight);
@@ -286,7 +289,7 @@ export class LayoutEngine {
           for (const cat of axis.categories) {
             if (cat.length > maxLen) maxLen = cat.length;
           }
-          const fontSize = parseInt(axis.labels?.style?.fontSize as string || '11', 10);
+          const fontSize = parseInt(axis.labels?.style?.fontSize as string || DEFAULT_CHART_TEXT_SIZE, 10);
           const wouldOverlap = axis.categories.length > 6 || maxLen > 8;
           if (wouldOverlap) {
             const rotatedHeight = Math.min(maxLen * fontSize * 0.4 * Math.sin(Math.PI / 4), 120);
