@@ -32,11 +32,10 @@ export class LayoutEngine {
       : 0;
 
     if (titleTextHeight > 0) {
-      top = spacing.top + titleTextHeight + titleMargin;
+      top = spacing.top + titleTextHeight + (subtitleTextHeight > 0 ? 3 : titleMargin);
     }
     if (subtitleTextHeight > 0) {
-      const subtitleMargin = config.subtitle?.margin ?? 15;
-      top += subtitleTextHeight + subtitleMargin;
+      top += subtitleTextHeight + titleMargin;
     }
 
     const hasHeatmap = config.series.some(s => s._internalType === 'heatmap');
