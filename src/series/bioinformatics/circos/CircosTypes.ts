@@ -127,6 +127,8 @@ export interface CircosLayoutConfig {
 export interface TrackRenderOptions {
   animate: boolean;
   duration: number;
+  /** Absolute delay (ms) before this track's animation begins — set by the orchestrator. */
+  baseDelay?: number;
   cx: number;
   cy: number;
   canvasThreshold: number;

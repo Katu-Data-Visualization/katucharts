@@ -56,7 +56,7 @@ function renderHeatmapSVG(
 
   if (opts.animate) {
     cells.attr('opacity', 0)
-      .transition().duration(opts.duration * 0.5).delay(opts.duration * 0.5)
+      .transition().duration(opts.duration).delay(opts.baseDelay ?? 0)
       .attr('opacity', 1);
   }
 }
@@ -96,11 +96,17 @@ function renderHeatmapCanvas(
     ctx.fill();
   }
 
-  group.append('image')
+  const img = group.append('image')
     .attr('class', 'katucharts-circos-canvas-heat')
     .attr('x', -halfSize)
     .attr('y', -halfSize)
     .attr('width', size)
     .attr('height', size)
     .attr('href', canvas.toDataURL());
+
+  if (opts.animate) {
+    img.attr('opacity', 0)
+      .transition().duration(opts.duration).delay(opts.baseDelay ?? 0)
+      .attr('opacity', 1);
+  }
 }

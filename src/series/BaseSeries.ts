@@ -16,6 +16,7 @@ import {
   EASE_ENTRY,
   EASE_HOVER,
 } from '../core/animationConstants';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../utils/chartText';
 
 export interface SeriesContext {
   plotArea: PlotArea;
@@ -587,9 +588,9 @@ export abstract class BaseSeries {
 
       const style = merged.style || {};
       label
-        .style('font-size', style.fontSize ?? '11px')
+        .style('font-size', style.fontSize ?? DEFAULT_CHART_TEXT_SIZE)
         .style('font-weight', style.fontWeight ?? 'bold')
-        .style('fill', merged.color || style.color || '#333333');
+        .style('fill', merged.color || style.color || DEFAULT_CHART_TEXT_COLOR);
 
       if (style.textOutline) {
         label.style('text-shadow', style.textOutline as string);

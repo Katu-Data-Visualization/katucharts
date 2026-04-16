@@ -5,6 +5,7 @@ import 'd3-transition';
 import { BaseSeries, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig, TreemapLevelOptions, BorderRadiusOptions } from '../../types/options';
 import { templateFormat, stripHtmlTags } from '../../utils/format';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   ENTRY_STAGGER_PER_ITEM,
@@ -237,7 +238,7 @@ export class TreemapSeries extends BaseSeries {
     const separator = breadcrumbsCfg.separator ?? ' / ';
     const style = breadcrumbsCfg.style || {};
     const fontSize = (style.fontSize as string) || '11px';
-    const fontColor = (style.color as string) || '#333';
+    const fontColor = (style.color as string) || DEFAULT_CHART_TEXT_COLOR;
 
     const trail: any[] = [];
     let node = this.currentRoot;
@@ -296,8 +297,8 @@ export class TreemapSeries extends BaseSeries {
     const dlEnabled = dlCfg.enabled !== false;
     if (!dlEnabled) return;
 
-    const defaultFontSize = (dlCfg.style?.fontSize as string) || '11px';
-    const defaultFontColor = dlCfg.color || (dlCfg.style?.color as string) || '#333';
+    const defaultFontSize = (dlCfg.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
+    const defaultFontColor = dlCfg.color || (dlCfg.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
 
     const labels = this.group.selectAll('.katucharts-treemap-label')
       .data(leaves)

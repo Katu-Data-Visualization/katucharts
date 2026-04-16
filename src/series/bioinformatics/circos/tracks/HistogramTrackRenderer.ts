@@ -63,7 +63,7 @@ function renderHistogramSVG(
 
   if (opts.animate) {
     bars.attr('opacity', 0)
-      .transition().duration(opts.duration * 0.5).delay(opts.duration * 0.5)
+      .transition().duration(opts.duration).delay(opts.baseDelay ?? 0)
       .attr('opacity', (d: any, i: number) => {
         const s = applyRules(d, i, track.rules, { color, opacity: track.opacity ?? 0.8, size: 0, show: true });
         return s.show ? s.opacity : 0;

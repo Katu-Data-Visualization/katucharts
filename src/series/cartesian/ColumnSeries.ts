@@ -119,6 +119,7 @@ export class ColumnSeries extends BaseSeries {
         const xKey = d.x ?? 0;
         if (totals) {
           (d as any).total = totals.get(xKey) || 0;
+          (d as any).stackTotal = totals.get(xKey) || 0;
         }
         if (isPercent && totals) {
           const t = totals.get(xKey) || 1;
@@ -448,6 +449,7 @@ export class ColumnSeries extends BaseSeries {
         const xKey = d.x ?? 0;
         if (totals) {
           (d as any).total = totals.get(xKey) || 0;
+          (d as any).stackTotal = totals.get(xKey) || 0;
         }
         if (isPercent && totals) {
           const t = totals.get(xKey) || 1;

@@ -66,7 +66,7 @@ function renderScatterSVG(
 
   if (opts.animate) {
     circles.attr('r', 0)
-      .transition().duration(opts.duration * 0.5).delay(opts.duration * 0.5)
+      .transition().duration(opts.duration).delay(opts.baseDelay ?? 0)
       .attr('r', (d: any, i: number) => {
         const s = applyRules(d, i, track.rules, { color, opacity: track.opacity ?? 0.7, size: pointRadius, show: true });
         return s.show ? s.size : 0;

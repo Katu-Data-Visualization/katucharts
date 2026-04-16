@@ -6,6 +6,7 @@ import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, GaugeDialOptions, GaugePivotOptions, PaneOptions, PlotBandOptions } from '../../types/options';
 import { templateFormat, stripHtmlTags } from '../../utils/format';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   HOVER_DURATION,
@@ -251,8 +252,8 @@ export class GaugeSeries extends BaseSeries {
     const tickWidth = yAxisCfg.tickWidth ?? 2;
     const labelsEnabled = yAxisCfg.labels?.enabled !== false;
     const labelStyle = yAxisCfg.labels?.style || {};
-    const fontSize = (labelStyle.fontSize as string) || '13px';
-    const fontColor = (labelStyle.color as string) || '#333';
+    const fontSize = (labelStyle.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
+    const fontColor = (labelStyle.color as string) || DEFAULT_CHART_TEXT_COLOR;
     const thickness = bandThickness ?? radius * 0.15;
 
     const angleScale = scaleLinear().domain([min, max]).range([startAngle, endAngle]);
@@ -318,8 +319,8 @@ export class GaugeSeries extends BaseSeries {
     const dlEnabled = dlCfg.enabled !== false;
     if (!dlEnabled) return;
 
-    const dlFontSize = (dlCfg.style?.fontSize as string) || '24px';
-    const dlColor = dlCfg.color || (dlCfg.style?.color as string) || '#333';
+    const dlFontSize = (dlCfg.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
+    const dlColor = dlCfg.color || (dlCfg.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
 
     let labelText: string;
     if (dlCfg.formatter) {
@@ -620,8 +621,8 @@ export class SolidGaugeSeries extends BaseSeries {
     const tickPositions: number[] = yAxisCfg.tickPositions || this.generateTicks(min, max, 5);
     const labelsEnabled = yAxisCfg.labels?.enabled !== false;
     const labelStyle = yAxisCfg.labels?.style || {};
-    const fontSize = (labelStyle.fontSize as string) || '10px';
-    const fontColor = (labelStyle.color as string) || '#666';
+    const fontSize = (labelStyle.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
+    const fontColor = (labelStyle.color as string) || DEFAULT_CHART_TEXT_COLOR;
 
     const angleScale = scaleLinear().domain([min, max]).range([startAngle, endAngle]);
 
@@ -657,8 +658,8 @@ export class SolidGaugeSeries extends BaseSeries {
     const dlEnabled = dlCfg.enabled !== false;
     if (!dlEnabled) return;
 
-    const dlFontSize = (dlCfg.style?.fontSize as string) || '24px';
-    const dlColor = dlCfg.color || (dlCfg.style?.color as string) || '#333';
+    const dlFontSize = (dlCfg.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
+    const dlColor = dlCfg.color || (dlCfg.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
 
     let labelText: string;
     if (dlCfg.formatter) {

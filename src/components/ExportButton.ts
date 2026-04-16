@@ -266,12 +266,17 @@ export class ExportButton {
       });
   }
 
-  private toggle(): void {
+  toggle(): void {
     if (this.isOpen) {
       this.closeMenu();
     } else {
       this.openMenu();
     }
+  }
+
+  repositionCenter(cx: number, cy: number): void {
+    this.btnCenterX = cx;
+    this.btnCenterY = cy;
   }
 
   private openMenu(): void {

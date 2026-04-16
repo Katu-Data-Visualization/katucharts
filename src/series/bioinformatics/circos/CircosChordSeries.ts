@@ -12,8 +12,10 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries } from '../../BaseSeries';
 import type { InternalSeriesConfig } from '../../../types/options';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../../utils/chartText';
 import {
-  ENTRY_DURATION,
+  ENTRY_FLOW_DURATION,
+  ENTRY_RIBBON_STAGGER,
   HOVER_DURATION,
   EASE_ENTRY,
   EASE_HOVER,
@@ -99,14 +101,43 @@ export class CircosChordSeries extends BaseSeries {
         + `C${cf * tx1},${cf * ty1},${cf * sx0},${cf * sy0},${sx0},${sy0}Z`;
     };
 
+    /**
+     * Parametric ribbon path: at t=0 target collapses to source midpoint,
+     * at t=1 the ribbon is fully extended to its real target arc.
+     */
+    const ribbonPathAt = (d: any, t: number): string => {
+      const r = innerRadius;
+      const sa0 = d.source.startAngle - Math.PI / 2;
+      const sa1 = d.source.endAngle - Math.PI / 2;
+      const sMid = (sa0 + sa1) / 2;
+      const ta0 = sMid + t * (d.target.startAngle - Math.PI / 2 - sMid);
+      const ta1 = sMid + t * (d.target.endAngle - Math.PI / 2 - sMid);
+      const sx0 = r * Math.cos(sa0), sy0 = r * Math.sin(sa0);
+      const sx1 = r * Math.cos(sa1), sy1 = r * Math.sin(sa1);
+      const tx0 = r * Math.cos(ta0), ty0 = r * Math.sin(ta0);
+      const tx1 = r * Math.cos(ta1), ty1 = r * Math.sin(ta1);
+      const sla = Math.abs(sa1 - sa0) > Math.PI ? 1 : 0;
+      const tla = Math.abs(ta1 - ta0) > Math.PI ? 1 : 0;
+      return `M${sx0},${sy0}A${r},${r},0,${sla},1,${sx1},${sy1}`
+        + `C${cf * sx1},${cf * sy1},${cf * tx0},${cf * ty0},${tx0},${ty0}`
+        + `A${r},${r},0,${tla},1,${tx1},${ty1}`
+        + `C${cf * tx1},${cf * ty1},${cf * sx0},${cf * sy0},${sx0},${sy0}Z`;
+    };
+
     const g = this.group.append('g')
       .attr('transform', `translate(${cx},${cy})`);
 
     const getSegmentColor = (idx: number): string =>
       segmentColors[idx] || colors[idx % colors.length];
 
-    const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDur = animOpts.duration ?? ENTRY_DURATION;
+    const baseFlowDur = ENTRY_FLOW_DURATION;
+
+    // Staged timing: arcs → labels → ribbons
+    const arcDur = Math.round(baseFlowDur * 0.48);
+    const arcStagger = 135;
+    const labelDelay = Math.round(arcDur * 0.65);
+    const ribbonDelay = arcDur + 80;
+    const ribbonDur = Math.round(baseFlowDur * 0.42);
 
     const arcsData = chords.groups.map((grp: any) => ({ ...grp }));
 
@@ -120,11 +151,11 @@ export class CircosChordSeries extends BaseSeries {
       .style('cursor', 'pointer');
 
     if (animate) {
-      arcs.each(function(d: any) {
+      arcs.each(function(this: any, d: any, i: number) {
         const self = select(this);
         const startArc = { startAngle: d.startAngle, endAngle: d.startAngle };
         const interp = interpolate(startArc, d);
-        self.transition().duration(entryDur).ease(EASE_ENTRY)
+        self.transition('enter').duration(arcDur).delay(i * arcStagger).ease(EASE_ENTRY)
           .attrTween('d', () => (t: number) => arcGen(interp(t))!);
       });
     } else {
@@ -171,9 +202,14 @@ export class CircosChordSeries extends BaseSeries {
     }
 
     if (animate) {
-      ribbons.attr('fill-opacity', 0)
-        .transition().duration(entryDur).ease(EASE_ENTRY)
-        .attr('fill-opacity', linkOpacity);
+      ribbons.attr('fill-opacity', linkOpacity)
+        .each(function(this: any, d: any, i: number) {
+          const delay = ribbonDelay + i * ENTRY_RIBBON_STAGGER;
+          select(this)
+            .attr('d', ribbonPathAt(d, 0))
+            .transition('enter').duration(ribbonDur).delay(delay).ease(EASE_ENTRY)
+            .attrTween('d', () => (t: number) => ribbonPathAt(d, t));
+        });
     } else {
       ribbons.attr('fill-opacity', linkOpacity);
     }
@@ -257,10 +293,12 @@ export class CircosChordSeries extends BaseSeries {
         });
       });
 
-    this.renderLabels(g, arcsData, names, innerRadius, outerRadius);
+    this.renderLabels(g, arcsData, names, innerRadius, outerRadius, animate, labelDelay);
 
     if (animate) {
-      this.emitAfterAnimate(entryDur + 100);
+      const nRibbons = (chords as any[]).length;
+      const totalDur = ribbonDelay + nRibbons * ENTRY_RIBBON_STAGGER + ribbonDur;
+      this.emitAfterAnimate(totalDur + 100);
     }
   }
 
@@ -309,6 +347,8 @@ export class CircosChordSeries extends BaseSeries {
     names: string[],
     innerRadius: number,
     outerRadius: number,
+    animate = false,
+    labelDelay = 0,
   ): void {
     const uid = `cchord-${Math.random().toString(36).slice(2, 8)}`;
     const labelR = (innerRadius + outerRadius) / 2;
@@ -326,14 +366,14 @@ export class CircosChordSeries extends BaseSeries {
           + `${labelR * Math.cos(a1)},${labelR * Math.sin(a1)}`);
     });
 
-    g.selectAll('.katucharts-chord-label')
+    const labelEls = g.selectAll('.katucharts-chord-label')
       .data(arcsData)
       .join('text')
       .attr('class', 'katucharts-chord-label')
       .attr('text-anchor', 'middle')
-      .attr('font-size', '11px')
+      .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
       .attr('font-weight', 'bold')
-      .attr('fill', '#333')
+      .attr('fill', DEFAULT_CHART_TEXT_COLOR)
       .style('pointer-events', 'none')
       .style('paint-order', 'stroke')
       .attr('stroke', '#fff')
@@ -345,6 +385,12 @@ export class CircosChordSeries extends BaseSeries {
           .attr('startOffset', '50%')
           .text(names[d.index] || '');
       });
+
+    if (animate) {
+      labelEls.attr('opacity', 0)
+        .transition('enter').duration(350).delay(labelDelay).ease(EASE_ENTRY)
+        .attr('opacity', 1);
+    }
   }
 
   private resolvePercent(val: string | number, total: number): number {

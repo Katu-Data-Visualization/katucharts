@@ -7,6 +7,7 @@ import { line as d3Line, area as d3Area, curveStepAfter } from 'd3-shape';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import { DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   HOVER_DURATION,
@@ -215,7 +216,7 @@ export class KaplanMeierSeries extends BaseSeries {
         .attr('x', px)
         .attr('y', plotArea.height + 32)
         .attr('text-anchor', 'middle')
-        .attr('font-size', '9px')
+        .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
         .attr('fill', color)
         .text(String(d.custom?.atRisk ?? ''));
     }
@@ -224,7 +225,7 @@ export class KaplanMeierSeries extends BaseSeries {
       .attr('x', -8)
       .attr('y', plotArea.height + 32)
       .attr('text-anchor', 'end')
-      .attr('font-size', '9px')
+      .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
       .attr('fill', color)
       .text('At risk');
   }

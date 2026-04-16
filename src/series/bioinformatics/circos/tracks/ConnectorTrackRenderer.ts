@@ -55,7 +55,7 @@ export function renderConnectorTrack(
 
   if (opts.animate) {
     conns.attr('opacity', 0)
-      .transition().duration(opts.duration * 0.4).delay(opts.duration * 0.6)
+      .transition().duration(opts.duration).delay(opts.baseDelay ?? 0)
       .attr('opacity', track.opacity ?? 0.7);
   }
 }

@@ -79,14 +79,15 @@ export function renderLollipopTrack(
   }
 
   if (opts.animate) {
+    const bd = opts.baseDelay ?? 0;
     group.selectAll('.circos-lollipop-stem')
       .attr('opacity', 0)
-      .transition().duration(opts.duration * 0.4).delay(opts.duration * 0.5)
+      .transition().duration(opts.duration).delay(bd)
       .attr('opacity', (track.opacity ?? 0.85) * 0.7);
 
     group.selectAll('.circos-lollipop-dot')
       .attr('r', 0)
-      .transition().duration(opts.duration * 0.3).delay(opts.duration * 0.7)
+      .transition().duration(Math.round(opts.duration * 0.7)).delay(bd + Math.round(opts.duration * 0.3))
       .attr('r', dotRadius);
   }
 }

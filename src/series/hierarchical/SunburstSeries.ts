@@ -6,6 +6,7 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig } from '../../types/options';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   ENTRY_DELAY_BASE,
@@ -491,7 +492,7 @@ export class SunburstSeries extends BaseSeries {
     const dlConfig = this.config.dataLabels as any;
     const defaultRotationMode = dlConfig?.rotationMode || 'auto';
     const globalStyle = dlConfig?.style || {};
-    const globalFontSize = globalStyle.fontSize || '11px';
+    const globalFontSize = globalStyle.fontSize || DEFAULT_CHART_TEXT_SIZE;
     const globalTextOutline: string | undefined = globalStyle.textOutline;
     const globalFilter = dlConfig?.filter;
 
@@ -536,7 +537,7 @@ export class SunburstSeries extends BaseSeries {
         return lc?.dataLabels?.style?.fontSize || globalFontSize;
       })
       .attr('font-weight', 'bold')
-      .attr('fill', '#333')
+      .attr('fill', DEFAULT_CHART_TEXT_COLOR)
       .style('paint-order', 'stroke fill')
       .attr('stroke', (d: any) => {
         const outline = resolveOutline(d);

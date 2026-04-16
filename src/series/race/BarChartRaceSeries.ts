@@ -10,6 +10,7 @@ import { easeLinear } from 'd3-ease';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, BorderRadiusOptions } from '../../types/options';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 
 function resolveBorderRadius(val: number | BorderRadiusOptions | undefined, fallback = 0): number {
   if (val === undefined) return fallback;
@@ -245,7 +246,7 @@ export class BarChartRaceSeries extends BaseSeries {
       .attr('dy', '0.35em')
       .attr('fill', '#fff')
       .attr('font-weight', 'bold')
-      .attr('font-size', '11px')
+      .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
       .style('pointer-events', 'none')
       .text((d: RaceEntry) => d.name);
 
@@ -253,9 +254,9 @@ export class BarChartRaceSeries extends BaseSeries {
       .attr('class', 'katucharts-race-value')
       .attr('y', barHeight / 2)
       .attr('dy', '0.35em')
-      .attr('fill', '#333')
+      .attr('fill', DEFAULT_CHART_TEXT_COLOR)
       .attr('font-weight', 'bold')
-      .attr('font-size', '11px')
+      .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
       .style('pointer-events', 'none')
       .attr('data-value', (d: RaceEntry) => d.value)
       .attr('x', (d: RaceEntry) => Math.max(0, this.valueScale(d.value)) + 5)
@@ -347,8 +348,8 @@ export class BarChartRaceSeries extends BaseSeries {
       .attr('stroke', '#e0e0e0')
       .attr('stroke-dasharray', '2,2');
     this.axisGroup.selectAll('.tick text')
-      .attr('fill', '#888')
-      .attr('font-size', '10px');
+      .attr('fill', DEFAULT_CHART_TEXT_COLOR)
+      .attr('font-size', DEFAULT_CHART_TEXT_SIZE);
   }
 
   private attachBarHoverEffects(

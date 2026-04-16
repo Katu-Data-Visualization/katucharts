@@ -2,6 +2,7 @@ import { Selection } from 'd3-selection';
 import type { DataLabelOptions, PointOptions, PlotArea } from '../types/options';
 import type { AxisInstance } from '../axis/Axis';
 import { templateFormat, stripHtmlTags } from '../utils/format';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../utils/chartText';
 
 export class DataLabels {
   static render(
@@ -53,8 +54,8 @@ export class DataLabels {
         .attr('y', y)
         .attr('text-anchor', config.align || 'center')
         .attr('dominant-baseline', 'auto')
-        .attr('font-size', config.style?.fontSize as string || '11px')
-        .attr('fill', config.color || config.style?.color as string || '#333')
+        .attr('font-size', config.style?.fontSize as string || DEFAULT_CHART_TEXT_SIZE)
+        .attr('fill', config.color || config.style?.color as string || DEFAULT_CHART_TEXT_COLOR)
         .attr('font-weight', config.style?.fontWeight as string || 'normal')
         .text(text);
 

@@ -13,6 +13,7 @@ import { BaseSeries } from '../../BaseSeries';
 import type { InternalSeriesConfig } from '../../../types/options';
 import { getColorInterpolator } from './CircosColorScales';
 import type { CircosColorScaleName } from './CircosTypes';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../../utils/chartText';
 import {
   ENTRY_DURATION,
   ENTRY_STAGGER_PER_ITEM,
@@ -162,8 +163,8 @@ export class CircosHeatmapSeries extends BaseSeries {
         .attr('transform', `translate(${lx},${ly}) rotate(${flip ? angleDeg + 180 : angleDeg})`)
         .attr('text-anchor', 'middle')
         .attr('dominant-baseline', 'central')
-        .attr('font-size', '9px')
-        .attr('fill', '#333')
+        .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
+        .attr('fill', DEFAULT_CHART_TEXT_COLOR)
         .style('pointer-events', 'none')
         .text(rows[ri].id);
     }
@@ -191,8 +192,8 @@ export class CircosHeatmapSeries extends BaseSeries {
         .attr('y', ly)
         .attr('text-anchor', 'start')
         .attr('dominant-baseline', 'central')
-        .attr('font-size', Math.min(9, colHeight * 0.7) + 'px')
-        .attr('fill', '#555')
+        .attr('font-size', Math.min(parseFloat(DEFAULT_CHART_TEXT_SIZE), colHeight * 0.7) + 'px')
+        .attr('fill', DEFAULT_CHART_TEXT_COLOR)
         .style('pointer-events', 'none')
         .text(columns[ci]);
     }

@@ -7,7 +7,7 @@
 
 import { BaseSeries } from '../../BaseSeries';
 import type { InternalSeriesConfig } from '../../../types/options';
-import { ENTRY_DURATION } from '../../../core/animationConstants';
+import { ENTRY_CIRCOS_DURATION, ENTRY_STAGE_GAP } from '../../../core/animationConstants';
 import { CircosLayoutEngine } from './CircosLayoutEngine';
 import type { ChromosomeDef, CircosTrack, TrackRenderOptions } from './CircosTypes';
 import { DEFAULT_CANVAS_THRESHOLD } from './CircosTypes';
@@ -57,8 +57,13 @@ export class CircosSeries extends BaseSeries {
       showBands,
     });
 
-    const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDur = animOpts.duration ?? ENTRY_DURATION;
+    const totalDur = ENTRY_CIRCOS_DURATION;
+
+    // Stage timing: ideogram sweeps first, then labels, then tracks cascade outer→inner
+    const ideogramDur = Math.round(totalDur * 0.38);
+    const labelDelay = Math.round(ideogramDur * 0.55);
+    const trackBaseDur = Math.round(totalDur * 0.38);
+    const trackStartDelay = ideogramDur + ENTRY_STAGE_GAP;
 
     const mainGroup = this.group.append('g')
       .attr('class', 'katucharts-circos')
@@ -66,23 +71,32 @@ export class CircosSeries extends BaseSeries {
 
     engine.renderIdeogram(
       mainGroup, engine.innerR, engine.outerR,
-      !!animate, entryDur,
+      !!animate, ideogramDur,
       this.context.events, this,
     );
 
     if (showBands) {
-      engine.renderIdeogramBands(mainGroup, engine.innerR, engine.outerR, !!animate, entryDur);
+      engine.renderIdeogramBands(mainGroup, engine.innerR, engine.outerR, !!animate, ideogramDur);
     }
 
     if (showLabels) {
       const labelOffset = Math.max(6, Math.min(12, minDim * 0.02));
-      engine.renderChromosomeLabels(mainGroup, engine.outerR + labelOffset);
+      engine.renderChromosomeLabels(
+        mainGroup, engine.outerR + labelOffset, scaledLabelFontSize,
+        !!animate, ideogramDur, labelDelay,
+      );
     }
 
     const trackGap = this.config.trackGap ?? 2;
     const trackAreaOuter = engine.innerR - trackGap;
     const nTracks = tracks.length;
     const trackHeight = nTracks > 0 ? (trackAreaOuter * 0.6) / nTracks : 0;
+
+    // Flow tracks (ribbon, link) animate last — they are foreground connectors
+    const isFlowTrack = (t: any) => t.type === 'ribbon' || t.type === 'link';
+    let regularAnimIdx = 0;
+    let flowAnimIdx = nTracks; // flow tracks start after all regular tracks
+    const regularCount = tracks.filter(t => !isFlowTrack(t)).length;
 
     for (let ti = 0; ti < nTracks; ti++) {
       const track = tracks[ti];
@@ -102,9 +116,13 @@ export class CircosSeries extends BaseSeries {
         renderTrackAxes(trackGroup, track.axes, actualInner, actualOuter);
       }
 
+      const animIdx = isFlowTrack(track) ? regularCount + flowAnimIdx++ - nTracks : regularAnimIdx++;
+      const baseDelay = trackStartDelay + animIdx * ENTRY_STAGE_GAP;
+
       const renderOpts: TrackRenderOptions = {
         animate: !!animate,
-        duration: entryDur,
+        duration: trackBaseDur,
+        baseDelay,
         cx: engine.cx,
         cy: engine.cy,
         canvasThreshold: (this.config.canvasThreshold as number) ?? DEFAULT_CANVAS_THRESHOLD,
@@ -116,7 +134,9 @@ export class CircosSeries extends BaseSeries {
     }
 
     if (animate) {
-      this.emitAfterAnimate(entryDur + 100);
+      const lastAnimIdx = nTracks > 0 ? nTracks - 1 : 0;
+      const totalAnimDur = trackStartDelay + lastAnimIdx * ENTRY_STAGE_GAP + trackBaseDur;
+      this.emitAfterAnimate(totalAnimDur + 100);
     }
   }
 

@@ -3,7 +3,9 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, SankeyNodeOptions, SankeyLevelOptions } from '../../types/options';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
+  ENTRY_FLOW_DURATION,
   ENTRY_DURATION,
   HOVER_DURATION,
   EASE_ENTRY,
@@ -11,6 +13,10 @@ import {
 } from '../../core/animationConstants';
 
 export class SankeySeries extends BaseSeries {
+  private getBaseFlowDuration(): number {
+    return ENTRY_DURATION * 4;
+  }
+
   constructor(config: InternalSeriesConfig) {
     super(config);
   }
@@ -19,6 +25,7 @@ export class SankeySeries extends BaseSeries {
     const { plotArea, colors } = this.context;
     const animate = this.context.animate;
     const cfg = this.config as any;
+    const baseFlowDur = this.getBaseFlowDuration();
 
     const parentGroup = (this.group.node() as SVGElement)?.parentElement;
     if (parentGroup) {
@@ -62,6 +69,28 @@ export class SankeySeries extends BaseSeries {
       .extent([[0, 0], [plotArea.width - labelReserve, plotArea.height]]);
 
     const graph = sankeyGen({ nodes: [...nodes], links: [...links] });
+
+    // Group nodes and links by column depth for cascading animation
+    const nodesByDepth = new Map<number, any[]>();
+    const linksBySourceDepth = new Map<number, any[]>();
+    for (const node of graph.nodes) {
+      const dep = node.depth ?? 0;
+      if (!nodesByDepth.has(dep)) nodesByDepth.set(dep, []);
+      nodesByDepth.get(dep)!.push(node);
+    }
+    for (const link of graph.links) {
+      const dep = link.source.depth ?? 0;
+      if (!linksBySourceDepth.has(dep)) linksBySourceDepth.set(dep, []);
+      linksBySourceDepth.get(dep)!.push(link);
+    }
+    const maxDepth = graph.nodes.reduce((m, n) => Math.max(m, n.depth ?? 0), 0);
+    const numCols = maxDepth + 1;
+
+    // Per-column timing derived from total base duration
+    const nodeDur = Math.round(baseFlowDur * 0.22);
+    const linkDur = nodeDur;
+    const colStep = linkDur;
+    const totalAnimDur = maxDepth * colStep + nodeDur + linkDur;
 
     const centerNodes = cfg.centerNodes !== false;
     const spreadFactor = cfg.spreadFactor ?? 1.0;
@@ -126,56 +155,89 @@ export class SankeySeries extends BaseSeries {
     }
 
     if (animate) {
-      linkPaths.attr('stroke-opacity', 0)
-        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
-        .attr('stroke-opacity', (d: any) => getLinkOpacity(d));
+      linkPaths.attr('stroke-opacity', (d: any) => getLinkOpacity(d))
+        .each(function(this: any, d: any) {
+          const pathEl = this as SVGPathElement;
+          const totalLength = pathEl.getTotalLength?.() || 0;
+          if (totalLength === 0) return;
+          const dep = d.source.depth ?? 0;
+          const colLinks = linksBySourceDepth.get(dep) || [];
+          const linkIdx = colLinks.indexOf(d);
+          const colDelay = dep * colStep;
+          const delay = colDelay + nodeDur - 60 + Math.min(linkIdx * 12, 60);
+          select(this)
+            .attr('stroke-dasharray', `${totalLength} ${totalLength}`)
+            .attr('stroke-dashoffset', totalLength)
+            .transition('enter').duration(linkDur).delay(delay).ease(EASE_ENTRY)
+            .attr('stroke-dashoffset', 0)
+            .on('end', function() {
+              select(this).attr('stroke-dasharray', null).attr('stroke-dashoffset', null);
+            });
+        });
     } else {
       linkPaths.attr('stroke-opacity', (d: any) => getLinkOpacity(d));
     }
 
-    linkPaths
-      .on('mouseover', (event: MouseEvent, d: any) => {
-        const opacity = getLinkOpacity(d);
-        const target = select(event.currentTarget as SVGPathElement);
-        linkPaths.interrupt('highlight');
-        nodeRects.interrupt('highlight');
-        target.attr('stroke-opacity', Math.min(opacity + 0.3, 1));
-        linkPaths.filter((l: any) => l !== d).transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('stroke-opacity', opacity * 0.375);
-        nodeRects.attr('opacity', 1);
-        nodeRects.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
-          .attr('opacity', (n: any) => n === d.source || n === d.target ? 1 : 0.4);
-        const linkPoint = {
-          from: d.source.name, to: d.target.name, y: d.value,
-          weight: d.value,
-          fromNode: { name: d.source.name, id: d.source.id },
-          toNode: { name: d.target.name, id: d.target.id },
-        };
+    const emitLinkPoint = (type: 'mouseover' | 'mouseout' | 'click', event: MouseEvent, d: any) => {
+      const point = {
+        from: d.source.name, to: d.target.name, y: d.value, weight: d.value,
+        fromNode: { name: d.source.name, id: d.source.id },
+        toNode: { name: d.target.name, id: d.target.id },
+      };
+
+      if (type === 'mouseover') {
         this.context.events.emit('point:mouseover', {
-          point: linkPoint,
+          point,
           index: graph.links.indexOf(d), series: this, event,
           plotX: (d.source.x1 + d.target.x0) / 2,
           plotY: (d.y0 + d.y1) / 2,
         });
-      })
-      .on('mouseout', (event: MouseEvent, d: any) => {
-        linkPaths.interrupt('highlight');
-        nodeRects.interrupt('highlight');
-        linkPaths.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
-          .attr('stroke-opacity', (l: any) => getLinkOpacity(l));
-        nodeRects.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
+        return;
+      }
+
+      if (type === 'mouseout') {
         this.context.events.emit('point:mouseout', {
-          point: { from: d.source.name, to: d.target.name, y: d.value, weight: d.value,
-            fromNode: { name: d.source.name }, toNode: { name: d.target.name } },
+          point,
           index: graph.links.indexOf(d), series: this, event,
         });
-      })
-      .on('click', (event: MouseEvent, d: any) => {
-        this.context.events.emit('point:click', {
-          point: { from: d.source.name, to: d.target.name, y: d.value, weight: d.value,
-            fromNode: { name: d.source.name }, toNode: { name: d.target.name } },
-          index: graph.links.indexOf(d), series: this, event,
-        });
+        return;
+      }
+
+      this.context.events.emit('point:click', {
+        point,
+        index: graph.links.indexOf(d), series: this, event,
       });
+    };
+
+    const handleLinkMouseOver = (event: MouseEvent, d: any) => {
+      const opacity = getLinkOpacity(d);
+      linkPaths.interrupt('highlight');
+      nodeRects.interrupt('highlight');
+      linkPaths.attr('stroke-opacity', (l: any) => l === d ? Math.min(opacity + 0.3, 1) : getLinkOpacity(l));
+      linkPaths.filter((l: any) => l !== d).transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('stroke-opacity', opacity * 0.375);
+      nodeRects.attr('opacity', 1);
+      nodeRects.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
+        .attr('opacity', (n: any) => n === d.source || n === d.target ? 1 : 0.4);
+      emitLinkPoint('mouseover', event, d);
+    };
+
+    const handleLinkMouseOut = (event: MouseEvent, d: any) => {
+      linkPaths.interrupt('highlight');
+      nodeRects.interrupt('highlight');
+      linkPaths.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
+        .attr('stroke-opacity', (l: any) => getLinkOpacity(l));
+      nodeRects.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
+      emitLinkPoint('mouseout', event, d);
+    };
+
+    const handleLinkClick = (event: MouseEvent, d: any) => {
+      emitLinkPoint('click', event, d);
+    };
+
+    linkPaths
+      .on('mouseover', handleLinkMouseOver)
+      .on('mouseout', handleLinkMouseOut)
+      .on('click', handleLinkClick);
 
     const nodeRects = this.group.selectAll('.katucharts-sankey-node')
       .data(graph.nodes)
@@ -197,9 +259,18 @@ export class SankeySeries extends BaseSeries {
       .style('cursor', 'pointer');
 
     if (animate) {
-      nodeRects.attr('opacity', 0)
-        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
-        .attr('opacity', 1);
+      nodeRects
+        .attr('opacity', 0)
+        .attr('x', (d: any) => d.x0 - 10)
+        .each(function(this: any, d: any) {
+          const dep = d.depth ?? 0;
+          const colNodes = nodesByDepth.get(dep) || [];
+          const nodeIdx = colNodes.indexOf(d);
+          const delay = dep * colStep + Math.min(nodeIdx * 20, 80);
+          select(this).transition('enter').duration(nodeDur).delay(delay).ease(EASE_ENTRY)
+            .attr('opacity', 1)
+            .attr('x', d.x0);
+        });
     }
 
     nodeRects
@@ -241,17 +312,34 @@ export class SankeySeries extends BaseSeries {
         });
       });
 
+    const linkHitAreas = this.group.append('g')
+      .attr('class', 'katucharts-sankey-link-hitareas');
+
+    linkHitAreas.selectAll('.katucharts-sankey-link-hitarea')
+      .data(graph.links)
+      .join('path')
+      .attr('class', 'katucharts-sankey-link-hitarea')
+      .attr('d', linkPathGen)
+      .attr('fill', 'none')
+      .attr('stroke', 'transparent')
+      .attr('stroke-linecap', 'round')
+      .attr('stroke-width', (d: any) => Math.max(16, Math.max(minLinkWidth, d.width) + 10))
+      .style('cursor', 'pointer')
+      .on('mouseover', handleLinkMouseOver)
+      .on('mouseout', handleLinkMouseOut)
+      .on('click', handleLinkClick);
+
     const dlCfg = this.config.dataLabels || {};
     const dlEnabled = dlCfg.enabled !== false;
-    const dlFontSize = (dlCfg.style?.fontSize as string) || '13px';
-    const dlColor = dlCfg.color || (dlCfg.style?.color as string) || '#333';
+    const dlFontSize = (dlCfg.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
+    const dlColor = dlCfg.color || (dlCfg.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
 
     if (dlEnabled) {
       const labelTarget = this.context.plotGroup || this.group;
       const labelsGroup = labelTarget.append('g')
         .attr('class', 'katucharts-sankey-labels');
 
-      labelsGroup.selectAll('.katucharts-sankey-label')
+      const labelNodes = labelsGroup.selectAll('.katucharts-sankey-label')
         .data(graph.nodes)
         .join('text')
         .attr('class', 'katucharts-sankey-label')
@@ -272,6 +360,22 @@ export class SankeySeries extends BaseSeries {
           }
           return d.name || d.id;
         });
+
+      if (animate) {
+        labelNodes.attr('opacity', 0)
+          .each(function(this: any, d: any) {
+            const dep = d.depth ?? 0;
+            const colNodes = nodesByDepth.get(dep) || [];
+            const nodeIdx = colNodes.indexOf(d);
+            const delay = dep * colStep + nodeDur - 80 + Math.min(nodeIdx * 20, 80);
+            select(this).transition('enter').duration(nodeDur).delay(delay).ease(EASE_ENTRY)
+              .attr('opacity', 1);
+          });
+      }
+    }
+
+    if (animate) {
+      this.emitAfterAnimate(totalAnimDur + 100);
     }
   }
 

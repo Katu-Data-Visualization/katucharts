@@ -107,7 +107,7 @@ export function renderTextTrack(
 
   if (opts.animate) {
     labels.attr('opacity', 0)
-      .transition().duration(opts.duration * 0.4).delay(opts.duration * 0.6)
+      .transition().duration(opts.duration).delay(opts.baseDelay ?? 0)
       .attr('opacity', 1);
   }
 }

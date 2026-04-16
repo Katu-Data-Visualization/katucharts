@@ -3,6 +3,8 @@
  * Batches by color for large link sets (>500).
  */
 
+import { select } from 'd3-selection';
+import 'd3-transition';
 import type { CircosTrack, CircosDataPoint, TrackRenderOptions } from '../CircosTypes';
 import type { CircosLayoutEngine } from '../CircosLayoutEngine';
 import { applyRules } from '../CircosRules';
@@ -40,9 +42,19 @@ export function renderLinkTrack(
     .attr('opacity', linkOpacity);
 
   if (opts.animate) {
-    links.attr('opacity', 0)
-      .transition().duration(opts.duration * 0.5).delay(opts.duration * 0.7)
-      .attr('opacity', linkOpacity);
+    links.each(function(this: any) {
+      const pathEl = this as SVGPathElement;
+      const totalLength = pathEl.getTotalLength?.() || 0;
+      if (totalLength === 0) return;
+      select(this)
+        .attr('stroke-dasharray', `${totalLength} ${totalLength}`)
+        .attr('stroke-dashoffset', totalLength)
+        .transition().duration(opts.duration).delay(opts.baseDelay ?? 0)
+        .attr('stroke-dashoffset', 0)
+        .on('end', function() {
+          select(this).attr('stroke-dasharray', null).attr('stroke-dashoffset', null);
+        });
+    });
   }
 }
 
@@ -72,9 +84,18 @@ function renderLinkBatched(
       .attr('opacity', linkOpacity);
 
     if (opts.animate) {
-      combined.attr('opacity', 0)
-        .transition().duration(opts.duration * 0.5).delay(opts.duration * 0.7)
-        .attr('opacity', linkOpacity);
+      const pathEl = combined.node() as SVGPathElement;
+      const totalLength = pathEl?.getTotalLength?.() || 0;
+      if (totalLength > 0) {
+        combined
+          .attr('stroke-dasharray', `${totalLength} ${totalLength}`)
+          .attr('stroke-dashoffset', totalLength)
+          .transition().duration(opts.duration).delay(opts.baseDelay ?? 0)
+          .attr('stroke-dashoffset', 0)
+          .on('end', function(this: any) {
+            select(this).attr('stroke-dasharray', null).attr('stroke-dashoffset', null);
+          });
+      }
     }
   }
 }

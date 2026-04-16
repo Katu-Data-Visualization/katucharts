@@ -31,6 +31,7 @@ export class ScatterSeries extends BaseSeries {
   private cachedPositions: { cx: number; cy: number }[] = [];
 
   constructor(config: InternalSeriesConfig) {
+    config.clip = false;
     super(config);
   }
 
@@ -112,19 +113,17 @@ export class ScatterSeries extends BaseSeries {
         .attr('class', 'katucharts-scatter-point')
         .attr('r', 0)
         .attr('fill', d => this.getPointFill(d, color))
-        .attr('stroke', this.config.marker?.lineColor || color)
-        .attr('stroke-width', this.config.marker?.lineWidth ?? 1)
+        .attr('stroke', d => d.marker?.lineColor ?? this.config.marker?.lineColor ?? color)
+        .attr('stroke-width', d => d.marker?.lineWidth ?? this.config.marker?.lineWidth ?? 1)
         .attr('opacity', this.config.opacity ?? 1);
 
       enter.merge(circles)
         .transition().duration(duration)
         .attr('cx', (_, i) => this.cachedPositions[i].cx)
         .attr('cy', (_, i) => this.cachedPositions[i].cy)
-        .attr('r', radius);
+        .attr('r', d => d.marker?.radius ?? radius);
     } else {
       const symbolType = symbolMap[markerSymbol] || symbolCircle;
-      const symbolSize = Math.PI * radius * radius;
-      const gen = d3Symbol().type(symbolType).size(symbolSize);
 
       const symbols = this.group.selectAll<SVGPathElement, PointOptions>('.katucharts-scatter-point')
         .data(data);
@@ -134,8 +133,8 @@ export class ScatterSeries extends BaseSeries {
       const enter = symbols.enter().append('path')
         .attr('class', 'katucharts-scatter-point')
         .attr('fill', d => this.getPointFill(d, color))
-        .attr('stroke', this.config.marker?.lineColor || color)
-        .attr('stroke-width', this.config.marker?.lineWidth ?? 1)
+        .attr('stroke', d => d.marker?.lineColor ?? this.config.marker?.lineColor ?? color)
+        .attr('stroke-width', d => d.marker?.lineWidth ?? this.config.marker?.lineWidth ?? 1)
         .attr('opacity', this.config.opacity ?? 1);
 
       enter.merge(symbols)
@@ -143,7 +142,10 @@ export class ScatterSeries extends BaseSeries {
         .attr('transform', (_, i) =>
           `translate(${this.cachedPositions[i].cx},${this.cachedPositions[i].cy})`
         )
-        .attr('d', gen as any);
+        .attr('d', (d: PointOptions) => {
+          const r = d.marker?.radius ?? radius;
+          return d3Symbol().type(symbolType).size(Math.PI * r * r)() as string;
+        });
     }
 
     this.group.selectAll('.katucharts-data-labels').remove();
@@ -180,8 +182,8 @@ export class ScatterSeries extends BaseSeries {
       .attr('cx', (_, i) => this.cachedPositions[i].cx)
       .attr('cy', (_, i) => this.cachedPositions[i].cy)
       .attr('fill', d => this.getPointFill(d, color))
-      .attr('stroke', this.config.marker?.lineColor || color)
-      .attr('stroke-width', this.config.marker?.lineWidth ?? 1)
+      .attr('stroke', d => d.marker?.lineColor ?? this.config.marker?.lineColor ?? color)
+      .attr('stroke-width', d => d.marker?.lineWidth ?? this.config.marker?.lineWidth ?? 1)
       .attr('opacity', this.config.opacity ?? 1)
       .style('cursor', this.config.cursor || 'pointer');
 
@@ -190,9 +192,9 @@ export class ScatterSeries extends BaseSeries {
         .attr('r', 0)
         .transition().duration(this.getEntryDuration()).ease(EASE_ENTRY)
         .delay((_, i) => staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length))
-        .attr('r', radius);
+        .attr('r', d => d.marker?.radius ?? radius);
     } else {
-      circles.attr('r', radius);
+      circles.attr('r', d => d.marker?.radius ?? radius);
     }
 
     this.attachScatterEvents(circles, data, radius, hoverRadius, color, 'circle');
@@ -204,8 +206,6 @@ export class ScatterSeries extends BaseSeries {
     markerSymbol: string, animate: boolean
   ): void {
     const symbolType = symbolMap[markerSymbol] || symbolCircle;
-    const symbolSize = Math.PI * radius * radius;
-    const gen = d3Symbol().type(symbolType).size(symbolSize);
 
     const symbols = this.group.selectAll('.katucharts-scatter-point')
       .data(data)
@@ -215,10 +215,15 @@ export class ScatterSeries extends BaseSeries {
         `translate(${this.cachedPositions[i].cx},${this.cachedPositions[i].cy})`
       )
       .attr('fill', d => this.getPointFill(d, color))
-      .attr('stroke', this.config.marker?.lineColor || color)
-      .attr('stroke-width', this.config.marker?.lineWidth ?? 1)
+      .attr('stroke', d => d.marker?.lineColor ?? this.config.marker?.lineColor ?? color)
+      .attr('stroke-width', d => d.marker?.lineWidth ?? this.config.marker?.lineWidth ?? 1)
       .attr('opacity', this.config.opacity ?? 1)
       .style('cursor', this.config.cursor || 'pointer');
+
+    const perPointPath = (d: PointOptions) => {
+      const r = d.marker?.radius ?? radius;
+      return d3Symbol().type(symbolType).size(Math.PI * r * r)() as string;
+    };
 
     if (animate) {
       const zeroGen = d3Symbol().type(symbolType).size(0);
@@ -226,21 +231,19 @@ export class ScatterSeries extends BaseSeries {
         .attr('d', zeroGen as any)
         .transition().duration(this.getEntryDuration()).ease(EASE_ENTRY)
         .delay((_, i) => staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length))
-        .attr('d', gen as any);
+        .attr('d', perPointPath as any);
     } else {
-      symbols.attr('d', gen as any);
+      symbols.attr('d', perPointPath as any);
     }
 
-    const hoverSize = Math.PI * hoverRadius * hoverRadius;
-    const hoverGen = d3Symbol().type(symbolType).size(hoverSize);
-    this.attachScatterEvents(symbols, data, radius, hoverRadius, color, 'symbol', gen, hoverGen);
+    this.attachScatterEvents(symbols, data, radius, hoverRadius, color, 'symbol', symbolType);
   }
 
   private attachScatterEvents(
     elements: any, data: PointOptions[],
     radius: number, hoverRadius: number, color: string,
     type: 'circle' | 'symbol',
-    gen?: any, hoverGen?: any
+    symbolType?: any
   ): void {
     if (this.config.enableMouseTracking === false) return;
 
@@ -272,12 +275,16 @@ export class ScatterSeries extends BaseSeries {
             .attr('opacity', haloOpacity);
         }
 
+        const ptRadius = d.marker?.radius ?? radius;
+        const ptHoverRadius = d.marker?.states?.hover?.radius ?? this.config.marker?.states?.hover?.radius ?? (ptRadius + 3);
+
         const targetSel = select(target).interrupt('hover');
         const tween = targetSel.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER);
         if (type === 'circle') {
-          tween.attr('r', hoverRadius);
-        } else if (hoverGen) {
-          tween.attr('d', hoverGen() as string);
+          tween.attr('r', ptHoverRadius);
+        } else if (symbolType) {
+          const ptHoverSize = Math.PI * ptHoverRadius * ptHoverRadius;
+          tween.attr('d', d3Symbol().type(symbolType).size(ptHoverSize)() as string);
         }
         target.style.filter = 'drop-shadow(0 1px 4px rgba(0,0,0,0.3))';
         if (hoverFillColor) tween.style('fill', hoverFillColor);
@@ -301,12 +308,15 @@ export class ScatterSeries extends BaseSeries {
             .attr('opacity', 0);
         }
 
+        const ptRadius = d.marker?.radius ?? radius;
+
         const targetSel = select(target).interrupt('hover');
         const tween = targetSel.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER);
         if (type === 'circle') {
-          tween.attr('r', radius);
-        } else if (gen) {
-          tween.attr('d', gen() as string);
+          tween.attr('r', ptRadius);
+        } else if (symbolType) {
+          const ptSize = Math.PI * ptRadius * ptRadius;
+          tween.attr('d', d3Symbol().type(symbolType).size(ptSize)() as string);
         }
         target.style.filter = '';
         tween.style('fill', null).style('stroke-width', null);

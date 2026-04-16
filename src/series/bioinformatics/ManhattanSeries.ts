@@ -13,6 +13,7 @@ import { color as d3Color } from 'd3-color';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   HOVER_DURATION,
@@ -284,8 +285,8 @@ export class ManhattanSeries extends BaseSeries {
           .attr('x', px)
           .attr('y', plotArea.height + 14)
           .attr('text-anchor', 'middle')
-          .attr('font-size', '9px')
-          .attr('fill', '#666')
+          .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
+          .attr('fill', DEFAULT_CHART_TEXT_COLOR)
           .text(chr);
       }
     }
@@ -318,8 +319,8 @@ export class ManhattanSeries extends BaseSeries {
         .attr('x', px)
         .attr('y', py)
         .attr('text-anchor', 'middle')
-        .attr('font-size', '9px')
-        .attr('fill', '#333')
+        .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
+        .attr('fill', DEFAULT_CHART_TEXT_COLOR)
         .text(label);
     }
   }

@@ -33,7 +33,7 @@ export function renderHighlightTrack(
 
   if (opts.animate) {
     highlights.attr('opacity', 0)
-      .transition().duration(opts.duration * 0.3).delay(opts.duration * 0.5)
+      .transition().duration(opts.duration).delay(opts.baseDelay ?? 0)
       .attr('opacity', 1);
   }
 }

@@ -41,7 +41,7 @@ export function renderLineTrack(
     path
       .attr('stroke-dasharray', `${totalLength} ${totalLength}`)
       .attr('stroke-dashoffset', totalLength)
-      .transition().duration(opts.duration).delay(opts.duration * 0.5)
+      .transition().duration(opts.duration).delay(opts.baseDelay ?? 0)
       .attr('stroke-dashoffset', 0);
   }
 }

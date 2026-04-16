@@ -16,8 +16,9 @@ import type { InternalSeriesConfig } from '../../../types/options';
 import { CircosLayoutEngine, parseRadius, safeMinMax } from './CircosLayoutEngine';
 import type { ChromosomeDef, ChromosomeArc, CircosColorScaleName } from './CircosTypes';
 import { getColorInterpolator } from './CircosColorScales';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../../utils/chartText';
 import {
-  ENTRY_DURATION,
+  ENTRY_CIRCOS_DURATION,
   HOVER_DURATION,
   EASE_ENTRY,
   EASE_HOVER,
@@ -103,8 +104,14 @@ export class CircosComparativeSeries extends BaseSeries {
       innerRadius: innerR,
     });
 
-    const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDur = animOpts.duration ?? ENTRY_DURATION;
+    const totalDur = ENTRY_CIRCOS_DURATION;
+
+    // Staged timing: ideogram → species labels → conservation → ribbons
+    const ideogramDur = Math.round(totalDur * 0.35);
+    const speciesDelay = Math.round(ideogramDur * 0.5);
+    const conservDelay = ideogramDur + 200;
+    const ribbonDelay = ideogramDur + 400;
+    const stageDur = Math.round(totalDur * 0.4);
 
     const mainGroup = this.group.append('g')
       .attr('class', 'katucharts-circos-comparative')
@@ -112,20 +119,20 @@ export class CircosComparativeSeries extends BaseSeries {
 
     engine.renderIdeogram(
       mainGroup, engine.innerR, engine.outerR,
-      animate, entryDur,
+      animate, ideogramDur,
       this.context.events, this,
     );
 
     const labelGap = Math.max(6, minDim * 0.02);
-    this.renderCleanLabels(mainGroup, engine, chromosomes, engine.outerR + labelGap);
+    this.renderCleanLabels(mainGroup, engine, chromosomes, engine.outerR + labelGap, animate, ideogramDur, speciesDelay);
 
-    this.renderSpeciesLabelArcs(mainGroup, engine, species, chromosomes, engine.outerR + labelGap * 2, minDim);
+    this.renderSpeciesLabelArcs(mainGroup, engine, species, chromosomes, engine.outerR + labelGap * 2, minDim, speciesDelay, stageDur);
 
     if (showConservation && synteny.length > 0) {
       this.renderConservationTrack(
         mainGroup, engine, prefixedBlocks,
         engine.innerR * 0.9, engine.innerR * 0.96,
-        compData.colorScale, animate, entryDur,
+        compData.colorScale, animate, stageDur, conservDelay,
       );
     }
 
@@ -133,11 +140,12 @@ export class CircosComparativeSeries extends BaseSeries {
     this.renderSyntenyRibbons(
       mainGroup, engine, prefixedBlocks,
       ribbonR, curveFactor, ribbonColorMode,
-      compData.colorScale, animate, entryDur,
+      compData.colorScale, animate, stageDur, ribbonDelay,
     );
 
     if (animate) {
-      this.emitAfterAnimate(entryDur + 100);
+      const totalAnimDur = ribbonDelay + stageDur;
+      this.emitAfterAnimate(totalAnimDur + 100);
     }
   }
 
@@ -239,8 +247,11 @@ export class CircosComparativeSeries extends BaseSeries {
     engine: CircosLayoutEngine,
     chromosomes: ChromosomeDef[],
     radius: number,
+    animate = false,
+    duration = 400,
+    delay = 0,
   ): void {
-    group.selectAll('.katucharts-comp-label')
+    const labels = group.selectAll('.katucharts-comp-label')
       .data(engine.chrArcs)
       .join('text')
       .attr('class', 'katucharts-comp-label')
@@ -253,12 +264,18 @@ export class CircosComparativeSeries extends BaseSeries {
       })
       .attr('text-anchor', 'middle')
       .attr('dominant-baseline', 'central')
-      .attr('font-size', '8px')
-      .attr('fill', '#333')
+      .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
+      .attr('fill', DEFAULT_CHART_TEXT_COLOR)
       .text((d: ChromosomeArc) => {
         const underscoreIdx = d.id.indexOf('_');
         return underscoreIdx >= 0 ? d.id.slice(underscoreIdx + 1) : d.id;
       });
+
+    if (animate) {
+      labels.attr('opacity', 0)
+        .transition('enter').duration(Math.round(duration * 0.4)).delay(delay).ease(EASE_ENTRY)
+        .attr('opacity', 1);
+    }
   }
 
   /** Render curved label arcs above each species group. */
@@ -269,11 +286,11 @@ export class CircosComparativeSeries extends BaseSeries {
     chromosomes: ChromosomeDef[],
     labelRadius: number,
     minDim?: number,
+    delay = 0,
+    duration = 400,
   ): void {
     const md = minDim || 600;
     const animate = !!this.context.animate;
-    const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
-    const entryDur = animOpts.duration ?? ENTRY_DURATION;
 
     let chrIdx = 0;
     const speciesArcs: {
@@ -333,10 +350,10 @@ export class CircosComparativeSeries extends BaseSeries {
 
     if (animate) {
       arcs.attr('opacity', 0)
-        .transition().duration(entryDur).ease(EASE_ENTRY)
+        .transition('enter').duration(duration).delay(delay).ease(EASE_ENTRY)
         .attr('opacity', 0.7);
       labels.attr('opacity', 0)
-        .transition().duration(entryDur).ease(EASE_ENTRY)
+        .transition('enter').duration(duration).delay(delay).ease(EASE_ENTRY)
         .attr('opacity', 1);
     }
   }
@@ -351,9 +368,11 @@ export class CircosComparativeSeries extends BaseSeries {
     colorMode: 'source' | 'score',
     colorScaleName?: CircosColorScaleName,
     animate?: boolean,
-    entryDur?: number,
+    duration?: number,
+    delay?: number,
   ): void {
-    const dur = entryDur ?? ENTRY_DURATION;
+    const dur = duration ?? 400;
+    const del = delay ?? 0;
     const ribbonOpacity = (this.config as any).ribbonOpacity ?? 0.4;
 
     let scoreColorScale: ((v: number) => string) | null = null;
@@ -381,8 +400,10 @@ export class CircosComparativeSeries extends BaseSeries {
 
     if (animate) {
       ribbons.attr('opacity', 0)
-        .transition().duration(dur).ease(EASE_ENTRY)
-        .attr('opacity', ribbonOpacity);
+        .each(function(this: any, d: any, i: number) {
+          select(this).transition('enter').duration(dur).delay(del + i * 8).ease(EASE_ENTRY)
+            .attr('opacity', ribbonOpacity);
+        });
     }
 
     if (this.context.events) {
@@ -421,9 +442,11 @@ export class CircosComparativeSeries extends BaseSeries {
     outerR: number,
     colorScaleName?: CircosColorScaleName,
     animate?: boolean,
-    entryDur?: number,
+    duration?: number,
+    delay?: number,
   ): void {
-    const dur = entryDur ?? ENTRY_DURATION;
+    const dur = duration ?? 400;
+    const del = delay ?? 0;
     const scores = blocks.map(b => b.score);
     const { min: minScore, max: maxScore } = safeMinMax(scores);
     const interpolator = getColorInterpolator(colorScaleName || 'Viridis');
@@ -451,7 +474,7 @@ export class CircosComparativeSeries extends BaseSeries {
 
     if (animate) {
       cells.attr('opacity', 0)
-        .transition().duration(dur).ease(EASE_ENTRY)
+        .transition('enter').duration(dur).delay(del).ease(EASE_ENTRY)
         .attr('opacity', 1);
     }
   }

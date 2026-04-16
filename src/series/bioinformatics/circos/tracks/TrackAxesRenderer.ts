@@ -4,6 +4,7 @@
  */
 
 import type { CircosTrackAxes } from '../CircosTypes';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../../../utils/chartText';
 
 export function renderTrackAxes(
   group: any,
@@ -40,8 +41,8 @@ export function renderTrackAxes(
         .attr('x', 0)
         .attr('y', -r)
         .attr('text-anchor', 'middle')
-        .attr('font-size', '7px')
-        .attr('fill', '#999')
+        .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
+        .attr('fill', DEFAULT_CHART_TEXT_COLOR)
         .text(label);
     }
   }

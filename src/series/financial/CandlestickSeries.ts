@@ -3,6 +3,7 @@ import 'd3-transition';
 import { BaseSeries, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig } from '../../types/options';
 import { templateFormat, stripHtmlTags } from '../../utils/format';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   ENTRY_STAGGER_PER_ITEM,
@@ -164,8 +165,8 @@ export class CandlestickSeries extends BaseSeries {
     const dlCfg = this.config.dataLabels;
     if (!dlCfg?.enabled) return;
 
-    const fontSize = (dlCfg.style?.fontSize as string) || '9px';
-    const fontColor = dlCfg.color || (dlCfg.style?.color as string) || '#333';
+    const fontSize = (dlCfg.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
+    const fontColor = dlCfg.color || (dlCfg.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
 
     data.forEach((d: any, i: number) => {
       if (d.y === null && d.open === undefined) return;

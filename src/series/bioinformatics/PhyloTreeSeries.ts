@@ -9,6 +9,7 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   HOVER_DURATION,
@@ -156,7 +157,7 @@ export class PhyloTreeSeries extends BaseSeries {
       .attr('text-anchor', 'start')
       .attr('dominant-baseline', 'central')
       .attr('font-size', `${leafLabelSize}px`)
-      .attr('fill', '#333')
+      .attr('fill', DEFAULT_CHART_TEXT_COLOR)
       .text((d: any) => d.data.name || '')
       .style('cursor', 'default');
 
@@ -175,8 +176,8 @@ export class PhyloTreeSeries extends BaseSeries {
         .attr('x', (d: any) => d.y - 5)
         .attr('y', (d: any) => d.x - 5)
         .attr('text-anchor', 'end')
-        .attr('font-size', '8px')
-        .attr('fill', '#999')
+        .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
+        .attr('fill', DEFAULT_CHART_TEXT_COLOR)
         .text((d: any) => {
           const bs = d.data.custom?.bootstrap;
           return (bs !== undefined && bs >= bootstrapThreshold) ? String(bs) : '';
@@ -267,7 +268,7 @@ export class PhyloTreeSeries extends BaseSeries {
       .attr('dominant-baseline', 'central')
       .attr('transform', (d: any) => `rotate(${d.x < 180 ? d.x - 90 : d.x + 90})`)
       .attr('font-size', `${leafLabelSize}px`)
-      .attr('fill', '#333')
+      .attr('fill', DEFAULT_CHART_TEXT_COLOR)
       .text((d: any) => d.data.name || '');
 
     if (animate) {
@@ -321,8 +322,8 @@ export class PhyloTreeSeries extends BaseSeries {
       .attr('x', barWidth / 2)
       .attr('y', y + 12)
       .attr('text-anchor', 'middle')
-      .attr('font-size', '9px')
-      .attr('fill', '#666')
+      .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
+      .attr('fill', DEFAULT_CHART_TEXT_COLOR)
       .text('0.1');
   }
 

@@ -3,6 +3,7 @@ import { color as d3Color, rgb } from 'd3-color';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, DashStyleType } from '../../types/options';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   ENTRY_STAGGER_PER_ITEM,
@@ -10,6 +11,8 @@ import {
   EASE_ENTRY,
   EASE_HOVER,
 } from '../../core/animationConstants';
+
+const VENN_COLORS = ['#5b9bd5', '#ed7d31', '#70ad47', '#9e5fa0', '#ffc000', '#44546a'];
 
 interface CircleLayout {
   id: string;
@@ -19,7 +22,7 @@ interface CircleLayout {
   color: string;
 }
 
-interface VennRegion {
+interface RegionDatum {
   sets: string[];
   value: number;
   name: string;
@@ -28,6 +31,8 @@ interface VennRegion {
   labelX: number;
   labelY: number;
   data: any;
+  order: number;
+  key: string;
 }
 
 const DASH_MAP: Record<string, string> = {
@@ -67,23 +72,20 @@ export class VennSeries extends BaseSeries {
     const maxR = plotArea.height / 2 * 0.92;
     const maxVal = Math.max(...singles.map((s: any) => s.value || s.y || 1));
 
-    const baseOpacity = this.config.opacity ?? 0.75;
-    const interOpacity = baseOpacity;
+    const baseOpacity = this.config.opacity ?? 0.25;
+    const hoverSingleOpacity = Math.min(1, baseOpacity + 0.25);
+    const hoverInterOpacity = 0.4;
     const borderColor = this.config.borderColor;
     const borderWidth = this.config.borderWidth ?? 0;
     const borderDash = this.resolveDashStyle((this.config as any).borderDashStyle);
-    const inactiveOpacity = this.config.states?.inactive?.opacity ?? 0.12;
-    const hoverBrightness = this.config.states?.hover?.brightness ?? 0.2;
     const allowSelect = this.config.allowPointSelect === true;
 
     const circleMap = new Map<string, CircleLayout>();
     this.layoutSets(singles, intersections, circleMap, cx, cy, maxR, maxVal, colors, plotArea);
-
-    const circles = Array.from(circleMap.values());
-
-    const regions: VennRegion[] = [];
-
     const allCircles = Array.from(circleMap.values());
+
+    const regions: RegionDatum[] = [];
+
     for (const s of singles) {
       const c = circleMap.get(s.sets[0]);
       if (!c) continue;
@@ -99,8 +101,8 @@ export class VennSeries extends BaseSeries {
           pushY += dy / dist;
         }
         const pLen = Math.sqrt(pushX * pushX + pushY * pushY) || 1;
-        lx = c.cx + (pushX / pLen) * c.r * 0.35;
-        ly = c.cy + (pushY / pLen) * c.r * 0.35;
+        lx = c.cx + (pushX / pLen) * c.r * 0.7;
+        ly = c.cy + (pushY / pLen) * c.r * 0.7;
       }
       regions.push({
         sets: s.sets,
@@ -108,132 +110,127 @@ export class VennSeries extends BaseSeries {
         name: s.name || s.sets[0],
         color: s.color || c.color,
         path: this.circlePath(c.cx, c.cy, c.r),
-        labelX: lx,
-        labelY: ly,
+        labelX: lx, labelY: ly,
         data: s,
+        order: 1,
+        key: s.sets.join('_'),
       });
     }
 
     for (const inter of intersections) {
-      if (inter.sets.length === 2) {
-        const c1 = circleMap.get(inter.sets[0]);
-        const c2 = circleMap.get(inter.sets[1]);
-        if (!c1 || !c2) continue;
-
-        const lens = this.lensPath(c1, c2);
-        if (!lens) continue;
-
-        const blended = inter.color || this.blendColors(c1.color, c2.color);
-        regions.push({
-          sets: inter.sets,
-          value: inter.value || inter.y || 0,
-          name: inter.name || `${inter.sets.join(' \u2229 ')} (${inter.value || inter.y || 0})`,
-          color: blended,
-          path: lens.path,
-          labelX: lens.cx,
-          labelY: lens.cy,
-          data: inter,
-        });
-      } else if (inter.sets.length === 3) {
-        const cs = inter.sets.map((s: string) => circleMap.get(s)).filter(Boolean) as CircleLayout[];
-        if (cs.length < 3) continue;
-
-        const triPath = this.triIntersectionPath(cs[0], cs[1], cs[2]);
-        if (!triPath) continue;
-
-        const blended = inter.color || this.blendColors(cs[0].color, cs[1].color, cs[2].color);
-        regions.push({
-          sets: inter.sets,
-          value: inter.value || inter.y || 0,
-          name: inter.name || `${inter.sets.join(' \u2229 ')} (${inter.value || inter.y || 0})`,
-          color: blended,
-          path: triPath.path,
-          labelX: triPath.cx,
-          labelY: triPath.cy,
-          data: inter,
-        });
-      }
+      if (inter.sets.length !== 2) continue;
+      const c1 = circleMap.get(inter.sets[0]);
+      const c2 = circleMap.get(inter.sets[1]);
+      if (!c1 || !c2) continue;
+      const lens = this.lensPath(c1, c2);
+      if (!lens) continue;
+      const interColor = inter.color || this.blendColors(c1.color, c2.color);
+      regions.push({
+        sets: inter.sets,
+        value: inter.value || inter.y || 0,
+        name: inter.name || `${inter.sets.join(' \u2229 ')} (${inter.value || inter.y || 0})`,
+        color: interColor,
+        path: lens.path,
+        labelX: lens.cx, labelY: lens.cy,
+        data: inter,
+        order: 2,
+        key: [...inter.sets].sort().join('_'),
+      });
     }
+
+    for (const inter of intersections) {
+      if (inter.sets.length !== 3) continue;
+      const cs = inter.sets.map((s: string) => circleMap.get(s)).filter(Boolean) as CircleLayout[];
+      if (cs.length < 3) continue;
+      const tri = this.triIntersectionPath(cs[0], cs[1], cs[2]);
+      if (!tri) continue;
+      const interColor = inter.color || this.blendColors(cs[0].color, cs[1].color, cs[2].color);
+      regions.push({
+        sets: inter.sets,
+        value: inter.value || inter.y || 0,
+        name: inter.name || `${inter.sets.join(' \u2229 ')} (${inter.value || inter.y || 0})`,
+        color: interColor,
+        path: tri.path,
+        labelX: tri.cx, labelY: tri.cy,
+        data: inter,
+        order: 3,
+        key: [...inter.sets].sort().join('_'),
+      });
+    }
+
+    regions.sort((a, b) => a.order - b.order);
 
     const a11yCfg = (this.config as any).accessibility?.point || {};
     const a11yDescFmt = a11yCfg.descriptionFormatter;
 
-    const circleEls = this.group.selectAll('.katucharts-venn-circle')
-      .data(circles)
-      .join('circle')
-      .attr('class', 'katucharts-venn-circle')
-      .attr('cx', (d: CircleLayout) => d.cx)
-      .attr('cy', (d: CircleLayout) => d.cy)
-      .attr('fill', (d: CircleLayout) => d.color)
-      .attr('fill-opacity', baseOpacity)
-      .attr('stroke', (d: CircleLayout) => borderColor || d.color)
-      .attr('stroke-width', borderWidth)
+    const groups = this.group.selectAll<SVGGElement, RegionDatum>('.katucharts-venn-area')
+      .data(regions, (d: any) => d.key)
+      .join(
+        (enter: any) => {
+          const g = enter.append('g')
+            .attr('class', (d: RegionDatum) =>
+              `katucharts-venn-area katucharts-venn-${d.sets.length === 1 ? 'circle-area' : 'intersection-area'}`
+            )
+            .attr('data-venn-sets', (d: RegionDatum) => d.sets.join('_'));
+          g.append('path');
+          return g;
+        },
+        (update: any) => update,
+        (exit: any) => exit.remove()
+      );
+
+    groups.attr('class', (d: RegionDatum) =>
+      `katucharts-venn-area katucharts-venn-${d.sets.length === 1 ? 'circle-area' : 'intersection-area'}`
+    );
+
+    groups.select('path')
+      .attr('d', (d: RegionDatum) => d.path)
+      .attr('fill', (d: RegionDatum) => d.color)
+      .attr('fill-opacity', (d: RegionDatum) => d.sets.length === 1 ? baseOpacity : 0)
+      .attr('stroke', (d: RegionDatum) =>
+        d.sets.length === 1 ? (borderColor || d.color) : 'none'
+      )
+      .attr('stroke-width', (d: RegionDatum) => d.sets.length === 1 ? borderWidth : 0)
       .attr('stroke-dasharray', borderDash)
       .attr('role', 'img')
-      .attr('aria-label', (d: CircleLayout) => {
-        const region = regions.find(r => r.sets.length === 1 && r.sets[0] === d.id);
-        if (a11yDescFmt && region) {
-          return a11yDescFmt({ name: region.name, value: region.value, sets: region.sets });
+      .attr('aria-label', (d: RegionDatum) => {
+        if (a11yDescFmt) {
+          return a11yDescFmt({ name: d.name, value: d.value, sets: d.sets });
         }
-        return region ? `${region.name}: ${region.value}` : d.id;
+        return `${d.name}: ${d.value}`;
       })
-      .style('pointer-events', 'none');
-
-    if (animate) {
-      circleEls.attr('r', 0)
-        .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
-        .delay((_: any, i: number) => i * ENTRY_STAGGER_PER_ITEM)
-        .attr('r', (d: CircleLayout) => d.r);
-    } else {
-      circleEls.attr('r', (d: CircleLayout) => d.r);
-    }
-
-    const circleOverlays: any[] = [];
-    for (let i = 0; i < circles.length; i++) {
-      const c = circles[i];
-      const region = regions.find(r => r.sets.length === 1 && r.sets[0] === c.id);
-      if (!region) continue;
-
-      const overlay = this.group.append('circle')
-        .attr('class', 'katucharts-venn-hover-target')
-        .attr('cx', c.cx).attr('cy', c.cy).attr('r', c.r)
-        .attr('fill', 'transparent')
-        .style('cursor', this.config.cursor || 'pointer');
-
-      circleOverlays.push({ overlay, region, idx: i });
-    }
-
-    const interRegions = regions.filter(r => r.sets.length >= 2);
-    const interPaths = this.group.selectAll('.katucharts-venn-intersection')
-      .data(interRegions)
-      .join('path')
-      .attr('class', 'katucharts-venn-intersection')
-      .attr('d', (d: VennRegion) => d.path)
-      .attr('fill', (d: VennRegion) => d.color)
-      .attr('fill-opacity', interOpacity)
-      .attr('stroke', 'none')
       .style('cursor', this.config.cursor || 'pointer');
 
+    groups.sort((a: RegionDatum, b: RegionDatum) => a.order - b.order);
+
+    groups.each(function(d: RegionDatum) {
+      if (d.sets.length >= 2) {
+        const gEl = this as SVGGElement;
+        const path = gEl.querySelector('path') as SVGGraphicsElement | null;
+        if (path) {
+          try {
+            const bbox = path.getBBox();
+            if (bbox.width > 0 && bbox.height > 0) {
+              d.labelX = bbox.x + bbox.width / 2;
+              d.labelY = bbox.y + bbox.height / 2;
+            }
+          } catch (e) { /* element not attached yet */ }
+        }
+      }
+    });
+
     if (animate) {
-      interPaths.attr('fill-opacity', 0)
+      groups.select('path').attr('opacity', 0)
         .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
-        .attr('fill-opacity', interOpacity);
+        .delay((_: any, i: number) => i * ENTRY_STAGGER_PER_ITEM)
+        .attr('opacity', 1);
     }
 
     if (this.config.enableMouseTracking !== false) {
-      for (const { overlay, region, idx } of circleOverlays) {
-        this.attachRegionHover(overlay, region, idx, circleEls, interPaths, circles, regions,
-          baseOpacity, interOpacity, inactiveOpacity, hoverBrightness, allowSelect);
-      }
-
-      interPaths.each((d: VennRegion, idx: number, nodes: any) => {
-        const el = select(nodes[idx]);
-        this.attachRegionHover(el as any, d, singles.length + idx, circleEls, interPaths, circles, regions,
-          baseOpacity, interOpacity, inactiveOpacity, hoverBrightness, allowSelect);
-      });
+      this.attachEvents(groups, regions, baseOpacity, hoverSingleOpacity, hoverInterOpacity, allowSelect);
     }
 
-    this.renderLabels(regions, circleMap, plotArea, baseOpacity, interOpacity, animate ?? false);
+    this.renderLabels(regions, animate ?? false);
   }
 
   private resolveDashStyle(style?: DashStyleType): string {
@@ -241,110 +238,89 @@ export class VennSeries extends BaseSeries {
     return DASH_MAP[style] || 'none';
   }
 
-  private attachRegionHover(
-    el: any, region: VennRegion, idx: number,
-    circleEls: any, interPaths: any,
-    circles: CircleLayout[], regions: VennRegion[],
-    baseOpacity: number, interOpacity: number,
-    inactiveOpacity: number, hoverBrightness: number,
-    allowSelect: boolean
+  private attachEvents(
+    groups: any, regions: RegionDatum[],
+    baseOpacity: number, hoverSingleOpacity: number, hoverInterOpacity: number,
+    allowSelect: boolean,
   ): void {
-    const isIntersection = region.sets.length >= 2;
-    const allHoverTargets = this.group.selectAll('.katucharts-venn-hover-target');
-
-    const interLabels = this.group.selectAll('.katucharts-venn-inter-label');
     const alwaysShowInterLabels = ((this.config as any).dataLabels?.intersections?.enabled === true);
+    const getInterLabels = () => this.group.selectAll('.katucharts-venn-inter-label');
 
-    el.on('mouseover', (event: MouseEvent) => {
-      circleEls.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
-        .attr('fill-opacity', inactiveOpacity).attr('stroke-opacity', 0.3);
-      interPaths.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
-        .attr('fill-opacity', inactiveOpacity);
-      allHoverTargets.each(function() {
-        (this as SVGElement).style.pointerEvents = 'none';
-      });
-      el.node().style.pointerEvents = 'auto';
+    groups
+      .on('mouseover', (event: MouseEvent, d: RegionDatum) => {
+        const idx = regions.indexOf(d);
+        const isInter = d.sets.length >= 2;
+        const g = select(event.currentTarget as SVGGElement);
+        g.select('path')
+          .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+          .attr('fill-opacity', isInter ? hoverInterOpacity : hoverSingleOpacity);
 
-      if (isIntersection) {
-        const target = select(event.currentTarget as SVGElement);
-        target.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill-opacity', 0.7);
-        if (!alwaysShowInterLabels) {
-          interLabels.filter((d: any) =>
-            d.sets.length === region.sets.length && d.sets.every((s: string) => region.sets.includes(s))
+        if (isInter) {
+          getInterLabels().filter((ld: any) =>
+            ld.sets.length === d.sets.length && ld.sets.every((s: string) => d.sets.includes(s))
           ).transition('label').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
         }
-      } else {
-        const c = circles.find(c => c.id === region.sets[0]);
-        if (c) {
-          circleEls.filter((d: CircleLayout) => d.id === c.id)
-            .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
-            .attr('fill-opacity', baseOpacity).attr('stroke-opacity', 1);
+
+        this.context.events.emit('point:mouseover', {
+          point: { name: d.name, y: d.value, value: d.value, sets: d.sets },
+          index: idx, series: this, event,
+          plotX: d.labelX, plotY: d.labelY,
+        });
+        d.data?.events?.mouseOver?.call(d.data, event);
+      })
+      .on('mouseout', (event: MouseEvent, d: RegionDatum) => {
+        const idx = regions.indexOf(d);
+        const isInter = d.sets.length >= 2;
+        const g = select(event.currentTarget as SVGGElement);
+        g.select('path')
+          .transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
+          .attr('fill-opacity', isInter ? 0 : baseOpacity);
+
+        getInterLabels().filter(function() {
+          return (this as any).__autoHidden === true;
+        }).transition('label').duration(HOVER_DURATION).ease(EASE_HOVER)
+          .attr('opacity', 0);
+
+        this.context.events.emit('point:mouseout', {
+          point: { name: d.name, y: d.value, value: d.value, sets: d.sets },
+          index: idx, series: this, event,
+        });
+        d.data?.events?.mouseOut?.call(d.data, event);
+      })
+      .on('click', (event: MouseEvent, d: RegionDatum) => {
+        const idx = regions.indexOf(d);
+        if (allowSelect) {
+          const wasSelected = this.selectedIndices.has(idx);
+          if (wasSelected) {
+            this.selectedIndices.delete(idx);
+            d.data?.events?.unselect?.call(d.data, event);
+          } else {
+            this.selectedIndices.add(idx);
+            d.data?.events?.select?.call(d.data, event);
+          }
         }
-      }
-
-      this.context.events.emit('point:mouseover', {
-        point: { name: region.name, y: region.value, value: region.value, sets: region.sets },
-        index: idx, series: this, event,
-        plotX: region.labelX, plotY: region.labelY,
-      });
-      region.data?.events?.mouseOver?.call(region.data, event);
-    })
-    .on('mouseout', (event: MouseEvent) => {
-      circleEls.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
-        .attr('fill', (d: CircleLayout) => d.color)
-        .attr('fill-opacity', baseOpacity).attr('stroke-opacity', 1);
-      interPaths.transition('hover').duration(HOVER_DURATION).ease(EASE_HOVER)
-        .attr('fill-opacity', interOpacity);
-      allHoverTargets.each(function() {
-        (this as SVGElement).style.pointerEvents = '';
-      });
-      if (!alwaysShowInterLabels) {
-        interLabels.transition('label').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 0);
-      }
-
-      this.context.events.emit('point:mouseout', {
-        point: { name: region.name, y: region.value, value: region.value, sets: region.sets },
-        index: idx, series: this, event,
-      });
-      region.data?.events?.mouseOut?.call(region.data, event);
-    })
-    .on('click', (event: MouseEvent) => {
-      if (allowSelect) {
-        const wasSelected = this.selectedIndices.has(idx);
-        if (wasSelected) {
-          this.selectedIndices.delete(idx);
-          region.data?.events?.unselect?.call(region.data, event);
-        } else {
-          this.selectedIndices.add(idx);
-          region.data?.events?.select?.call(region.data, event);
+        this.context.events.emit('point:click', {
+          point: { name: d.name, y: d.value, value: d.value, sets: d.sets },
+          index: idx, series: this, event,
+        });
+        d.data?.events?.click?.call(d.data, event);
+        this.config.events?.click?.call(this, event);
+        const pointClick = (this.config as any).point?.events?.click;
+        if (pointClick) {
+          pointClick.call(
+            { ...d.data, sets: d.sets, name: d.name, value: d.value },
+            event
+          );
         }
-      }
-
-      this.context.events.emit('point:click', {
-        point: { name: region.name, y: region.value, value: region.value, sets: region.sets },
-        index: idx, series: this, event,
       });
-      region.data?.events?.click?.call(region.data, event);
-      this.config.events?.click?.call(this, event);
-      const pointClick = (this.config as any).point?.events?.click;
-      if (pointClick) {
-        pointClick.call(
-          { ...region.data, sets: region.sets, name: region.name, value: region.value },
-          event
-        );
-      }
-    });
   }
 
-  private renderLabels(
-    regions: VennRegion[], circleMap: Map<string, CircleLayout>,
-    plotArea: any, baseOpacity: number, interOpacity: number, animate: boolean
-  ): void {
+  private renderLabels(regions: RegionDatum[], animate: boolean): void {
     const dlCfg = (this.config as any).dataLabels || {};
     const showSetLabels = dlCfg.enabled !== false;
-    const showIntersectionLabels = dlCfg.intersections?.enabled === true;
-    const dlFontSize = (dlCfg.style?.fontSize as string) || '14px';
-    const dlColor = dlCfg.color || (dlCfg.style?.color as string) || '#333';
+    const showIntersectionLabels = dlCfg.intersections?.enabled !== false;
+    const dlFontSize = (dlCfg.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
+    const dlColor = dlCfg.color || (dlCfg.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
     const dlFontWeight = (dlCfg.style?.fontWeight as string) || 'bold';
 
     const setRegions = regions.filter(r => r.sets.length === 1);
@@ -352,11 +328,11 @@ export class VennSeries extends BaseSeries {
 
     if (showSetLabels) {
       const circleLabels = this.group.selectAll('.katucharts-venn-set-label')
-        .data(setRegions)
+        .data(setRegions, (d: any) => d.key)
         .join('text')
         .attr('class', 'katucharts-venn-set-label')
-        .attr('x', (d: VennRegion) => d.labelX)
-        .attr('y', (d: VennRegion) => d.labelY)
+        .attr('x', (d: RegionDatum) => d.labelX)
+        .attr('y', (d: RegionDatum) => d.labelY)
         .attr('text-anchor', 'middle')
         .attr('dominant-baseline', 'central')
         .attr('font-size', dlFontSize)
@@ -364,7 +340,7 @@ export class VennSeries extends BaseSeries {
         .attr('fill', dlColor)
         .style('pointer-events', 'none')
         .style('text-shadow', '0 0 4px #fff, 0 0 4px #fff')
-        .text((d: VennRegion) => {
+        .text((d: RegionDatum) => {
           if (dlCfg.formatter) {
             return dlCfg.formatter.call({
               point: { name: d.name, y: d.value, sets: d.sets },
@@ -380,23 +356,40 @@ export class VennSeries extends BaseSeries {
           .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
           .attr('opacity', 1);
       }
-
     }
 
-    const interLabels = this.group.selectAll('.katucharts-venn-inter-label')
-      .data(interLabelRegions)
+    const interLabels = this.group.selectAll<SVGTextElement, RegionDatum>('.katucharts-venn-inter-label')
+      .data(interLabelRegions, (d: any) => d.key)
       .join('text')
       .attr('class', 'katucharts-venn-inter-label')
-      .attr('x', (d: VennRegion) => d.labelX)
-      .attr('y', (d: VennRegion) => d.labelY)
+      .attr('x', (d: RegionDatum) => d.labelX)
+      .attr('y', (d: RegionDatum) => d.labelY)
       .attr('text-anchor', 'middle')
       .attr('dominant-baseline', 'central')
-      .attr('font-size', '10px')
-      .attr('fill', '#555')
+      .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
+      .attr('fill', DEFAULT_CHART_TEXT_COLOR)
       .style('pointer-events', 'none')
       .style('text-shadow', '0 0 3px #fff, 0 0 3px #fff')
       .attr('opacity', showIntersectionLabels ? 1 : 0)
-      .text((d: VennRegion) => d.name);
+      .text((d: RegionDatum) => d.name);
+
+    if (showIntersectionLabels) {
+      const groupNode = this.group;
+      interLabels.each(function(d: RegionDatum) {
+        const textEl = this as SVGGraphicsElement;
+        const regionGroup = groupNode.select(`[data-venn-sets="${d.sets.join('_')}"]`).node() as Element | null;
+        const pathEl = regionGroup?.querySelector('path') as SVGGraphicsElement | null;
+        if (!pathEl) return;
+        try {
+          const labelBBox = textEl.getBBox();
+          const regionBBox = pathEl.getBBox();
+          const fits = labelBBox.width <= regionBBox.width * 0.95
+            && labelBBox.height <= regionBBox.height * 0.95;
+          textEl.setAttribute('opacity', fits ? '1' : '0');
+          (textEl as any).__autoHidden = !fits;
+        } catch (e) { /* ignore */ }
+      });
+    }
   }
 
   private layoutSets(
@@ -421,7 +414,7 @@ export class VennSeries extends BaseSeries {
       if (interVal <= 0) {
         targetDist.set(`${ai}-${bi}`, radii[ai] + radii[bi] + 5);
       } else {
-        const area = Math.PI * (maxR * Math.sqrt(interVal / maxVal)) ** 2 * (interVal / maxVal);
+        const area = Math.PI * maxR * maxR * (interVal / maxVal);
         targetDist.set(`${ai}-${bi}`, this.findDistance(radii[ai], radii[bi], area));
       }
     }
@@ -501,7 +494,7 @@ export class VennSeries extends BaseSeries {
       const r = radii[i] * scale;
       map.set(ids[i], {
         id: ids[i], cx: x, cy: y, r,
-        color: singles[i].color || colors[i % colors.length],
+        color: singles[i].color || VENN_COLORS[i % VENN_COLORS.length],
       });
     }
   }
@@ -595,7 +588,14 @@ export class VennSeries extends BaseSeries {
     const dy = c2.cy - c1.cy;
     const d = Math.sqrt(dx * dx + dy * dy);
 
-    if (d >= c1.r + c2.r || d <= Math.abs(c1.r - c2.r)) return null;
+    if (d >= c1.r + c2.r) return null;
+    if (d <= Math.abs(c1.r - c2.r)) {
+      const smaller = c1.r < c2.r ? c1 : c2;
+      return {
+        path: this.circlePath(smaller.cx, smaller.cy, smaller.r),
+        cx: smaller.cx, cy: smaller.cy,
+      };
+    }
 
     const a = (c1.r * c1.r - c2.r * c2.r + d * d) / (2 * d);
     const h = Math.sqrt(c1.r * c1.r - a * a);
@@ -608,14 +608,14 @@ export class VennSeries extends BaseSeries {
     const px2 = mx - h * dy / d;
     const py2 = my + h * dx / d;
 
-    const largeArc1 = a > c1.r ? 1 : 0;
-    const largeArc2 = (d - a) > c2.r ? 1 : 0;
+    const largeArc1 = a < 0 ? 1 : 0;
+    const largeArc2 = (d - a) < 0 ? 1 : 0;
 
     const path = `M${px1},${py1}`
       + `A${c1.r},${c1.r},0,${largeArc1},1,${px2},${py2}`
       + `A${c2.r},${c2.r},0,${largeArc2},1,${px1},${py1}Z`;
 
-    return { path, cx: (c1.cx + c2.cx) / 2, cy: (c1.cy + c2.cy) / 2 };
+    return { path, cx: mx, cy: my };
   }
 
   private triIntersectionPath(
@@ -699,10 +699,16 @@ export class VennSeries extends BaseSeries {
     let r = 0, g = 0, b = 0;
     for (const c of clrs) {
       const parsed = rgb(d3Color(c) as any || c);
-      r += parsed.r; g += parsed.g; b += parsed.b;
+      r += parsed.r;
+      g += parsed.g;
+      b += parsed.b;
     }
-    const n = clrs.length;
-    return rgb(r / n, g / n, b / n).formatHex();
+    const n = clrs.length || 1;
+    return rgb(
+      Math.round(r / n * 0.85),
+      Math.round(g / n * 0.85),
+      Math.round(b / n * 0.85)
+    ).formatHex();
   }
 
   private findDistance(r1: number, r2: number, targetArea: number): number {

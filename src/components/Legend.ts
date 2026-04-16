@@ -3,6 +3,7 @@ import type { LegendOptions, PlotArea } from '../types/options';
 import { EventBus } from '../core/EventBus';
 import { templateFormat, stripHtmlTags } from '../utils/format';
 import type { BaseSeries } from '../series/BaseSeries';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../utils/chartText';
 
 export class Legend {
   private config: LegendOptions;
@@ -65,7 +66,7 @@ export class Legend {
   }
 
   private computeAutoFontSize(_itemCount: number, baseFontSize: string): string {
-    return baseFontSize || '12px';
+    return baseFontSize || DEFAULT_CHART_TEXT_SIZE;
   }
 
   private estimateTextWidth(text: string, fontSize: string): number {
@@ -131,7 +132,7 @@ export class Legend {
     const maxHeight = this.config.maxHeight;
     const legendWidth = this.config.width;
 
-    const baseFontSize = itemStyle.fontSize as string || '12px';
+    const baseFontSize = itemStyle.fontSize as string || DEFAULT_CHART_TEXT_SIZE;
     const effectiveFontSize = this.computeAutoFontSize(visibleSeries.length, baseFontSize);
 
     let offsetX = padding;
@@ -144,7 +145,7 @@ export class Legend {
         .attr('class', 'katucharts-legend-title')
         .attr('x', padding)
         .attr('y', padding + 10)
-        .attr('font-size', titleStyle.fontSize as string || '12px')
+        .attr('font-size', titleStyle.fontSize as string || DEFAULT_CHART_TEXT_SIZE)
         .attr('font-weight', titleStyle.fontWeight as string || 'bold')
         .attr('fill', titleStyle.color as string || '#333')
         .text(this.config.title.text);
@@ -290,7 +291,7 @@ export class Legend {
       const textEl = itemGroup.append('text')
         .attr('x', symbolWidth + symbolPadding)
         .attr('y', 10)
-        .attr('fill', s.visible ? (itemStyle.color as string || '#333333') : (this.config.itemHiddenStyle?.color as string || '#cccccc'))
+        .attr('fill', s.visible ? (itemStyle.color as string || DEFAULT_CHART_TEXT_COLOR) : (this.config.itemHiddenStyle?.color as string || '#cccccc'))
         .attr('font-size', effectiveFontSize)
         .attr('font-weight', itemStyle.fontWeight as string || 'normal')
         .text(label);
@@ -310,7 +311,7 @@ export class Legend {
 
         s.toggleVisible();
         textEl.attr('fill', s.visible
-          ? (itemStyle.color as string || '#333333')
+          ? (itemStyle.color as string || DEFAULT_CHART_TEXT_COLOR)
           : (this.config.itemHiddenStyle?.color as string || '#cccccc')
         );
         const result = s.config.events?.legendItemClick?.call(s, new Event('legendItemClick'));
@@ -325,7 +326,7 @@ export class Legend {
       });
       itemGroup.on('mouseout', () => {
         textEl.attr('fill', s.visible
-          ? (itemStyle.color as string || '#333333')
+          ? (itemStyle.color as string || DEFAULT_CHART_TEXT_COLOR)
           : (this.config.itemHiddenStyle?.color as string || '#cccccc')
         );
         this.events.emit('legend:itemLeave');

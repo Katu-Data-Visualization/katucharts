@@ -66,7 +66,7 @@ export function renderGlyphTrack(
 
   if (opts.animate) {
     glyphs.attr('opacity', 0)
-      .transition().duration(opts.duration * 0.4).delay(opts.duration * 0.5)
+      .transition().duration(opts.duration).delay(opts.baseDelay ?? 0)
       .attr('opacity', track.opacity ?? 0.8);
   }
 }

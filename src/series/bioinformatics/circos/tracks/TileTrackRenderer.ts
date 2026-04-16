@@ -97,7 +97,7 @@ export function renderTileTrack(
 
   if (opts.animate) {
     tiles.attr('opacity', 0)
-      .transition().duration(opts.duration * 0.4).delay(opts.duration * 0.5)
+      .transition().duration(opts.duration).delay(opts.baseDelay ?? 0)
       .attr('opacity', track.opacity ?? 0.75);
   }
 }

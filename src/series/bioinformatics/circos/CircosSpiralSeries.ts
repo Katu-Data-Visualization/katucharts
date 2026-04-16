@@ -13,6 +13,7 @@ import type { InternalSeriesConfig } from '../../../types/options';
 import { getColorInterpolator } from './CircosColorScales';
 import type { CircosColorScaleName } from './CircosTypes';
 import { safeMinMax, parseRadius } from './CircosLayoutEngine';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../../utils/chartText';
 import {
   ENTRY_DURATION,
   ENTRY_STAGGER_PER_ITEM,
@@ -335,8 +336,8 @@ export class CircosSpiralSeries extends BaseSeries {
       .attr('y', (d: any) => d.y)
       .attr('text-anchor', 'start')
       .attr('dominant-baseline', 'central')
-      .attr('font-size', '8px')
-      .attr('fill', '#555')
+      .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
+      .attr('fill', DEFAULT_CHART_TEXT_COLOR)
       .text((d: any) => d.text);
   }
 }

@@ -4,6 +4,7 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   ENTRY_STAGGER_PER_ITEM,
@@ -325,8 +326,8 @@ export class PolarSeries extends BaseSeries {
       g.append('text')
         .attr('x', 3)
         .attr('y', -r + 3)
-        .attr('font-size', '8px')
-        .attr('fill', '#999')
+        .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
+        .attr('fill', DEFAULT_CHART_TEXT_COLOR)
         .style('pointer-events', 'none')
         .text(Math.round((maxValue / levels) * i));
     }
@@ -346,8 +347,8 @@ export class PolarSeries extends BaseSeries {
         .attr('y', labelR * Math.sin(angle))
         .attr('text-anchor', 'middle')
         .attr('dominant-baseline', 'middle')
-        .attr('font-size', '10px')
-        .attr('fill', '#666')
+        .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
+        .attr('fill', DEFAULT_CHART_TEXT_COLOR)
         .text(this.data[i]?.name || `${i}`);
     }
   }

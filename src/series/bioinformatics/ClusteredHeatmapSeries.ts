@@ -10,6 +10,7 @@ import { hierarchy, cluster } from 'd3-hierarchy';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   HOVER_DURATION,
@@ -252,8 +253,8 @@ export class ClusteredHeatmapSeries extends BaseSeries {
           .attr('x', area.x + i * cellWidth + cellWidth / 2)
           .attr('y', area.y + area.height + 12)
           .attr('text-anchor', 'middle')
-          .attr('font-size', '9px')
-          .attr('fill', '#333')
+          .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
+          .attr('fill', DEFAULT_CHART_TEXT_COLOR)
           .text(xLabels[i]);
       }
     }
@@ -266,8 +267,8 @@ export class ClusteredHeatmapSeries extends BaseSeries {
           .attr('y', area.y + i * cellHeight + cellHeight / 2)
           .attr('text-anchor', 'start')
           .attr('dominant-baseline', 'central')
-          .attr('font-size', '9px')
-          .attr('fill', '#333')
+          .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
+          .attr('fill', DEFAULT_CHART_TEXT_COLOR)
           .text(yLabels[i]);
       }
     }

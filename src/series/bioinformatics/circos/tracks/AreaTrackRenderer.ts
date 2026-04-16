@@ -54,15 +54,16 @@ export function renderAreaTrack(
     .attr('opacity', track.opacity ?? 1);
 
   if (opts.animate) {
+    const bd = opts.baseDelay ?? 0;
     area.attr('opacity', 0)
-      .transition().duration(opts.duration * 0.5).delay(opts.duration * 0.5)
+      .transition().duration(opts.duration).delay(bd)
       .attr('opacity', fillOpacity);
 
     const totalLength = (line.node() as SVGPathElement)?.getTotalLength?.() ?? 1000;
     line
       .attr('stroke-dasharray', `${totalLength} ${totalLength}`)
       .attr('stroke-dashoffset', totalLength)
-      .transition().duration(opts.duration).delay(opts.duration * 0.5)
+      .transition().duration(opts.duration).delay(bd)
       .attr('stroke-dashoffset', 0);
   }
 }

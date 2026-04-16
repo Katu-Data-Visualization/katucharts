@@ -14,6 +14,7 @@ import 'd3-transition';
 import { timeFormat } from 'd3-time-format';
 import type { InternalAxisConfig, PlotArea, PlotBandOptions, PlotLineOptions } from '../types/options';
 import { siFormat, numberFormat } from '../utils/format';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../utils/chartText';
 
 export type AnyScale = ScaleLinear<number, number> | ScaleLogarithmic<number, number>
   | ScaleTime<number, number> | ScaleBand<string>;
@@ -128,8 +129,8 @@ class BaseAxis {
       if (cfg.labels?.style) {
         const style = cfg.labels.style;
         axisGroup.selectAll('.tick text')
-          .attr('fill', style.color as string || '#666666')
-          .style('font-size', style.fontSize as string || '11px');
+          .attr('fill', style.color as string || DEFAULT_CHART_TEXT_COLOR)
+          .style('font-size', style.fontSize as string || DEFAULT_CHART_TEXT_SIZE);
       }
 
       if (cfg.labels?.x !== undefined || cfg.labels?.y !== undefined) {
@@ -398,8 +399,8 @@ class BaseAxis {
         group.append('text')
           .attr('x', lx).attr('y', ly)
           .attr('text-anchor', anchor)
-          .attr('font-size', (lbl.style as any)?.fontSize || '10px')
-          .attr('fill', (lbl.style as any)?.color || '#666')
+          .attr('font-size', (lbl.style as any)?.fontSize || DEFAULT_CHART_TEXT_SIZE)
+          .attr('fill', (lbl.style as any)?.color || DEFAULT_CHART_TEXT_COLOR)
           .attr('transform', (lbl as any).rotation ? `rotate(${(lbl as any).rotation},${lx},${ly})` : '')
           .style('pointer-events', 'none')
           .attr('class', 'katucharts-plot-band-label')
@@ -470,8 +471,8 @@ class BaseAxis {
         group.append('text')
           .attr('x', lx).attr('y', ly)
           .attr('text-anchor', anchor)
-          .attr('font-size', (lbl.style as any)?.fontSize || '10px')
-          .attr('fill', (lbl.style as any)?.color || pl.color || '#666')
+          .attr('font-size', (lbl.style as any)?.fontSize || DEFAULT_CHART_TEXT_SIZE)
+          .attr('fill', (lbl.style as any)?.color || DEFAULT_CHART_TEXT_COLOR)
           .attr('transform', (lbl as any).rotation ? `rotate(${(lbl as any).rotation},${lx},${ly})` : '')
           .style('pointer-events', 'none')
           .attr('class', 'katucharts-plot-line-label')
@@ -534,7 +535,8 @@ class BaseAxis {
         .attr('x', plotArea.width / 2)
         .attr('y', yPos)
         .attr('text-anchor', 'middle')
-        .attr('fill', title.style?.color as string || '#666666')
+        .attr('font-size', title.style?.fontSize as string || DEFAULT_CHART_TEXT_SIZE)
+        .attr('fill', title.style?.color as string || DEFAULT_CHART_TEXT_COLOR)
         .text(title.text!);
 
       if (rotation !== undefined) {
@@ -565,7 +567,8 @@ class BaseAxis {
         .attr('y', yPos)
         .attr('text-anchor', 'middle')
         .attr('transform', `rotate(${rot}, ${x}, ${yPos})`)
-        .attr('fill', title.style?.color as string || '#666666')
+        .attr('font-size', title.style?.fontSize as string || DEFAULT_CHART_TEXT_SIZE)
+        .attr('fill', title.style?.color as string || DEFAULT_CHART_TEXT_COLOR)
         .text(title.text!);
     }
   }

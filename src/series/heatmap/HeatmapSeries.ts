@@ -8,6 +8,7 @@ import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, ColorAxisOptions, BorderRadiusOptions } from '../../types/options';
 import { templateFormat, stripHtmlTags } from '../../utils/format';
 import { HOVER_DURATION, EASE_HOVER } from '../../core/animationConstants';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 
 function resolveBorderRadius(val: number | BorderRadiusOptions | undefined): number {
   if (val === undefined) return 4;
@@ -337,8 +338,8 @@ export class HeatmapSeries extends BaseSeries {
       .attr('class', 'katucharts-color-axis');
 
     const labelStyle = colorAxisCfg.labels?.style || {};
-    const fontSize = (labelStyle.fontSize as string) || '11px';
-    const fontColor = (labelStyle.color as string) || '#666';
+    const fontSize = (labelStyle.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
+    const fontColor = (labelStyle.color as string) || DEFAULT_CHART_TEXT_COLOR;
 
     const range = maxVal - minVal;
     const rawStep = range / 6;
@@ -371,7 +372,7 @@ export class HeatmapSeries extends BaseSeries {
           .attr('ry', i === 0 ? 2 : 0);
         if (cls.name) {
           axisGroup.append('text')
-            .attr('x', x + i * segW + segW / 2).attr('y', y + barHeight + 14)
+            .attr('x', x + i * segW + segW / 2).attr('y', y + barHeight + 30)
             .attr('font-size', fontSize).attr('fill', fontColor)
             .attr('text-anchor', 'middle')
             .text(cls.name);
@@ -460,11 +461,11 @@ export class HeatmapSeries extends BaseSeries {
       for (let i = 0; i < ticks.length; i++) {
         const tx = x + (ticks[i] - minVal) / range * barWidth;
         axisGroup.append('line')
-          .attr('x1', tx).attr('y1', y + barHeight)
-          .attr('x2', tx).attr('y2', y + barHeight + 4)
+          .attr('x1', tx).attr('y1', y + barHeight + 8)
+          .attr('x2', tx).attr('y2', y + barHeight + 16)
           .attr('stroke', '#999').attr('stroke-width', 0.5);
         axisGroup.append('text')
-          .attr('x', tx).attr('y', y + barHeight + 15)
+          .attr('x', tx).attr('y', y + barHeight + 30)
           .attr('font-size', fontSize).attr('fill', fontColor)
           .attr('text-anchor', i === 0 ? 'start' : i === ticks.length - 1 ? 'end' : 'middle')
           .text(ticks[i].toFixed(precision));
@@ -478,8 +479,8 @@ export class HeatmapSeries extends BaseSeries {
     const minCellHeight = (dlCfg as any).minCellHeight ?? 20;
     if (cellHeight < minCellHeight) return;
 
-    const fontSize = (dlCfg.style?.fontSize as string) || '11px';
-    const fontColor = dlCfg.color || (dlCfg.style?.color as string) || '#333';
+    const fontSize = (dlCfg.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
+    const fontColor = dlCfg.color || (dlCfg.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
 
     this.group.selectAll('.katucharts-heatmap-label')
       .data(data)

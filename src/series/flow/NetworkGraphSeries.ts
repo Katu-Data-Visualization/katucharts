@@ -4,6 +4,7 @@ import { drag as d3Drag } from 'd3-drag';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig } from '../../types/options';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   HOVER_DURATION,
@@ -233,8 +234,8 @@ export class NetworkGraphSeries extends BaseSeries {
       .attr('x', (d: any) => d.x)
       .attr('y', (d: any) => d.y - 14)
       .attr('text-anchor', 'middle')
-      .attr('font-size', '10px')
-      .attr('fill', '#333')
+      .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
+      .attr('fill', DEFAULT_CHART_TEXT_COLOR)
       .style('pointer-events', 'none')
       .text((d: any) => d.name || d.id);
 

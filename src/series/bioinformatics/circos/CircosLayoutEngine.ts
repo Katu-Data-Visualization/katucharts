@@ -7,11 +7,15 @@
 import { arc as d3Arc } from 'd3-shape';
 import { scaleLinear, scaleLog } from 'd3-scale';
 import { color as d3Color } from 'd3-color';
+import { interpolate } from 'd3-interpolate';
+import { select } from 'd3-selection';
 import 'd3-transition';
+import { EASE_ENTRY } from '../../../core/animationConstants';
 import type {
   ChromosomeDef, ChromosomeArc, CircosLayoutConfig, IdeogramBand,
 } from './CircosTypes';
 import { DEFAULT_CHR_COLORS, BAND_COLORS } from './CircosTypes';
+import { DEFAULT_CHART_TEXT_COLOR } from '../../../utils/chartText';
 
 export class CircosLayoutEngine {
   chrArcs: ChromosomeArc[] = [];
@@ -126,9 +130,12 @@ export class CircosLayoutEngine {
       .style('cursor', 'pointer');
 
     if (animate) {
-      arcs.attr('opacity', 0)
-        .transition().duration(duration * 0.5)
-        .attr('opacity', 1);
+      arcs.each(function(this: any, d: ChromosomeArc, i: number) {
+        const startArc = { startAngle: d.startAngle, endAngle: d.startAngle };
+        const interp = interpolate(startArc, d);
+        select(this).transition('enter').duration(duration).delay(i * 180).ease(EASE_ENTRY)
+          .attrTween('d', () => (t: number) => arcGen(interp(t)) as string);
+      });
     }
 
     if (events && seriesRef) {
@@ -187,28 +194,63 @@ export class CircosLayoutEngine {
 
     if (animate) {
       bands.attr('opacity', 0)
-        .transition().duration(duration * 0.5)
+        .transition('enter').duration(Math.round(duration * 0.4)).delay(Math.round(duration * 0.6)).ease(EASE_ENTRY)
         .attr('opacity', 0.6);
     }
   }
 
-  renderChromosomeLabels(group: any, radius: number, fontSize = 9): void {
-    group.selectAll('.katucharts-circos-label')
+  renderChromosomeLabels(
+    group: any,
+    radius: number,
+    fontSize = 9,
+    animate = false,
+    duration = 600,
+    delay = 0,
+  ): void {
+    const labels = group.selectAll('.katucharts-circos-label')
       .data(this.chrArcs)
       .join('text')
       .attr('class', 'katucharts-circos-label')
-      .attr('transform', (d: ChromosomeArc) => {
+      .attr('text-anchor', 'middle')
+      .attr('dominant-baseline', 'central')
+      .attr('font-size', `${fontSize}px`)
+      .attr('fill', DEFAULT_CHART_TEXT_COLOR)
+      .text((d: ChromosomeArc) => d.id);
+
+    if (animate) {
+      // Start labels slightly inward, fade in while sliding outward to final radius
+      labels.attr('opacity', 0)
+        .attr('transform', (d: ChromosomeArc) => {
+          const midAngle = (d.startAngle + d.endAngle) / 2;
+          const angleDeg = midAngle * 180 / Math.PI - 90;
+          const inR = radius - 8;
+          const pos = this.polarToCartesian(midAngle, inR);
+          const flip = angleDeg > 90 && angleDeg < 270;
+          return `translate(${pos.x},${pos.y}) rotate(${flip ? angleDeg + 180 : angleDeg})`;
+        })
+        .each(function(this: any, d: ChromosomeArc, i: number) {
+          select(this).transition('enter')
+            .duration(Math.round(duration * 0.35))
+            .delay(delay + i * 20)
+            .ease(EASE_ENTRY)
+            .attr('opacity', 1)
+            .attr('transform', () => {
+              const midAngle = (d.startAngle + d.endAngle) / 2;
+              const angleDeg = midAngle * 180 / Math.PI - 90;
+              const pos = { x: Math.cos(midAngle - Math.PI / 2) * radius, y: Math.sin(midAngle - Math.PI / 2) * radius };
+              const flip = angleDeg > 90 && angleDeg < 270;
+              return `translate(${pos.x},${pos.y}) rotate(${flip ? angleDeg + 180 : angleDeg})`;
+            });
+        });
+    } else {
+      labels.attr('transform', (d: ChromosomeArc) => {
         const midAngle = (d.startAngle + d.endAngle) / 2;
         const angleDeg = midAngle * 180 / Math.PI - 90;
         const pos = this.polarToCartesian(midAngle, radius);
         const flip = angleDeg > 90 && angleDeg < 270;
         return `translate(${pos.x},${pos.y}) rotate(${flip ? angleDeg + 180 : angleDeg})`;
-      })
-      .attr('text-anchor', 'middle')
-      .attr('dominant-baseline', 'central')
-      .attr('font-size', `${fontSize}px`)
-      .attr('fill', '#333')
-      .text((d: ChromosomeArc) => d.id);
+      });
+    }
   }
 }
 

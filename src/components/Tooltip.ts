@@ -288,6 +288,58 @@ export class Tooltip {
     return key;
   }
 
+  private getPointCategory(point: PointOptions): string | number | undefined {
+    if ((point as any).category !== undefined) return (point as any).category;
+    if (this.categories && typeof point.x === 'number' && this.categories[point.x] !== undefined) {
+      return this.categories[point.x];
+    }
+    return point.name;
+  }
+
+  private buildFormatterPoint(data: TooltipPointData, overrides: Record<string, unknown> = {}): any {
+    const key = this.resolveKey(data);
+    const category = this.getPointCategory(data.point);
+    return {
+      ...data.point,
+      ...overrides,
+      key,
+      category,
+      color: data.point.color || data.series.color || '#333',
+      series: {
+        name: data.series.name || '',
+        color: data.series.color || '#333',
+      },
+    };
+  }
+
+  private buildFormatterContext(
+    data: TooltipPointData,
+    extras: Record<string, unknown> = {}
+  ): {
+    point: any;
+    series: any;
+    x: any;
+    y: any;
+    percentage?: number;
+    total?: number;
+    key?: any;
+    color?: string;
+    points?: any[];
+  } {
+    const key = this.resolveKey(data);
+    return {
+      point: this.buildFormatterPoint(data),
+      series: data.series,
+      x: data.point.x,
+      y: data.point.y,
+      percentage: (data.point as any).percentage,
+      total: (data.point as any).total,
+      key,
+      color: data.point.color || data.series.color,
+      ...extras,
+    };
+  }
+
   private formatContent(data: TooltipPointData): string {
     const seriesTooltip = data.series.config?.tooltip as TooltipOptions | undefined;
 
@@ -306,17 +358,7 @@ export class Tooltip {
     }
 
     if (this.config.formatter) {
-      const key = this.resolveKey(data);
-      const result = this.config.formatter.call({
-        point: data.point,
-        series: data.series,
-        x: data.point.x,
-        y: data.point.y,
-        percentage: (data.point as any).percentage,
-        total: (data.point as any).total,
-        key,
-        color: data.point.color || data.series.color,
-      });
+      const result = this.config.formatter.call(this.buildFormatterContext(data));
       if (result === false) return '';
       return result;
     }
@@ -338,28 +380,20 @@ export class Tooltip {
     }
 
     const context = {
-      point: {
-        ...data.point,
+      point: this.buildFormatterPoint(data, {
         name: pointName,
         key: formattedX,
-        color: data.point.color || data.series.color || '#333',
         y: formattedY || data.point.y,
+      }),
+      series: {
+        ...data.series,
+        name: data.series.name || '',
       },
-      series: { name: data.series.name || '' },
     };
 
     const pointFormatter = seriesTooltip?.pointFormatter ?? this.config.pointFormatter;
     if (pointFormatter) {
-      const pointBody = pointFormatter.call({
-        point: data.point,
-        series: data.series,
-        x: data.point.x,
-        y: data.point.y,
-        percentage: (data.point as any).percentage,
-        total: (data.point as any).total,
-        key,
-        color: data.point.color || data.series.color,
-      });
+      const pointBody = pointFormatter.call(this.buildFormatterContext(data));
       const headerFmt = seriesTooltip?.headerFormat ?? this.config.headerFormat ?? '';
       const footerFmt = seriesTooltip?.footerFormat ?? this.config.footerFormat ?? '';
       return templateFormat(headerFmt, context) + pointBody + templateFormat(footerFmt, context);
@@ -402,16 +436,17 @@ export class Tooltip {
 
   private formatSharedContent(points: TooltipPointData[]): string {
     if (this.config.formatter) {
-      const key = points[0] ? this.resolveKey(points[0]) : '';
+      const first = points[0];
+      const key = first ? this.resolveKey(first) : '';
       const result = this.config.formatter.call({
-        point: points[0]?.point,
-        series: points[0]?.series,
-        x: points[0]?.point.x,
-        y: points[0]?.point.y,
+        point: first ? this.buildFormatterPoint(first) : undefined,
+        series: first?.series,
+        x: first?.point.x,
+        y: first?.point.y,
         key,
-        color: points[0]?.point.color || points[0]?.series.color,
+        color: first?.point.color || first?.series.color,
         points: points.map(p => ({
-          point: p.point,
+          point: this.buildFormatterPoint(p),
           series: p.series,
           x: p.point.x,
           y: p.point.y,

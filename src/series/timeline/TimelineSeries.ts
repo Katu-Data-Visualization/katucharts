@@ -2,6 +2,7 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig } from '../../types/options';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   ENTRY_STAGGER_PER_ITEM,
@@ -29,8 +30,8 @@ export class TimelineSeries extends BaseSeries {
     const connectorColor = cfg.connectorColor ?? '#ccc';
     const connectorWidth = cfg.connectorWidth ?? (cfg.lineWidth ?? 4);
     const dlCfg = this.config.dataLabels || {};
-    const labelFontSize = (dlCfg.style?.fontSize as string) || '12px';
-    const labelColor = dlCfg.color || (dlCfg.style?.color as string) || '#333';
+    const labelFontSize = (dlCfg.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
+    const labelColor = dlCfg.color || (dlCfg.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
     const rows: { circle: any; text: any; desc?: any }[] = [];
 
     data.forEach((d, i) => {

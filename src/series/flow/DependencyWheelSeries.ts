@@ -5,6 +5,7 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, SankeyNodeOptions } from '../../types/options';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   HOVER_DURATION,
@@ -21,6 +22,14 @@ export class DependencyWheelSeries extends BaseSeries {
     const { plotArea, colors } = this.context;
     const animate = this.context.animate;
     const cfg = this.config as any;
+    const baseFlowDur = ENTRY_DURATION * 2;
+    const ribbonStagger = 8;
+
+    // Staged timing: arcs → labels → ribbons
+    const arcDur = Math.round(baseFlowDur * 0.48);   // arcs sweep open
+    const arcStagger = 12;                             // ms per-arc stagger
+    const labelDelay = Math.round(arcDur * 0.65);     // labels appear while arcs still filling
+    const ribbonDelay = arcDur + 8;                   // ribbons start after arcs complete
     const nodeWidth = cfg.nodeWidth ?? 20;
     const linkOpacity = cfg.linkOpacity ?? 0.5;
     const minLinkWidth = cfg.minLinkWidth ?? 0;
@@ -194,8 +203,44 @@ export class DependencyWheelSeries extends BaseSeries {
       });
 
       if (animate) {
-        colorGroups.attr('opacity', 0)
-          .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
+        edgeOverlay.attr('opacity', 0);
+        const clipDefs = g.append('defs');
+        const ribbonDur = Math.round(baseFlowDur * 0.62);
+        ribbons.each(function(this: SVGPathElement, d: any, i: number) {
+          const delay = ribbonDelay + i * ribbonStagger;
+          const clipId = `dw-clip-${i}-${Math.random().toString(36).slice(2, 6)}`;
+          const sa0 = d.source.startAngle + startAngle - Math.PI / 2;
+          const sa1 = d.source.endAngle + startAngle - Math.PI / 2;
+          const ta0 = d.target.startAngle + startAngle - Math.PI / 2;
+          const ta1 = d.target.endAngle + startAngle - Math.PI / 2;
+          const saMid = (sa0 + sa1) / 2;
+          const taMid = (ta0 + ta1) / 2;
+          const sx = innerRadius * Math.cos(saMid);
+          const sy = innerRadius * Math.sin(saMid);
+          const tx = innerRadius * Math.cos(taMid);
+          const ty = innerRadius * Math.sin(taMid);
+          const sweepAngle = Math.atan2(ty - sy, tx - sx) * 180 / Math.PI;
+          const sweepDist = Math.sqrt((tx - sx) ** 2 + (ty - sy) ** 2) + outerRadius * 2;
+          const clip = clipDefs.append('clipPath')
+            .attr('id', clipId)
+            .attr('clipPathUnits', 'userSpaceOnUse');
+          const clipRect = clip.append('rect')
+            .attr('transform', `translate(${sx},${sy}) rotate(${sweepAngle})`)
+            .attr('x', -outerRadius)
+            .attr('y', -outerRadius)
+            .attr('width', 0)
+            .attr('height', outerRadius * 2);
+          const ribbonEl = select(this);
+          ribbonEl.attr('clip-path', `url(#${clipId})`);
+          clipRect.transition('enter').duration(ribbonDur).delay(delay).ease(EASE_ENTRY)
+            .attr('width', sweepDist)
+            .on('end', function() {
+              ribbonEl.attr('clip-path', null);
+              clip.remove();
+            });
+        });
+        const overlayDelay = ribbonDelay + ((chords as any[]).length - 1) * ribbonStagger + ribbonDur;
+        edgeOverlay.transition('enter').duration(300).delay(overlayDelay).ease(EASE_ENTRY)
           .attr('opacity', linkOpacity);
       }
     } else {
@@ -228,63 +273,113 @@ export class DependencyWheelSeries extends BaseSeries {
       });
 
       if (animate) {
-        ribbons.attr('fill-opacity', 0)
-          .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
-          .attr('fill-opacity', linkOpacity);
+        ribbons.attr('fill-opacity', linkOpacity);
+        const clipDefs = g.append('defs');
+        const ribbonDur = Math.round(baseFlowDur * 0.62);
+        ribbons.each(function(this: SVGPathElement, d: any, i: number) {
+          const delay = ribbonDelay + i * ribbonStagger;
+          const clipId = `dw-clip-${i}-${Math.random().toString(36).slice(2, 6)}`;
+          const sa0 = d.source.startAngle + startAngle - Math.PI / 2;
+          const sa1 = d.source.endAngle + startAngle - Math.PI / 2;
+          const ta0 = d.target.startAngle + startAngle - Math.PI / 2;
+          const ta1 = d.target.endAngle + startAngle - Math.PI / 2;
+          const saMid = (sa0 + sa1) / 2;
+          const taMid = (ta0 + ta1) / 2;
+          const sx = innerRadius * Math.cos(saMid);
+          const sy = innerRadius * Math.sin(saMid);
+          const tx = innerRadius * Math.cos(taMid);
+          const ty = innerRadius * Math.sin(taMid);
+          const sweepAngle = Math.atan2(ty - sy, tx - sx) * 180 / Math.PI;
+          const sweepDist = Math.sqrt((tx - sx) ** 2 + (ty - sy) ** 2) + outerRadius * 2;
+          const clip = clipDefs.append('clipPath')
+            .attr('id', clipId)
+            .attr('clipPathUnits', 'userSpaceOnUse');
+          const clipRect = clip.append('rect')
+            .attr('transform', `translate(${sx},${sy}) rotate(${sweepAngle})`)
+            .attr('x', -outerRadius)
+            .attr('y', -outerRadius)
+            .attr('width', 0)
+            .attr('height', outerRadius * 2);
+          const ribbonEl = select(this);
+          ribbonEl.attr('clip-path', `url(#${clipId})`);
+          clipRect.transition('enter').duration(ribbonDur).delay(delay).ease(EASE_ENTRY)
+            .attr('width', sweepDist)
+            .on('end', function() {
+              ribbonEl.attr('clip-path', null);
+              clip.remove();
+            });
+        });
       } else {
         ribbons.attr('fill-opacity', linkOpacity);
       }
     }
 
-    ribbons
-      .on('mouseover', (event: MouseEvent, d: any) => {
-        ribbons.interrupt('highlight');
-        arcs.interrupt('highlight');
-        if (colorGroups) colorGroups.interrupt('highlight').attr('opacity', 1);
-        ribbons.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
-          .attr('fill-opacity', (o: any) => o === d ? Math.min(linkOpacity + 0.35, 1) : 0.05);
-        arcs.attr('opacity', 1);
-        arcs.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
-          .attr('opacity', (a: any) =>
-            a.index === d.source.index || a.index === d.target.index ? 1 : 0.3
-          );
-        const ribbonPoint = {
-          from: names[d.source.index], to: names[d.target.index], y: d.source.value,
-          weight: d.source.value,
-          fromNode: { name: names[d.source.index] }, toNode: { name: names[d.target.index] },
-        };
+    const emitRibbonPoint = (type: 'mouseover' | 'mouseout' | 'click', event: MouseEvent, d: any) => {
+      const point = {
+        from: names[d.source.index], to: names[d.target.index], y: d.source.value,
+        weight: d.source.value,
+        fromNode: { name: names[d.source.index] }, toNode: { name: names[d.target.index] },
+      };
+
+      if (type === 'mouseover') {
         this.context.events.emit('point:mouseover', {
-          point: ribbonPoint,
+          point,
           index: chords.indexOf(d), series: this, event,
           plotX: event.offsetX - this.context.plotArea.x, plotY: event.offsetY - this.context.plotArea.y,
         });
-      })
-      .on('mouseout', (event: MouseEvent, d: any) => {
-        ribbons.interrupt('highlight');
-        arcs.interrupt('highlight');
-        if (colorGroups) {
-          colorGroups.interrupt('highlight');
-          colorGroups.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', linkOpacity);
-          ribbons.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill-opacity', 1);
-        } else {
-          ribbons.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill-opacity', linkOpacity);
-        }
-        arcs.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
+        return;
+      }
+
+      if (type === 'mouseout') {
         this.context.events.emit('point:mouseout', {
-          point: { from: names[d.source.index], to: names[d.target.index], y: d.source.value,
-            weight: d.source.value,
-            fromNode: { name: names[d.source.index] }, toNode: { name: names[d.target.index] } },
+          point,
           index: chords.indexOf(d), series: this, event,
         });
-      })
-      .on('click', (event: MouseEvent, d: any) => {
-        this.context.events.emit('point:click', {
-          point: { from: names[d.source.index], to: names[d.target.index], y: d.source.value,
-            weight: d.source.value,
-            fromNode: { name: names[d.source.index] }, toNode: { name: names[d.target.index] } },
-          index: chords.indexOf(d), series: this, event,
-        });
+        return;
+      }
+
+      this.context.events.emit('point:click', {
+        point,
+        index: chords.indexOf(d), series: this, event,
       });
+    };
+
+    const handleRibbonMouseOver = (event: MouseEvent, d: any) => {
+      ribbons.interrupt('highlight');
+      arcs.interrupt('highlight');
+      if (colorGroups) colorGroups.interrupt('highlight').attr('opacity', 1);
+      ribbons.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
+        .attr('fill-opacity', (o: any) => o === d ? Math.min(linkOpacity + 0.35, 1) : 0.05);
+      arcs.attr('opacity', 1);
+      arcs.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER)
+        .attr('opacity', (a: any) =>
+          a.index === d.source.index || a.index === d.target.index ? 1 : 0.3
+        );
+      emitRibbonPoint('mouseover', event, d);
+    };
+
+    const handleRibbonMouseOut = (event: MouseEvent, d: any) => {
+      ribbons.interrupt('highlight');
+      arcs.interrupt('highlight');
+      if (colorGroups) {
+        colorGroups.interrupt('highlight');
+        colorGroups.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', linkOpacity);
+        ribbons.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill-opacity', 1);
+      } else {
+        ribbons.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('fill-opacity', linkOpacity);
+      }
+      arcs.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
+      emitRibbonPoint('mouseout', event, d);
+    };
+
+    const handleRibbonClick = (event: MouseEvent, d: any) => {
+      emitRibbonPoint('click', event, d);
+    };
+
+    ribbons
+      .on('mouseover', handleRibbonMouseOver)
+      .on('mouseout', handleRibbonMouseOut)
+      .on('click', handleRibbonClick);
 
     const arcsData = chords.groups.map((g: any) => {
       return {
@@ -292,6 +387,56 @@ export class DependencyWheelSeries extends BaseSeries {
         startAngle: g.startAngle + startAngle,
         endAngle: g.endAngle + startAngle,
       };
+    });
+
+    const normalizeAngle = (angle: number): number => {
+      const twoPi = Math.PI * 2;
+      let a = angle % twoPi;
+      if (a < 0) a += twoPi;
+      return a;
+    };
+
+    const pickRibbonForArcEvent = (event: MouseEvent, arcDatum: any): any | null => {
+      const localX = event.offsetX - this.context.plotArea.x - cxo;
+      const localY = event.offsetY - this.context.plotArea.y - cyo;
+      const hoveredAngle = normalizeAngle(Math.atan2(localY, localX) + Math.PI / 2);
+
+      const connected = (chords as any[]).filter((r: any) =>
+        r.source.index === arcDatum.index || r.target.index === arcDatum.index
+      );
+      if (connected.length === 0) return null;
+
+      const endpointFor = (r: any) => r.source.index === arcDatum.index ? r.source : r.target;
+      const withinEndpoint = (r: any) => {
+        const endpoint = endpointFor(r);
+        const start = normalizeAngle(endpoint.startAngle + startAngle);
+        const end = normalizeAngle(endpoint.endAngle + startAngle);
+        if (start <= end) return hoveredAngle >= start && hoveredAngle <= end;
+        return hoveredAngle >= start || hoveredAngle <= end;
+      };
+
+      const containing = connected.find(withinEndpoint);
+      if (containing) return containing;
+
+      let best = connected[0];
+      let bestDistance = Infinity;
+      for (const ribbon of connected) {
+        const endpoint = endpointFor(ribbon);
+        const mid = normalizeAngle(((endpoint.startAngle + endpoint.endAngle) / 2) + startAngle);
+        let diff = Math.abs(hoveredAngle - mid);
+        if (diff > Math.PI) diff = Math.PI * 2 - diff;
+        if (diff < bestDistance) {
+          bestDistance = diff;
+          best = ribbon;
+        }
+      }
+      return best;
+    };
+
+    const buildRibbonPoint = (ribbon: any) => ({
+      from: names[ribbon.source.index], to: names[ribbon.target.index], y: ribbon.source.value,
+      weight: ribbon.source.value,
+      fromNode: { name: names[ribbon.source.index] }, toNode: { name: names[ribbon.target.index] },
     });
 
     const arcBorderColor = cfg.borderColor ?? '#ffffff';
@@ -307,11 +452,11 @@ export class DependencyWheelSeries extends BaseSeries {
       .style('cursor', 'pointer');
 
     if (animate) {
-      arcs.each(function(d: any) {
+      arcs.each(function(this: any, d: any, i: number) {
         const self = select(this);
         const startArc = { startAngle: d.startAngle, endAngle: d.startAngle };
         const interp = interpolate(startArc, d);
-        self.transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
+        self.transition('enter').duration(arcDur).delay(i * arcStagger).ease(EASE_ENTRY)
           .attrTween('d', () => (t: number) => arcGen(interp(t))!);
       });
     } else {
@@ -340,8 +485,11 @@ export class DependencyWheelSeries extends BaseSeries {
           });
         labels.filter((l: any) => l.index === d.index)
           .transition('label').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
+        const hoveredRibbon = pickRibbonForArcEvent(event, d);
         this.context.events.emit('point:mouseover', {
-          point: { name: names[d.index], y: d.value, sum: d.value },
+          point: hoveredRibbon
+            ? buildRibbonPoint(hoveredRibbon)
+            : { name: names[d.index], y: d.value, sum: d.value },
           index: d.index, series: this, event,
           plotX: event.offsetX - this.context.plotArea.x, plotY: event.offsetY - this.context.plotArea.y,
         });
@@ -361,22 +509,47 @@ export class DependencyWheelSeries extends BaseSeries {
         arcs.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1);
         labels.filter((l: any) => l.index === d.index)
           .transition('label').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', (l: any) => labelVisible(l) ? 1 : 0);
+        const hoveredRibbon = pickRibbonForArcEvent(event, d);
         this.context.events.emit('point:mouseout', {
-          point: { name: names[d.index], y: d.value, sum: d.value },
+          point: hoveredRibbon
+            ? buildRibbonPoint(hoveredRibbon)
+            : { name: names[d.index], y: d.value, sum: d.value },
           index: d.index, series: this, event,
         });
       })
       .on('click', (event: MouseEvent, d: any) => {
+        const hoveredRibbon = pickRibbonForArcEvent(event, d);
         this.context.events.emit('point:click', {
-          point: { name: names[d.index], y: d.value, sum: d.value },
+          point: hoveredRibbon
+            ? buildRibbonPoint(hoveredRibbon)
+            : { name: names[d.index], y: d.value, sum: d.value },
           index: d.index, series: this, event,
         });
       });
 
+    g.append('g')
+      .attr('class', 'katucharts-chord-hitareas')
+      .selectAll('.katucharts-chord-hitarea')
+      .data(chords)
+      .join('path')
+      .attr('class', 'katucharts-chord-hitarea')
+      .attr('d', (d: any) => ribbonPath(d))
+      .attr('fill', '#ffffff')
+      .attr('fill-opacity', 0)
+      .attr('stroke', '#ffffff')
+      .attr('stroke-opacity', 0)
+      .attr('stroke-width', 12)
+      .attr('stroke-linejoin', 'round')
+      .style('cursor', 'pointer')
+      .style('pointer-events', 'all')
+      .on('mouseover', handleRibbonMouseOver)
+      .on('mouseout', handleRibbonMouseOut)
+      .on('click', handleRibbonClick);
+
     const dlCfg = this.config.dataLabels || {};
-    const dlColor = dlCfg.color || (dlCfg.style?.color as string) || '#333';
-    const dlFontSize = (dlCfg.style?.fontSize as string) || '11px';
-    const fontPx = parseFloat(dlFontSize) || 11;
+    const dlColor = dlCfg.color || (dlCfg.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
+    const dlFontSize = (dlCfg.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
+    const fontPx = parseFloat(dlFontSize) || parseFloat(DEFAULT_CHART_TEXT_SIZE);
     const labelR = (innerRadius + outerRadius) / 2;
 
     const labelVisible = (d: any): boolean => {
@@ -395,7 +568,7 @@ export class DependencyWheelSeries extends BaseSeries {
       .attr('font-weight', 'bold')
       .attr('fill', dlColor)
       .style('pointer-events', 'none')
-      .attr('opacity', (d: any) => labelVisible(d) ? 1 : 0)
+      .attr('opacity', 0)
       .attr('x', (d: any) => {
         const mid = (d.startAngle + d.endAngle) / 2 - Math.PI / 2;
         return labelR * Math.cos(mid);
@@ -405,6 +578,18 @@ export class DependencyWheelSeries extends BaseSeries {
         return labelR * Math.sin(mid);
       })
       .text((d: any) => names[d.index] || '');
+
+    if (animate) {
+      labels.transition('enter').duration(300).delay(labelDelay).ease(EASE_ENTRY)
+        .attr('opacity', (d: any) => labelVisible(d) ? 1 : 0);
+
+      const ribbonDur = Math.round(baseFlowDur * 0.62);
+      const nRibbons = (chords as any[]).length;
+      const totalDur = ribbonDelay + nRibbons * ribbonStagger + ribbonDur;
+      this.emitAfterAnimate(totalDur + 100);
+    } else {
+      labels.attr('opacity', (d: any) => labelVisible(d) ? 1 : 0);
+    }
   }
 
   private resolvePercent(val: string | number, total: number): number {

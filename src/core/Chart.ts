@@ -31,6 +31,7 @@ import type { ExportingOptions } from '../types/options';
 import { resolveContainer, getElementDimensions } from '../utils/dom';
 import { debounce } from '../utils/throttle';
 import { deepMerge, deepClone } from '../utils/deepMerge';
+import { templateFormat, stripHtmlTags, numberFormat } from '../utils/format';
 
 export class Chart {
   container: HTMLElement;
@@ -61,6 +62,7 @@ export class Chart {
   private chartHeight: number;
   private resizeObserver: ResizeObserver | null = null;
   private titleGroup!: ReturnType<SVGRenderer['createGroup']>;
+  private stackLabelsGroup!: ReturnType<SVGRenderer['createGroup']>;
   private originalUserOptions!: KatuChartsOptions;
   private isResponsiveUpdate = false;
 
@@ -168,7 +170,7 @@ export class Chart {
     overlay.style.top = '0';
     overlay.style.left = '0';
     overlay.style.pointerEvents = 'none';
-    overlay.style.overflow = 'hidden';
+    overlay.style.overflow = 'visible';
 
     const bgColor = (this.options.chart.backgroundColor as string) || '#ffffff';
     const plotGroupTransform = (this.plotGroup as any).attr('transform') || '';
@@ -300,6 +302,36 @@ export class Chart {
       overlay.appendChild(clone);
     });
 
+    // Move export button into the overlay so it stays visible without scrolling
+    const exportBtnNode = mainSvg.querySelector('.katucharts-export-button-group') as SVGGElement | null;
+    if (exportBtnNode && this.exportButton) {
+      const btnTransform = exportBtnNode.getAttribute('transform') || '';
+      const btnMatch = btnTransform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+      const origX = btnMatch ? parseFloat(btnMatch[1]) : 0;
+      const origY = btnMatch ? parseFloat(btnMatch[2]) : 0;
+      const newBtnX = origX - (this.chartWidth - overlayWidth);
+      exportBtnNode.setAttribute('transform', `translate(${newBtnX},${origY})`);
+      exportBtnNode.style.pointerEvents = 'auto';
+      overlay.appendChild(exportBtnNode);
+      const btnW = 28;
+      const btnH = 22;
+      this.exportButton.repositionCenter(newBtnX + btnW / 2, origY + btnH / 2);
+    }
+
+    // Pin heatmap color axis in the overlay, centered in the visible area
+    const colorAxisGroups = mainSvg.querySelectorAll('.katucharts-color-axis');
+    colorAxisGroups.forEach(caG => {
+      (caG as SVGElement).style.visibility = 'hidden';
+      const clone = caG.cloneNode(true) as SVGGElement;
+      (clone as SVGElement).style.visibility = 'visible';
+      const wrapper = document.createElementNS(SVG_NS, 'g') as SVGGElement;
+      // position wrapper so color bar (centered within plotArea.width) lands at overlayWidth/2
+      const wrapperX = overlayWidth / 2 - this.layout.plotArea.width / 2;
+      wrapper.setAttribute('transform', `translate(${wrapperX},${plotOffsetY})`);
+      wrapper.appendChild(clone);
+      overlay.appendChild(wrapper);
+    });
+
     this.container.appendChild(overlay);
     this.fixedAxisOverlay = overlay;
   }
@@ -384,9 +416,22 @@ export class Chart {
 
     this.axisGroup = this.renderer.createGroup('katucharts-axis-group', this.plotGroup as any);
     this.seriesGroup = this.renderer.createGroup('katucharts-series-group', this.plotGroup as any);
+    this.stackLabelsGroup = this.renderer.createGroup('katucharts-stack-labels-group', this.plotGroup as any);
 
-    const clipDisabled = this.options.series.some(s => s.clip === false);
+    const noClipTypes = new Set(['pie', 'venn', 'forestplot']);
+    const expandTypes = new Set(['scatter', 'bubble']);
+    const clipDisabled = this.options.series.some(s => s.clip === false || noClipTypes.has(s._internalType));
+    const needsExpand = this.options.series.some(s => expandTypes.has(s._internalType));
+
     if (!this.isNonCartesian() && !clipDisabled) {
+      if (needsExpand) {
+        const margin = 12;
+        this.clipPathId = this.renderer.createClipPath(
+          -margin, -margin,
+          this.layout.plotArea.width + 2 * margin,
+          this.layout.plotArea.height + 2 * margin
+        );
+      }
       this.seriesGroup.attr('clip-path', `url(#${this.clipPathId})`);
     }
 
@@ -552,8 +597,132 @@ export class Chart {
     this.updateTooltipCategories();
     this.renderAxes();
     this.renderSeriesInstances();
+    this.renderStackLabels();
+    this.raiseplotLineLabels();
     this.renderLegend();
     this.fireEvent('render');
+  }
+
+  private formatStackLabel(total: number, cfg: NonNullable<AxisOptions['stackLabels']>): string {
+    if (cfg.formatter) {
+      return cfg.formatter.call({ total });
+    }
+    if (cfg.format) {
+      return stripHtmlTags(templateFormat(cfg.format, { total }));
+    }
+    if (this.options.chart.numberFormatter) {
+      return this.options.chart.numberFormatter(total);
+    }
+    return numberFormat(total, 0, '.', ',');
+  }
+
+  private renderStackLabels(): void {
+    if (!this.stackLabelsGroup) return;
+    this.stackLabelsGroup.selectAll('*').remove();
+
+    for (let axisIndex = 0; axisIndex < this.yAxes.length; axisIndex++) {
+      const axis = this.yAxes[axisIndex];
+      const stackCfg = axis.config.stackLabels;
+      if (!stackCfg?.enabled) continue;
+
+      const related = this.seriesInstances
+        .map((series, idx) => ({ series, cfg: this.options.series[idx] }))
+        .filter(({ series, cfg }) =>
+          series.visible &&
+          cfg._yAxisIndex === axisIndex &&
+          (cfg._internalType === 'column' || cfg._internalType === 'bar') &&
+          cfg.stacking &&
+          cfg.stacking !== 'percent'
+        );
+
+      if (related.length === 0) continue;
+
+      const stacks = new Map<string, {
+        totals: Map<number | string, number>;
+        series: BaseSeries[];
+        type: string;
+        xAxis: AxisInstance;
+        yAxis: AxisInstance;
+      }>();
+
+      for (const { series, cfg } of related) {
+        const stackKey = `${cfg._internalType}__${cfg.stack ?? '_default'}`;
+        if (!stacks.has(stackKey)) {
+          stacks.set(stackKey, {
+            totals: new Map<number | string, number>(),
+            series: [],
+            type: cfg._internalType,
+            xAxis: this.xAxes[cfg._xAxisIndex] || this.xAxes[0],
+            yAxis: this.yAxes[cfg._yAxisIndex] || this.yAxes[0],
+          });
+        }
+        const entry = stacks.get(stackKey)!;
+        entry.series.push(series);
+        for (const point of series.data) {
+          const xKey = point.x ?? 0;
+          entry.totals.set(xKey, (entry.totals.get(xKey) || 0) + (point.y ?? 0));
+        }
+      }
+
+      const axisGroup = this.stackLabelsGroup.append('g')
+        .attr('class', `katucharts-stack-labels katucharts-stack-labels-axis-${axisIndex}`);
+
+      for (const [stackKey, stack] of stacks) {
+        const stackGroup = axisGroup.append('g')
+          .attr('class', 'katucharts-stack-labels-stack')
+          .attr('data-stack-key', stackKey);
+
+        for (const [xKey, total] of stack.totals.entries()) {
+          if (!isFinite(total) || total === 0) continue;
+          const text = this.formatStackLabel(total, stackCfg);
+          const isHorizontal = stack.type === 'bar';
+          const isNegative = total < 0;
+          const categoryCenter = stack.xAxis.getPixelForValue(xKey);
+          const totalPixel = stack.yAxis.getPixelForValue(total);
+          const defaultAlign = isHorizontal ? (isNegative ? 'end' : 'start') : 'middle';
+          const defaultBaseline = isHorizontal ? 'central' : (isNegative ? 'hanging' : 'auto');
+          const defaultX = isHorizontal ? totalPixel + (isNegative ? -6 : 6) : categoryCenter;
+          const defaultY = isHorizontal ? categoryCenter : totalPixel + (isNegative ? 6 : -6);
+          const x = defaultX + (stackCfg.x ?? 0);
+          const y = defaultY + (stackCfg.y ?? 0);
+
+          const label = stackGroup.append('text')
+            .attr('class', 'katucharts-stack-label')
+            .attr('x', x)
+            .attr('y', y)
+            .attr('text-anchor', stackCfg.align === 'left' ? 'start' : stackCfg.align === 'right' ? 'end' : defaultAlign)
+            .text(text);
+
+          if (stackCfg.verticalAlign === 'middle' || isHorizontal) {
+            label.attr('dominant-baseline', defaultBaseline);
+          } else if (stackCfg.verticalAlign === 'bottom') {
+            label.attr('dominant-baseline', 'hanging');
+          }
+
+          const style = stackCfg.style || {};
+          label
+            .style('fill', style.color ?? '#000000')
+            .style('font-size', style.fontSize ?? '11px')
+            .style('font-weight', style.fontWeight ?? 'bold');
+
+          if (style.textOutline) {
+            label.style('text-shadow', style.textOutline as string);
+          }
+
+          if (stackCfg.rotation) {
+            label.attr('transform', `rotate(${stackCfg.rotation},${x},${y})`);
+          }
+        }
+      }
+    }
+  }
+
+  private raiseplotLineLabels(): void {
+    const plotGroupNode = (this.plotGroup as any).node() as SVGGElement | null;
+    if (!plotGroupNode) return;
+    this.axisGroup.selectAll('.katucharts-plot-line-label').each(function() {
+      plotGroupNode.appendChild(this as Node);
+    });
   }
 
   private updateTooltipCategories(): void {
@@ -1040,7 +1209,8 @@ export class Chart {
         g.style('pointer-events', 'none');
         return g;
       },
-      get plotArea() { return { x: 0, y: 0, width: pa.width, height: pa.height }; },
+      get plotArea() { return { x: pa.x, y: pa.y, width: pa.width, height: pa.height }; },
+      get localPlotArea() { return { x: 0, y: 0, width: pa.width, height: pa.height }; },
       xAxis: {
         toPixels(val: number, axisIdx = 0) { return xAxes[axisIdx]?.getPixelForValue(val) ?? 0; },
       },
@@ -1373,6 +1543,7 @@ export class Chart {
       }
     }
 
+    this.renderStackLabels();
     this.renderTitles();
     this.renderLegend();
     this.fireEvent('render');

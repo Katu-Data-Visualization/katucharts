@@ -9,6 +9,7 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   ENTRY_STAGGER_PER_ITEM,
@@ -232,9 +233,9 @@ export class VolcanoSeries extends BaseSeries {
         .attr('x', px)
         .attr('y', py)
         .attr('text-anchor', 'middle')
-        .attr('font-size', '10px')
+        .attr('font-size', DEFAULT_CHART_TEXT_SIZE)
         .attr('font-style', 'italic')
-        .attr('fill', '#333')
+        .attr('fill', DEFAULT_CHART_TEXT_COLOR)
         .text(label);
     }
   }

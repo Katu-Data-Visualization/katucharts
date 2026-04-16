@@ -22,6 +22,7 @@ import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
 import { templateFormat, stripHtmlTags } from '../../utils/format';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   HOVER_DURATION,
@@ -304,8 +305,8 @@ export class MapSeries extends BaseSeries {
     const dlCfg = (this.config as any).dataLabels || this.config.dataLabels;
     if (!dlCfg?.enabled) return;
 
-    const fontSize = (dlCfg.style?.fontSize as string) || '9px';
-    const fontColor = dlCfg.color || (dlCfg.style?.color as string) || '#333';
+    const fontSize = (dlCfg.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
+    const fontColor = dlCfg.color || (dlCfg.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
     const onlyWithData = dlCfg.filter?.property === 'hasData';
 
     this.mapGroup.selectAll('.katucharts-map-label')
@@ -395,8 +396,8 @@ export class MapSeries extends BaseSeries {
       .attr('stroke', '#ccc').attr('stroke-width', 0.5)
       .attr('rx', 2);
 
-    const labelFontSize = (labels.style?.fontSize as string) || '9px';
-    const labelColor = (labels.style?.color as string) || '#666';
+    const labelFontSize = (labels.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
+    const labelColor = (labels.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
     const formatFn = labels.formatter;
     const fmt = (v: number) => formatFn ? formatFn.call({ value: v }) : String(Math.round(v));
 
@@ -463,8 +464,8 @@ export class MapSeries extends BaseSeries {
       .attr('stroke', '#ccc').attr('stroke-width', 0.5)
       .attr('rx', 2);
 
-    const labelFontSize = (labels.style?.fontSize as string) || '9px';
-    const labelColor = (labels.style?.color as string) || '#666';
+    const labelFontSize = (labels.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
+    const labelColor = (labels.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
     const formatFn = labels.formatter;
     const fmt = (v: number) => formatFn ? formatFn.call({ value: v }) : String(Math.round(v));
 
