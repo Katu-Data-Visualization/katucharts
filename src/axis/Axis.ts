@@ -759,13 +759,19 @@ export class LinearAxis extends BaseAxis implements AxisInstance {
       const hasExplicitMin = this.config.min !== undefined && this.config.min !== null;
       const endOnTick = !this.config.isX && this.config.endOnTick !== false;
       if (tickValues.length > 0 && endOnTick && !hasExplicitMax) {
-        const lastTick = tickValues[tickValues.length - 1];
+        const interval = tickValues.length > 1 ? tickValues[1] - tickValues[0] : (tickValues[0] || 1);
+        let lastTick = tickValues[tickValues.length - 1];
         if (lastTick < domain[1]) {
-          const interval = tickValues.length > 1 ? tickValues[1] - tickValues[0] : lastTick;
           tickValues.push(lastTick + interval);
+          lastTick = tickValues[tickValues.length - 1];
         }
-        const newMax = tickValues[tickValues.length - 1];
-        const newMin = hasExplicitMin ? domain[0] : tickValues[0];
+        let firstTick = tickValues[0];
+        if (firstTick > domain[0]) {
+          tickValues.unshift(firstTick - interval);
+          firstTick = tickValues[0];
+        }
+        const newMax = hasExplicitMax ? domain[1] : Math.max(domain[1], lastTick);
+        const newMin = hasExplicitMin ? domain[0] : Math.min(domain[0], firstTick);
         this.scale.domain([newMin, newMax]);
       }
 

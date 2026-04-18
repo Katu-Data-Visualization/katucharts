@@ -1,6 +1,6 @@
 {
   "name": "katucharts",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "D3.js charting library with a simple declarative interface",
   "type": "module",
   "main": "./dist/katucharts.umd.js",
@@ -84,7 +84,7 @@
   "homepage": "https://github.com/Katu-Data-Visualization/katucharts",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Katu-Data-Visualization/katucharts.git"
+    "url": "git+https://github.com/Katu-Data-Visualization/katucharts.git"
   },
   "bugs": {
     "url": "https://github.com/Katu-Data-Visualization/katucharts/issues"

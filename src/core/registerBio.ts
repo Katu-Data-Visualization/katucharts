@@ -16,6 +16,7 @@ import { CircosChordChart } from '../series/bioinformatics/circos/CircosChordCha
 import { CircosHeatmapChart } from '../series/bioinformatics/circos/CircosHeatmapChart';
 import { CircosComparativeChart } from '../series/bioinformatics/circos/CircosComparativeChart';
 import { CircosSpiralChart } from '../series/bioinformatics/circos/CircosSpiralChart';
+import { PCoAChart } from '../series/bioinformatics/PCoAChart';
 
 export function registerBioSeriesTypes(): void {
   ChartRegistry.registerType('volcano', VolcanoChart);
@@ -31,4 +32,5 @@ export function registerBioSeriesTypes(): void {
   ChartRegistry.registerType('circosHeatmap', CircosHeatmapChart);
   ChartRegistry.registerType('circosComparative', CircosComparativeChart);
   ChartRegistry.registerType('circosSpiral', CircosSpiralChart);
+  ChartRegistry.registerType('pcoa', PCoAChart);
 }

@@ -21,7 +21,8 @@ export type SeriesType =
   | 'venn'
   | 'volcano' | 'manhattan' | 'violin' | 'kaplanmeier' | 'forestplot'
   | 'sequencelogo' | 'clusteredheatmap' | 'phylotree' | 'circos'
-  | 'circosChord' | 'circosHeatmap' | 'circosComparative' | 'circosSpiral';
+  | 'circosChord' | 'circosHeatmap' | 'circosComparative' | 'circosSpiral'
+  | 'pcoa';
 
 export type CursorType = 'pointer' | 'default' | 'crosshair' | 'move' | 'help' | 'text' | 'not-allowed';
 
@@ -517,8 +518,28 @@ export interface TreemapLevelOptions {
   layoutAlgorithm?: string;
 }
 
+/**
+ * Confidence-region ellipse for a PCoA / ordination series. Either pass a precomputed
+ * polygon (`boundary`) or parametric coordinates (`cx`, `cy`, `rx`, `ry`, `rotation`).
+ * The chart folds these bounds into the axis domain so the ellipse always fits
+ * inside the plot area.
+ */
+export interface PCoAEllipseOptions {
+  cx?: number;
+  cy?: number;
+  rx?: number;
+  ry?: number;
+  rotation?: number;
+  boundary?: [number, number][];
+  fill?: string;
+  fillOpacity?: number;
+  stroke?: string;
+  strokeWidth?: number;
+}
+
 export interface SeriesOptions {
   type?: SeriesType;
+  ellipse?: PCoAEllipseOptions;
   name?: string;
   data?: (number | [number, number] | [number, number, number] | [string, number] | PointOptions | null)[];
   id?: string;

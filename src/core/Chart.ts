@@ -418,7 +418,7 @@ export class Chart {
     this.seriesGroup = this.renderer.createGroup('katucharts-series-group', this.plotGroup as any);
     this.stackLabelsGroup = this.renderer.createGroup('katucharts-stack-labels-group', this.plotGroup as any);
 
-    const noClipTypes = new Set(['pie', 'venn', 'forestplot']);
+    const noClipTypes = new Set(['pie', 'venn', 'forestplot', 'pcoa']);
     const expandTypes = new Set(['scatter', 'bubble']);
     const clipDisabled = this.options.series.some(s => s.clip === false || noClipTypes.has(s._internalType));
     const needsExpand = this.options.series.some(s => expandTypes.has(s._internalType));
