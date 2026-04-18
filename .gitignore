@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+coverage/
+.playwright-mcp/
+*.png
+CLAUDE.md
+.codex
+.codex/

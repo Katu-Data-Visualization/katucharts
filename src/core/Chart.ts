@@ -1,0 +1,1941 @@
+/**
+ * Central chart orchestrator — owns container, SVG, and all subsystems.
+ */
+
+import type {
+  KatuChartsOptions, InternalConfig, SeriesOptions, AxisOptions,
+  InternalSeriesConfig, PlotArea, SeriesType,
+} from '../types/options';
+import { OptionsParser } from './OptionsParser';
+import { SVGRenderer } from './SVGRenderer';
+import { EventBus } from './EventBus';
+import { StateManager } from './StateManager';
+import { ChartRegistry } from './Registry';
+import { LayoutEngine, type LayoutResult } from '../layout/LayoutEngine';
+import { createAxis, type AxisInstance } from '../axis/Axis';
+import { BaseSeries, type SeriesContext } from '../series/BaseSeries';
+import { DataLabels } from '../components/DataLabels';
+import { Tooltip } from '../components/Tooltip';
+import { Legend } from '../components/Legend';
+import { Crosshair } from '../components/Crosshair';
+import { Credits } from '../components/Credits';
+import { ExportButton } from '../components/ExportButton';
+import { ExportModule } from '../export/Export';
+import { Drilldown } from '../interaction/Drilldown';
+import { Zoom, type ZoomConfig, type ZoomType } from '../interaction/Zoom';
+import { ResponsiveEngine } from '../responsive/ResponsiveEngine';
+import { A11yModule } from '../accessibility/A11yModule';
+import { select } from 'd3-selection';
+import 'd3-transition';
+import type { ExportingOptions } from '../types/options';
+import { resolveContainer, getElementDimensions } from '../utils/dom';
+import { debounce } from '../utils/throttle';
+import { deepMerge, deepClone } from '../utils/deepMerge';
+import { templateFormat, stripHtmlTags, numberFormat } from '../utils/format';
+
+export class Chart {
+  container: HTMLElement;
+  renderer: SVGRenderer;
+  events: EventBus;
+  state: StateManager;
+  options: InternalConfig;
+
+  private layoutEngine: LayoutEngine;
+  private layout!: LayoutResult;
+  private xAxes: AxisInstance[] = [];
+  private yAxes: AxisInstance[] = [];
+  private seriesInstances: BaseSeries[] = [];
+  private plotGroup!: ReturnType<SVGRenderer['createGroup']>;
+  private axisGroup!: ReturnType<SVGRenderer['createGroup']>;
+  private seriesGroup!: ReturnType<SVGRenderer['createGroup']>;
+  private tooltip: Tooltip | null = null;
+  private legend: Legend | null = null;
+  private crosshair: Crosshair | null = null;
+  private credits: Credits | null = null;
+  private exportButton: ExportButton | null = null;
+  private drilldown: Drilldown | null = null;
+  private zoom: Zoom | null = null;
+  private responsiveEngine: ResponsiveEngine | null = null;
+  private a11yModule: A11yModule | null = null;
+  private clipPathId: string = '';
+  private chartWidth: number;
+  private chartHeight: number;
+  private resizeObserver: ResizeObserver | null = null;
+  private titleGroup!: ReturnType<SVGRenderer['createGroup']>;
+  private stackLabelsGroup!: ReturnType<SVGRenderer['createGroup']>;
+  private originalUserOptions!: KatuChartsOptions;
+  private isResponsiveUpdate = false;
+
+  constructor(containerOrId: string | HTMLElement, options: KatuChartsOptions) {
+    this.container = resolveContainer(containerOrId);
+    this.container.style.position = 'relative';
+
+    const parser = new OptionsParser();
+    this.options = parser.parse(options);
+    this.originalUserOptions = deepClone(options);
+
+    this.events = new EventBus();
+    this.state = new StateManager(this.options, this.events);
+    this.layoutEngine = new LayoutEngine();
+
+    const dims = getElementDimensions(this.container);
+    const outerWidth = (this.options.chart.width as number) || dims.width || 600;
+    const outerHeight = this.resolveHeight(this.options.chart.height, dims.height);
+
+    const scrollable = (this.options.chart as any).scrollablePlotArea as { minWidth?: number; minHeight?: number; scrollPositionX?: number; scrollPositionY?: number } | undefined;
+    const useVerticalScroll = scrollable?.minHeight && scrollable.minHeight > outerHeight;
+    const useHorizontalScroll = scrollable?.minWidth && scrollable.minWidth > outerWidth;
+
+    this.chartWidth = useHorizontalScroll ? scrollable!.minWidth! : outerWidth;
+    this.chartHeight = useVerticalScroll ? scrollable!.minHeight! : outerHeight;
+    this.scrollableOuterWidth = outerWidth;
+    this.scrollableOuterHeight = outerHeight;
+    this.useVerticalScroll = !!useVerticalScroll;
+    this.useHorizontalScroll = !!useHorizontalScroll;
+
+    if (useVerticalScroll || useHorizontalScroll) {
+      this.container.style.position = 'relative';
+      const existingInners = this.container.querySelectorAll(':scope > [data-katu-scrollable-inner]');
+      existingInners.forEach(el => el.parentElement?.removeChild(el));
+      const existingOverlays = this.container.querySelectorAll(':scope > svg[data-katu-fixed-overlay]');
+      existingOverlays.forEach(el => el.parentElement?.removeChild(el));
+      this.scrollableInner = document.createElement('div');
+      this.scrollableInner.setAttribute('data-katu-scrollable-inner', '1');
+      this.scrollableInner.style.overflowX = useHorizontalScroll ? 'auto' : 'hidden';
+      this.scrollableInner.style.overflowY = useVerticalScroll ? 'auto' : 'hidden';
+      this.scrollableInner.style.width = outerWidth + 'px';
+      this.scrollableInner.style.height = outerHeight + 'px';
+      this.container.appendChild(this.scrollableInner);
+    }
+
+    this.setupResponsive();
+    this.applyInitialResponsiveRules();
+
+    this.renderer = new SVGRenderer(this.scrollableInner || this.container, this.chartWidth, this.chartHeight);
+    if (this.scrollableInner) {
+      this.renderer.svg.style('max-width', 'none');
+    }
+    this.applyChartStyles();
+
+    this.computeLayout();
+    this.createStructuralGroups();
+    this.buildAxes();
+    this.buildSeries();
+    this.renderAll();
+
+    if (useVerticalScroll || useHorizontalScroll) {
+      this.createFixedAxisOverlay();
+    }
+
+    if (this.options.chart.reflow) {
+      this.setupReflow();
+    }
+
+    this.setupSeriesDimming();
+    this.setupDrilldown();
+    this.setupZoom();
+    this.setupAccessibility();
+    this.fireEvent('load');
+  }
+
+  private scrollableInner: HTMLDivElement | null = null;
+  private scrollableOuterWidth = 0;
+  private scrollableOuterHeight = 0;
+  private useVerticalScroll = false;
+  private useHorizontalScroll = false;
+  private fixedAxisOverlay: SVGSVGElement | null = null;
+
+  private createFixedAxisOverlay(): void {
+    if (!this.scrollableInner) return;
+    const mainSvg = this.renderer.getSVGNode();
+    if (!mainSvg) return;
+
+    if (this.fixedAxisOverlay && this.fixedAxisOverlay.parentElement) {
+      this.fixedAxisOverlay.parentElement.removeChild(this.fixedAxisOverlay);
+      this.fixedAxisOverlay = null;
+    }
+    const existingOverlays = this.container.querySelectorAll(':scope > svg[data-katu-fixed-overlay]');
+    existingOverlays.forEach(el => el.parentElement?.removeChild(el));
+
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const scrollbarW = this.scrollableInner.offsetWidth - this.scrollableInner.clientWidth;
+    const scrollbarH = this.scrollableInner.offsetHeight - this.scrollableInner.clientHeight;
+    const overlayWidth = this.scrollableOuterWidth - scrollbarW;
+    const overlayHeight = this.scrollableOuterHeight - scrollbarH;
+    const overlay = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+    overlay.setAttribute('data-katu-fixed-overlay', '1');
+    overlay.setAttribute('width', overlayWidth.toString());
+    overlay.setAttribute('height', overlayHeight.toString());
+    overlay.style.position = 'absolute';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.pointerEvents = 'none';
+    overlay.style.overflow = 'visible';
+
+    const bgColor = (this.options.chart.backgroundColor as string) || '#ffffff';
+    const plotGroupTransform = (this.plotGroup as any).attr('transform') || '';
+    const plotMatch = plotGroupTransform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+    const plotOffsetX = plotMatch ? parseFloat(plotMatch[1]) : 0;
+    const plotOffsetY = plotMatch ? parseFloat(plotMatch[2]) : 0;
+    const isInverted = !!this.options.chart.inverted;
+    const bottomAxisSelector = isInverted ? '.katucharts-axis-y' : '.katucharts-axis-x';
+    const leftAxisSelector = isInverted ? '.katucharts-axis-x' : '.katucharts-axis-y';
+
+    const defs = document.createElementNS(SVG_NS, 'defs');
+    const gradientIdPrefix = `katucharts-fixed-grad-${Math.random().toString(36).slice(2, 8)}`;
+    const makeGradient = (id: string, x1: string, y1: string, x2: string, y2: string, stops: [string, string][]) => {
+      const grad = document.createElementNS(SVG_NS, 'linearGradient');
+      grad.setAttribute('id', id);
+      grad.setAttribute('x1', x1); grad.setAttribute('y1', y1);
+      grad.setAttribute('x2', x2); grad.setAttribute('y2', y2);
+      stops.forEach(([offset, stopColor]) => {
+        const stop = document.createElementNS(SVG_NS, 'stop');
+        stop.setAttribute('offset', offset);
+        stop.setAttribute('stop-color', bgColor);
+        stop.setAttribute('stop-opacity', stopColor);
+        grad.appendChild(stop);
+      });
+      defs.appendChild(grad);
+    };
+
+    const titleArea = this.layout.titleArea;
+    const subtitleArea = this.layout.subtitleArea;
+    const lastTextBottom = Math.max(
+      (titleArea?.y ?? 0) + (titleArea?.height ?? 0),
+      (subtitleArea?.y ?? 0) + (subtitleArea?.height ?? 0),
+    );
+    const fadeDistance = 30;
+    const topBandHeight = Math.max(0, Math.min(lastTextBottom + fadeDistance, plotOffsetY));
+    const topOpaquePct = topBandHeight > 0 ? Math.max(0, Math.min(100, (lastTextBottom / topBandHeight) * 100)) : 100;
+
+    makeGradient(`${gradientIdPrefix}-top`, '0%', '0%', '0%', '100%', [['0%', '1'], [`${topOpaquePct}%`, '1'], ['100%', '0']]);
+    makeGradient(`${gradientIdPrefix}-bottom`, '0%', '0%', '0%', '100%', [['0%', '0'], ['30%', '1'], ['100%', '1']]);
+    makeGradient(`${gradientIdPrefix}-left`, '0%', '0%', '100%', '0%', [['0%', '1'], ['70%', '1'], ['100%', '0']]);
+    overlay.appendChild(defs);
+
+    if (this.useVerticalScroll && topBandHeight > 0) {
+      const topBg = document.createElementNS(SVG_NS, 'rect');
+      topBg.setAttribute('x', '0');
+      topBg.setAttribute('y', '0');
+      topBg.setAttribute('width', overlayWidth.toString());
+      topBg.setAttribute('height', topBandHeight.toString());
+      topBg.setAttribute('fill', `url(#${gradientIdPrefix}-top)`);
+      overlay.appendChild(topBg);
+    }
+
+    // Pin chart title and subtitle in the overlay so they don't scroll with the plot
+    const titleGroups = mainSvg.querySelectorAll('.katucharts-title-group');
+    titleGroups.forEach(g => {
+      (g as SVGElement).style.visibility = 'hidden';
+      const clone = g.cloneNode(true) as SVGGElement;
+      (clone as SVGElement).style.visibility = 'visible';
+      const xShift = (this.chartWidth - overlayWidth) / 2;
+      if (xShift !== 0) {
+        clone.setAttribute('transform', `translate(${-xShift}, 0)`);
+      }
+      overlay.appendChild(clone);
+    });
+
+    if (this.useVerticalScroll) {
+      const bottomAxisOrigY = plotOffsetY + this.layout.plotArea.height;
+      const bottomBandHeight = this.chartHeight - bottomAxisOrigY + 10;
+      const bgRect = document.createElementNS(SVG_NS, 'rect');
+      bgRect.setAttribute('x', '0');
+      bgRect.setAttribute('y', (overlayHeight - bottomBandHeight).toString());
+      bgRect.setAttribute('width', overlayWidth.toString());
+      bgRect.setAttribute('height', bottomBandHeight.toString());
+      bgRect.setAttribute('fill', `url(#${gradientIdPrefix}-bottom)`);
+      overlay.appendChild(bgRect);
+
+      const bottomAxisGroups = mainSvg.querySelectorAll(bottomAxisSelector);
+      bottomAxisGroups.forEach(axisG => {
+        (axisG as SVGElement).style.visibility = 'hidden';
+        const wrapper = document.createElementNS(SVG_NS, 'g') as SVGGElement;
+        const fixedY = overlayHeight - (this.chartHeight - bottomAxisOrigY);
+        wrapper.setAttribute('transform', `translate(${plotOffsetX}, ${fixedY})`);
+        const clone = axisG.cloneNode(true) as SVGGElement;
+        clone.removeAttribute('transform');
+        (clone as SVGElement).style.visibility = 'visible';
+        wrapper.appendChild(clone);
+        overlay.appendChild(wrapper);
+      });
+    }
+
+    if (this.useHorizontalScroll) {
+      const leftBandWidth = plotOffsetX + 5;
+      const bgRect = document.createElementNS(SVG_NS, 'rect');
+      bgRect.setAttribute('x', '0');
+      bgRect.setAttribute('y', '0');
+      bgRect.setAttribute('width', leftBandWidth.toString());
+      bgRect.setAttribute('height', overlayHeight.toString());
+      bgRect.setAttribute('fill', `url(#${gradientIdPrefix}-left)`);
+      overlay.appendChild(bgRect);
+
+      const leftAxisGroups = mainSvg.querySelectorAll(leftAxisSelector);
+      leftAxisGroups.forEach(axisG => {
+        (axisG as SVGElement).style.visibility = 'hidden';
+        const wrapper = document.createElementNS(SVG_NS, 'g') as SVGGElement;
+        wrapper.setAttribute('transform', `translate(${plotOffsetX}, ${plotOffsetY})`);
+        const clone = axisG.cloneNode(true) as SVGGElement;
+        clone.removeAttribute('transform');
+        (clone as SVGElement).style.visibility = 'visible';
+        wrapper.appendChild(clone);
+        overlay.appendChild(wrapper);
+      });
+    }
+
+    // Pin legends in the overlay so they don't scroll with the plot content
+    const legendGroups = mainSvg.querySelectorAll('.katucharts-legend');
+    legendGroups.forEach(legG => {
+      const origTransform = (legG as SVGGElement).getAttribute('transform') || '';
+      const m = origTransform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+      const origX = m ? parseFloat(m[1]) : 0;
+      const origY = m ? parseFloat(m[2]) : 0;
+      const xShift = (this.chartWidth - overlayWidth) / 2;
+      const yShift = this.useVerticalScroll ? (this.chartHeight - overlayHeight) : 0;
+      const newX = origX - xShift;
+      const newY = origY - yShift;
+      (legG as SVGElement).style.visibility = 'hidden';
+      const clone = legG.cloneNode(true) as SVGGElement;
+      (clone as SVGElement).style.visibility = 'visible';
+      clone.setAttribute('transform', `translate(${newX}, ${newY})`);
+      overlay.appendChild(clone);
+    });
+
+    // Move export button into the overlay so it stays visible without scrolling
+    const exportBtnNode = mainSvg.querySelector('.katucharts-export-button-group') as SVGGElement | null;
+    if (exportBtnNode && this.exportButton) {
+      const btnTransform = exportBtnNode.getAttribute('transform') || '';
+      const btnMatch = btnTransform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+      const origX = btnMatch ? parseFloat(btnMatch[1]) : 0;
+      const origY = btnMatch ? parseFloat(btnMatch[2]) : 0;
+      const newBtnX = origX - (this.chartWidth - overlayWidth);
+      exportBtnNode.setAttribute('transform', `translate(${newBtnX},${origY})`);
+      exportBtnNode.style.pointerEvents = 'auto';
+      overlay.appendChild(exportBtnNode);
+      const btnW = 28;
+      const btnH = 22;
+      this.exportButton.repositionCenter(newBtnX + btnW / 2, origY + btnH / 2);
+    }
+
+    // Pin heatmap color axis in the overlay, centered in the visible area
+    const colorAxisGroups = mainSvg.querySelectorAll('.katucharts-color-axis');
+    colorAxisGroups.forEach(caG => {
+      (caG as SVGElement).style.visibility = 'hidden';
+      const clone = caG.cloneNode(true) as SVGGElement;
+      (clone as SVGElement).style.visibility = 'visible';
+      const wrapper = document.createElementNS(SVG_NS, 'g') as SVGGElement;
+      // position wrapper so color bar (centered within plotArea.width) lands at overlayWidth/2
+      const wrapperX = overlayWidth / 2 - this.layout.plotArea.width / 2;
+      wrapper.setAttribute('transform', `translate(${wrapperX},${plotOffsetY})`);
+      wrapper.appendChild(clone);
+      overlay.appendChild(wrapper);
+    });
+
+    this.container.appendChild(overlay);
+    this.fixedAxisOverlay = overlay;
+  }
+
+  private resolveHeight(configured: number | string | null | undefined, containerHeight: number): number {
+    if (typeof configured === 'number') return configured;
+    if (typeof configured === 'string') {
+      if (configured.endsWith('%')) {
+        return (parseFloat(configured) / 100) * containerHeight;
+      }
+      const parsed = parseFloat(configured);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+    return containerHeight || 400;
+  }
+
+  private applyChartStyles(): void {
+    const bg = this.options.chart.backgroundColor;
+    if (bg) {
+      this.renderer.svg.append('rect')
+        .attr('class', 'katucharts-background')
+        .attr('width', this.chartWidth)
+        .attr('height', this.chartHeight)
+        .attr('fill', bg)
+        .attr('rx', this.options.chart.borderRadius ?? 0);
+    }
+
+    if (this.options.chart.borderWidth) {
+      this.renderer.svg.append('rect')
+        .attr('class', 'katucharts-border')
+        .attr('width', this.chartWidth)
+        .attr('height', this.chartHeight)
+        .attr('fill', 'none')
+        .attr('stroke', this.options.chart.borderColor || '#335cad')
+        .attr('stroke-width', this.options.chart.borderWidth)
+        .attr('rx', this.options.chart.borderRadius ?? 0);
+    }
+  }
+
+  private computeLayout(): void {
+    this.layout = this.layoutEngine.compute(this.options, this.chartWidth, this.chartHeight);
+  }
+
+  private createStructuralGroups(): void {
+    this.titleGroup = this.renderer.createGroup('katucharts-title-group');
+    this.renderTitles();
+
+    this.plotGroup = this.renderer.createGroup('katucharts-plot-group');
+    this.plotGroup.attr('transform', `translate(${this.layout.plotArea.x},${this.layout.plotArea.y})`);
+
+    const plotBg = this.options.chart.plotBackgroundColor;
+    if (plotBg) {
+      this.plotGroup.append('rect')
+        .attr('class', 'katucharts-plot-background')
+        .attr('width', this.layout.plotArea.width)
+        .attr('height', this.layout.plotArea.height)
+        .attr('fill', plotBg);
+    }
+
+    const plotBorderWidth = this.options.chart.plotBorderWidth;
+    if (plotBorderWidth) {
+      this.plotGroup.append('rect')
+        .attr('class', 'katucharts-plot-border')
+        .attr('width', this.layout.plotArea.width)
+        .attr('height', this.layout.plotArea.height)
+        .attr('fill', 'none')
+        .attr('stroke', this.options.chart.plotBorderColor || '#cccccc')
+        .attr('stroke-width', plotBorderWidth);
+    }
+
+    if (this.options.chart.plotShadow) {
+      (this.plotGroup.node() as SVGGElement)?.setAttribute(
+        'filter', 'drop-shadow(3px 3px 6px rgba(0,0,0,0.15))'
+      );
+    }
+
+    this.clipPathId = this.renderer.createClipPath(
+      0, 0,
+      this.layout.plotArea.width,
+      this.layout.plotArea.height
+    );
+
+    this.axisGroup = this.renderer.createGroup('katucharts-axis-group', this.plotGroup as any);
+    this.seriesGroup = this.renderer.createGroup('katucharts-series-group', this.plotGroup as any);
+    this.stackLabelsGroup = this.renderer.createGroup('katucharts-stack-labels-group', this.plotGroup as any);
+
+    const noClipTypes = new Set(['pie', 'venn', 'forestplot']);
+    const expandTypes = new Set(['scatter', 'bubble']);
+    const clipDisabled = this.options.series.some(s => s.clip === false || noClipTypes.has(s._internalType));
+    const needsExpand = this.options.series.some(s => expandTypes.has(s._internalType));
+
+    if (!this.isNonCartesian() && !clipDisabled) {
+      if (needsExpand) {
+        const margin = 12;
+        this.clipPathId = this.renderer.createClipPath(
+          -margin, -margin,
+          this.layout.plotArea.width + 2 * margin,
+          this.layout.plotArea.height + 2 * margin
+        );
+      }
+      this.seriesGroup.attr('clip-path', `url(#${this.clipPathId})`);
+    }
+
+    this.tooltip = new Tooltip(this.options.tooltip, this.container, this.layout.plotArea, this.events);
+    this.legend = new Legend(this.options.legend, this.renderer.svg, this.events);
+    this.credits = new Credits(this.options.credits, this.renderer.svg, this.chartWidth, this.chartHeight);
+
+    if (this.options.exporting.enabled !== false) {
+      this.exportButton = new ExportButton(
+        this.options.exporting,
+        this.renderer.svg,
+        this.container,
+        this.chartWidth,
+        this.chartHeight,
+        (type) => this.handleExportAction(type),
+      );
+    }
+
+    const xCrosshair = this.options.xAxis[0]?.crosshair;
+    const yCrosshair = this.options.yAxis[0]?.crosshair;
+    if (xCrosshair || yCrosshair) {
+      this.crosshair = new Crosshair(xCrosshair, yCrosshair, this.plotGroup as any, this.layout.plotArea, this.events);
+    }
+  }
+
+  private renderTitles(): void {
+    this.titleGroup.selectAll('*').remove();
+    this.container.querySelectorAll('.katucharts-title-html, .katucharts-subtitle-html').forEach(el => el.remove());
+
+    if (this.options.title?.text) {
+      const titleOpts = this.options.title;
+      const fontSize = titleOpts.style?.fontSize as string || '18px';
+
+      if (titleOpts.useHTML) {
+        const div = document.createElement('div');
+        div.className = 'katucharts-title-html';
+        div.innerHTML = titleOpts.text!;
+        div.style.cssText = `position:absolute;top:${this.layout.titleArea.y + 5}px;left:0;width:100%;text-align:${titleOpts.align || 'center'};color:${titleOpts.style?.color as string || '#333333'};font-size:${fontSize};font-weight:${titleOpts.style?.fontWeight as string || 'bold'};pointer-events:none;box-sizing:border-box;padding:0 22px;`;
+        this.container.appendChild(div);
+      } else {
+        const x = this.getTitleX(titleOpts.align);
+        const maxWidth = this.chartWidth + (titleOpts.widthAdjust ?? -44);
+        const titleEl = this.titleGroup.append('text')
+          .attr('class', 'katucharts-chart-title')
+          .attr('x', x)
+          .attr('y', this.layout.titleArea.y + 20)
+          .attr('text-anchor', this.getTextAnchor(titleOpts.align))
+          .attr('fill', titleOpts.style?.color as string || '#333333')
+          .attr('font-size', fontSize)
+          .attr('font-weight', titleOpts.style?.fontWeight as string || 'bold')
+          .text(titleOpts.text!);
+        this.wrapSvgText(titleEl, maxWidth, x, parseFloat(fontSize));
+      }
+    }
+
+    if (this.options.subtitle?.text) {
+      const subOpts = this.options.subtitle;
+      const fontSize = subOpts.style?.fontSize as string || '12px';
+
+      if (subOpts.useHTML) {
+        const div = document.createElement('div');
+        div.className = 'katucharts-subtitle-html';
+        div.innerHTML = subOpts.text!;
+        div.style.cssText = `position:absolute;top:${this.layout.subtitleArea.y + 5}px;left:0;width:100%;text-align:${subOpts.align || 'center'};color:${subOpts.style?.color as string || '#666666'};font-size:${fontSize};pointer-events:none;box-sizing:border-box;padding:0 22px;`;
+        this.container.appendChild(div);
+      } else {
+        const x = this.getTitleX(subOpts.align);
+        const maxWidth = this.chartWidth + (subOpts.widthAdjust ?? -44);
+        const subEl = this.titleGroup.append('text')
+          .attr('class', 'katucharts-chart-subtitle')
+          .attr('x', x)
+          .attr('y', this.layout.subtitleArea.y + 15)
+          .attr('text-anchor', this.getTextAnchor(subOpts.align))
+          .attr('fill', subOpts.style?.color as string || '#666666')
+          .attr('font-size', fontSize)
+          .text(subOpts.text!);
+        this.wrapSvgText(subEl, maxWidth, x, parseFloat(fontSize));
+      }
+    }
+  }
+
+  private wrapSvgText(textEl: any, maxWidth: number, x: number, fontSize: number): void {
+    const node = textEl.node() as SVGTextElement;
+    if (!node || maxWidth <= 0) return;
+
+    try {
+      const textLength = node.getComputedTextLength();
+      if (textLength <= maxWidth) return;
+    } catch {
+      return;
+    }
+
+    const fullText = textEl.text();
+    const words = fullText.split(/\s+/);
+    if (words.length <= 1) return;
+
+    const lineHeight = fontSize * 1.3;
+    textEl.text(null);
+
+    let line: string[] = [];
+    let lineNumber = 0;
+    let tspan = textEl.append('tspan')
+      .attr('x', x)
+      .attr('dy', 0);
+
+    for (const word of words) {
+      line.push(word);
+      tspan.text(line.join(' '));
+      try {
+        if (tspan.node().getComputedTextLength() > maxWidth && line.length > 1) {
+          line.pop();
+          tspan.text(line.join(' '));
+          line = [word];
+          lineNumber++;
+          tspan = textEl.append('tspan')
+            .attr('x', x)
+            .attr('dy', lineHeight)
+            .text(word);
+        }
+      } catch {
+        break;
+      }
+    }
+  }
+
+  private getTitleX(align?: string): number {
+    if (align === 'left') return this.layout.titleArea.x;
+    if (align === 'right') return this.layout.titleArea.x + this.layout.titleArea.width;
+    return this.chartWidth / 2;
+  }
+
+  private getTextAnchor(align?: string): string {
+    if (align === 'left') return 'start';
+    if (align === 'right') return 'end';
+    return 'middle';
+  }
+
+  private buildAxes(): void {
+    this.xAxes = this.options.xAxis.map(cfg => createAxis(cfg, this.layout.plotArea));
+    this.yAxes = this.options.yAxis.map(cfg => createAxis(cfg, this.layout.plotArea));
+  }
+
+  private buildSeries(): void {
+    const config = this.options;
+
+    this.seriesInstances = config.series.map((seriesCfg, i) => {
+      const type = seriesCfg._internalType;
+      const Ctor = ChartRegistry.getType(type);
+
+      if (!Ctor) {
+        console.warn(`KatuCharts: unknown series type "${type}", falling back to line`);
+        const FallbackCtor = ChartRegistry.getType('line');
+        if (!FallbackCtor) throw new Error('KatuCharts: line series type not registered');
+        return new FallbackCtor(seriesCfg);
+      }
+
+      return new Ctor(seriesCfg) as BaseSeries;
+    });
+  }
+
+  private renderAll(): void {
+    this.updateAxesDomains();
+    this.updateTooltipCategories();
+    this.renderAxes();
+    this.renderSeriesInstances();
+    this.renderStackLabels();
+    this.raiseplotLineLabels();
+    this.renderLegend();
+    this.fireEvent('render');
+  }
+
+  private formatStackLabel(total: number, cfg: NonNullable<AxisOptions['stackLabels']>): string {
+    if (cfg.formatter) {
+      return cfg.formatter.call({ total });
+    }
+    if (cfg.format) {
+      return stripHtmlTags(templateFormat(cfg.format, { total }));
+    }
+    if (this.options.chart.numberFormatter) {
+      return this.options.chart.numberFormatter(total);
+    }
+    return numberFormat(total, 0, '.', ',');
+  }
+
+  private renderStackLabels(): void {
+    if (!this.stackLabelsGroup) return;
+    this.stackLabelsGroup.selectAll('*').remove();
+
+    for (let axisIndex = 0; axisIndex < this.yAxes.length; axisIndex++) {
+      const axis = this.yAxes[axisIndex];
+      const stackCfg = axis.config.stackLabels;
+      if (!stackCfg?.enabled) continue;
+
+      const related = this.seriesInstances
+        .map((series, idx) => ({ series, cfg: this.options.series[idx] }))
+        .filter(({ series, cfg }) =>
+          series.visible &&
+          cfg._yAxisIndex === axisIndex &&
+          (cfg._internalType === 'column' || cfg._internalType === 'bar') &&
+          cfg.stacking &&
+          cfg.stacking !== 'percent'
+        );
+
+      if (related.length === 0) continue;
+
+      const stacks = new Map<string, {
+        totals: Map<number | string, number>;
+        series: BaseSeries[];
+        type: string;
+        xAxis: AxisInstance;
+        yAxis: AxisInstance;
+      }>();
+
+      for (const { series, cfg } of related) {
+        const stackKey = `${cfg._internalType}__${cfg.stack ?? '_default'}`;
+        if (!stacks.has(stackKey)) {
+          stacks.set(stackKey, {
+            totals: new Map<number | string, number>(),
+            series: [],
+            type: cfg._internalType,
+            xAxis: this.xAxes[cfg._xAxisIndex] || this.xAxes[0],
+            yAxis: this.yAxes[cfg._yAxisIndex] || this.yAxes[0],
+          });
+        }
+        const entry = stacks.get(stackKey)!;
+        entry.series.push(series);
+        for (const point of series.data) {
+          const xKey = point.x ?? 0;
+          entry.totals.set(xKey, (entry.totals.get(xKey) || 0) + (point.y ?? 0));
+        }
+      }
+
+      const axisGroup = this.stackLabelsGroup.append('g')
+        .attr('class', `katucharts-stack-labels katucharts-stack-labels-axis-${axisIndex}`);
+
+      for (const [stackKey, stack] of stacks) {
+        const stackGroup = axisGroup.append('g')
+          .attr('class', 'katucharts-stack-labels-stack')
+          .attr('data-stack-key', stackKey);
+
+        for (const [xKey, total] of stack.totals.entries()) {
+          if (!isFinite(total) || total === 0) continue;
+          const text = this.formatStackLabel(total, stackCfg);
+          const isHorizontal = stack.type === 'bar';
+          const isNegative = total < 0;
+          const categoryCenter = stack.xAxis.getPixelForValue(xKey);
+          const totalPixel = stack.yAxis.getPixelForValue(total);
+          const defaultAlign = isHorizontal ? (isNegative ? 'end' : 'start') : 'middle';
+          const defaultBaseline = isHorizontal ? 'central' : (isNegative ? 'hanging' : 'auto');
+          const defaultX = isHorizontal ? totalPixel + (isNegative ? -6 : 6) : categoryCenter;
+          const defaultY = isHorizontal ? categoryCenter : totalPixel + (isNegative ? 6 : -6);
+          const x = defaultX + (stackCfg.x ?? 0);
+          const y = defaultY + (stackCfg.y ?? 0);
+
+          const label = stackGroup.append('text')
+            .attr('class', 'katucharts-stack-label')
+            .attr('x', x)
+            .attr('y', y)
+            .attr('text-anchor', stackCfg.align === 'left' ? 'start' : stackCfg.align === 'right' ? 'end' : defaultAlign)
+            .text(text);
+
+          if (stackCfg.verticalAlign === 'middle' || isHorizontal) {
+            label.attr('dominant-baseline', defaultBaseline);
+          } else if (stackCfg.verticalAlign === 'bottom') {
+            label.attr('dominant-baseline', 'hanging');
+          }
+
+          const style = stackCfg.style || {};
+          label
+            .style('fill', style.color ?? '#000000')
+            .style('font-size', style.fontSize ?? '11px')
+            .style('font-weight', style.fontWeight ?? 'bold');
+
+          if (style.textOutline) {
+            label.style('text-shadow', style.textOutline as string);
+          }
+
+          if (stackCfg.rotation) {
+            label.attr('transform', `rotate(${stackCfg.rotation},${x},${y})`);
+          }
+        }
+      }
+    }
+  }
+
+  private raiseplotLineLabels(): void {
+    const plotGroupNode = (this.plotGroup as any).node() as SVGGElement | null;
+    if (!plotGroupNode) return;
+    this.axisGroup.selectAll('.katucharts-plot-line-label').each(function() {
+      plotGroupNode.appendChild(this as Node);
+    });
+  }
+
+  private updateTooltipCategories(): void {
+    if (!this.tooltip) return;
+    const xAxis = this.xAxes[0];
+    if (xAxis && (xAxis.config.type === 'category' || xAxis.config.categories)) {
+      this.tooltip.setCategories(xAxis.config.categories || []);
+    }
+  }
+
+  private updateAxesDomains(): void {
+    const noAxesTypes = new Set([
+      'pie', 'donut', 'sunburst', 'treemap', 'sankey', 'dependencywheel',
+      'networkgraph', 'gauge', 'solidgauge', 'polar', 'radar', 'funnel',
+      'pyramid', 'timeline', 'map', 'barchartrace', 'venn',
+      'clusteredheatmap', 'phylotree', 'circos',
+    ]);
+
+    for (let ai = 0; ai < this.xAxes.length; ai++) {
+      const axis = this.xAxes[ai];
+
+      if (axis.config.type === 'category' || axis.config.categories) {
+        const relatedSeries = this.seriesInstances.filter(
+          (s, si) => s.visible && this.options.series[si]._xAxisIndex === ai && !noAxesTypes.has(s.config._internalType)
+        );
+        const cats = axis.config.categories
+          || (relatedSeries.length > 0 ? relatedSeries[0].getCategories() : undefined);
+        if (cats) axis.updateDomain(cats);
+        continue;
+      }
+
+      const relatedSeries = this.seriesInstances.filter(
+        (s, si) => s.visible && this.options.series[si]._xAxisIndex === ai && !noAxesTypes.has(s.config._internalType)
+      );
+
+      if (relatedSeries.length === 0) continue;
+
+      let xMin = Infinity, xMax = -Infinity;
+      for (const s of relatedSeries) {
+        const ext = s.getDataExtents();
+        xMin = Math.min(xMin, ext.xMin);
+        xMax = Math.max(xMax, ext.xMax);
+      }
+      if (isFinite(xMin) && isFinite(xMax)) {
+        const xConfigs = this.options.series.filter(
+          (cfg, si) => this.seriesInstances[si]?.visible && cfg._xAxisIndex === ai && !noAxesTypes.has(cfg._internalType)
+        );
+        const bubblePad = this.computeBubbleRadiusPadding(xConfigs, this.layout.plotArea.width);
+        axis.updateDomain({
+          min: xMin,
+          max: xMax,
+          extraMinPadding: bubblePad,
+          extraMaxPadding: bubblePad,
+        });
+      }
+    }
+
+    for (let ai = 0; ai < this.yAxes.length; ai++) {
+      const axis = this.yAxes[ai];
+      const relatedConfigs = this.options.series.filter(
+        (cfg, si) => this.seriesInstances[si]?.visible && cfg._yAxisIndex === ai && !noAxesTypes.has(cfg._internalType)
+      );
+      const relatedSeries = this.seriesInstances.filter(
+        (s, si) => s.visible && this.options.series[si]._yAxisIndex === ai && !noAxesTypes.has(s.config._internalType)
+      );
+
+      if (relatedSeries.length === 0) continue;
+
+      let yMin = Infinity, yMax = -Infinity;
+
+      const stackGroups = new Map<string, Map<number | string, number>>();
+      for (let si = 0; si < relatedSeries.length; si++) {
+        const s = relatedSeries[si];
+        const cfg = relatedConfigs[si];
+        if (cfg?.stacking) {
+          const stackKey = `${cfg._internalType}__${cfg.stack ?? '_default'}`;
+          if (!stackGroups.has(stackKey)) stackGroups.set(stackKey, new Map());
+          const accum = stackGroups.get(stackKey)!;
+          for (const d of s.data) {
+            const xKey = d.x ?? 0;
+            accum.set(xKey, (accum.get(xKey) || 0) + (d.y ?? 0));
+          }
+        } else {
+          const ext = s.getDataExtents();
+          yMin = Math.min(yMin, ext.yMin);
+          yMax = Math.max(yMax, ext.yMax);
+        }
+      }
+
+      const hasPercentStacking = relatedConfigs.some(cfg => cfg?.stacking === 'percent');
+      if (hasPercentStacking) {
+        yMin = 0;
+        yMax = 100;
+        axis.config.min = 0;
+        axis.config.max = 100;
+      }
+      for (const accum of stackGroups.values()) {
+        if (hasPercentStacking) {
+          // already handled above
+        } else {
+          for (const total of accum.values()) {
+            yMin = Math.min(yMin, 0);
+            yMax = Math.max(yMax, total);
+          }
+        }
+      }
+
+      const zeroBaseTypes = new Set(['column', 'bar', 'area', 'areaspline', 'waterfall']);
+      const hasZeroBaseSeries = relatedConfigs.some(cfg => zeroBaseTypes.has(cfg._internalType));
+      if (hasZeroBaseSeries && axis.config.min === undefined) {
+        yMin = Math.min(yMin, 0);
+        yMax = Math.max(yMax, 0);
+      }
+
+      if (isFinite(yMin) && isFinite(yMax)) {
+        const bubblePad = this.computeBubbleRadiusPadding(relatedConfigs, this.layout.plotArea.height);
+        axis.updateDomain({
+          min: yMin,
+          max: yMax,
+          extraMinPadding: bubblePad,
+          extraMaxPadding: bubblePad,
+        });
+      }
+    }
+  }
+
+  private computeBubbleRadiusPadding(configs: any[], plotSize: number): number {
+    const bubbleConfigs = configs.filter(cfg => cfg && cfg._internalType === 'bubble');
+    if (bubbleConfigs.length === 0 || plotSize <= 0) return 0;
+    let maxRadius = 0;
+    for (const cfg of bubbleConfigs) {
+      const ms = (cfg as any).maxSize;
+      let r: number;
+      if (typeof ms === 'number') r = ms;
+      else if (typeof ms === 'string' && ms.endsWith('%')) {
+        r = Math.min(this.layout.plotArea.width, this.layout.plotArea.height) * parseFloat(ms) / 100 / 2;
+      } else r = 30;
+      maxRadius = Math.max(maxRadius, r);
+    }
+    return maxRadius / Math.max(plotSize - 2 * maxRadius, 1);
+  }
+
+  private isNonCartesian(): boolean {
+    const noAxesTypes = new Set([
+      'pie', 'donut', 'sunburst', 'treemap', 'sankey', 'dependencywheel',
+      'networkgraph', 'gauge', 'solidgauge', 'polar', 'radar', 'funnel',
+      'pyramid', 'timeline', 'map', 'barchartrace', 'venn',
+      'clusteredheatmap', 'phylotree', 'circos',
+      'circosChord', 'circosHeatmap', 'circosComparative', 'circosSpiral',
+    ]);
+    return this.options.series.length > 0 &&
+      this.options.series.every(s => noAxesTypes.has(s._internalType));
+  }
+
+  private renderAxes(): void {
+    this.axisGroup.selectAll('*').remove();
+
+    if (this.isNonCartesian()) return;
+
+    for (const axis of this.xAxes) {
+      if (axis.config.showEmpty === false && !this.hasSeriesForAxis(axis, true)) continue;
+      axis.render(this.axisGroup as any, this.layout.plotArea);
+    }
+    for (const axis of this.yAxes) {
+      if (axis.config.showEmpty === false && !this.hasSeriesForAxis(axis, false)) continue;
+      axis.render(this.axisGroup as any, this.layout.plotArea);
+    }
+
+    this.setupAxisLabelHover();
+  }
+
+  private setupAxisLabelHover(): void {
+    const xAxis = this.xAxes[0];
+    if (!xAxis) return;
+
+    const xAxisGroup = this.axisGroup.select('.katucharts-axis-x');
+    if (xAxisGroup.empty()) return;
+
+    const tickGroups = xAxisGroup.selectAll<SVGGElement, any>('.tick');
+    const self = this;
+
+    tickGroups.each(function () {
+      const g = select(this as SVGGElement);
+      const text = g.select('text');
+      if (text.empty()) return;
+      const bbox = (text.node() as SVGTextElement).getBBox();
+      g.insert('rect', 'text')
+        .attr('x', bbox.x - 4)
+        .attr('y', bbox.y - 2)
+        .attr('width', bbox.width + 8)
+        .attr('height', bbox.height + 4)
+        .attr('fill', 'transparent')
+        .attr('class', 'katucharts-tick-hitarea');
+    });
+
+    tickGroups
+      .style('cursor', 'pointer')
+      .on('mouseover', function (_event: MouseEvent) {
+        const tickValue = (this as any).__data__;
+        const catIndex = typeof tickValue === 'string'
+          ? (xAxis.config.categories?.indexOf(tickValue) ?? -1)
+          : typeof tickValue === 'number' ? tickValue : -1;
+
+        if (catIndex < 0) return;
+
+        const inv = !!self.options.chart.inverted;
+        const rawX = xAxis.getPixelForValue(tickValue);
+        const matchingPoints: any[] = [];
+
+        for (const series of self.seriesInstances) {
+          if (!series.visible) continue;
+          const point = series.data.find((d: any) => (d.x ?? 0) === catIndex);
+          if (point && point.y !== null && point.y !== undefined) {
+            const yAxis = self.yAxes[0];
+            const rawY = yAxis.getPixelForValue(point.y ?? 0);
+            matchingPoints.push({
+              point,
+              series,
+              plotX: inv ? rawY : rawX,
+              plotY: inv ? rawX : rawY,
+            });
+          }
+        }
+
+        if (matchingPoints.length > 0) {
+          const first = matchingPoints[0];
+          self.events.emit('point:mouseover', {
+            point: { ...first.point, matchingPoints },
+            index: catIndex,
+            series: first.series,
+            event: _event,
+            plotX: first.plotX,
+            plotY: first.plotY,
+          });
+        }
+
+        for (const series of self.seriesInstances) {
+          if (!series.visible) continue;
+          const group = (series as any).group;
+          if (!group) continue;
+
+          const elements = group.selectAll('.katucharts-column, .katucharts-bar, .katucharts-marker, .katucharts-bubble, .katucharts-scatter-point');
+          elements.each(function(this: SVGElement, d: any) {
+            const el = select(this);
+            if ((d?.x ?? -1) === catIndex) {
+              el.attr('filter', 'brightness(1.15)');
+            } else {
+              el.transition().duration(100).attr('opacity', 0.3);
+            }
+          });
+        }
+      })
+      .on('mouseout', function () {
+        for (const series of self.seriesInstances) {
+          if (!series.visible) continue;
+          const group = (series as any).group;
+          if (!group) continue;
+
+          group.selectAll('.katucharts-column, .katucharts-bar, .katucharts-marker, .katucharts-bubble, .katucharts-scatter-point')
+            .interrupt()
+            .attr('opacity', null)
+            .attr('filter', null);
+        }
+
+        self.events.emit('point:mouseout', { point: {}, index: -1, series: null, event: null });
+      });
+  }
+
+  private hasSeriesForAxis(axis: AxisInstance, isX: boolean): boolean {
+    return this.seriesInstances.some((s, i) => {
+      const cfg = this.options.series[i];
+      const idx = isX ? cfg._xAxisIndex : cfg._yAxisIndex;
+      return s.visible && idx === axis.config.index;
+    });
+  }
+
+  private renderSeriesInstances(): void {
+    this.seriesGroup.selectAll('*').remove();
+
+    const typeCount = new Map<string, number>();
+    const typeIndex = new Map<string, number>();
+    for (const cfg of this.options.series) {
+      const t = cfg._internalType;
+      typeCount.set(t, (typeCount.get(t) || 0) + 1);
+      typeIndex.set(t, 0);
+    }
+
+    const chartAnimate = this.options.chart.animation !== false;
+
+    const stackAccum = new Map<string, Map<number | string, number>>();
+    const buildStackKey = (cfg: any) => {
+      const stackGroup = cfg.stack ?? '_default';
+      return `${cfg._internalType}__${stackGroup}`;
+    };
+
+    const stackSeriesCount = new Map<string, number>();
+    const stackSeriesIndex = new Map<string, number>();
+    const stackTotalsMap = new Map<string, Map<number | string, number>>();
+    const precomputedOffsets = new Map<number, Map<number | string, number>>();
+    for (let i = 0; i < this.options.series.length; i++) {
+      const cfg = this.options.series[i];
+      if (cfg.stacking) {
+        const sk = buildStackKey(cfg);
+        stackSeriesCount.set(sk, (stackSeriesCount.get(sk) || 0) + 1);
+        if (!stackTotalsMap.has(sk)) stackTotalsMap.set(sk, new Map());
+        const totals = stackTotalsMap.get(sk)!;
+        const s = this.seriesInstances[i];
+        s.processData();
+        for (const d of s.data) {
+          const xKey = d.x ?? 0;
+          totals.set(xKey, (totals.get(xKey) || 0) + (d.y ?? 0));
+        }
+      }
+    }
+
+    const reverseStackAccum = new Map<string, Map<number | string, number>>();
+    for (let i = this.options.series.length - 1; i >= 0; i--) {
+      const cfg = this.options.series[i];
+      if (!cfg.stacking) continue;
+      const sk = buildStackKey(cfg);
+      if (!reverseStackAccum.has(sk)) reverseStackAccum.set(sk, new Map());
+      const accum = reverseStackAccum.get(sk)!;
+      precomputedOffsets.set(i, new Map(accum));
+      const s = this.seriesInstances[i];
+      for (const d of s.data) {
+        const xKey = d.x ?? 0;
+        accum.set(xKey, (accum.get(xKey) || 0) + (d.y ?? 0));
+      }
+    }
+
+    for (let i = 0; i < this.seriesInstances.length; i++) {
+      const series = this.seriesInstances[i];
+      const cfg = this.options.series[i];
+      const xAxis = this.xAxes[cfg._xAxisIndex] || this.xAxes[0];
+      const yAxis = this.yAxes[cfg._yAxisIndex] || this.yAxes[0];
+
+      const t = cfg._internalType;
+      const idxInType = typeIndex.get(t) || 0;
+      typeIndex.set(t, idxInType + 1);
+
+      let stackOffsets: Map<number | string, number> | undefined;
+      if (cfg.stacking) {
+        stackOffsets = precomputedOffsets.get(i) || new Map();
+      }
+
+      const context: SeriesContext = {
+        plotArea: this.layout.plotArea,
+        xAxis,
+        yAxis,
+        colorIndex: i,
+        colors: this.options.colors,
+        events: this.events,
+        chartGroup: this.seriesGroup as any,
+        plotGroup: this.plotGroup as any,
+        totalSeriesOfType: cfg.stacking ? (stackSeriesCount.get(buildStackKey(cfg)) || 1) : (typeCount.get(t) || 1),
+        indexInType: cfg.stacking ? (stackSeriesIndex.get(buildStackKey(cfg)) || 0) : idxInType,
+        animate: chartAnimate && cfg.animation !== false,
+        stackOffsets,
+        stackTotals: cfg.stacking ? stackTotalsMap.get(buildStackKey(cfg)) : undefined,
+        allSeries: this.seriesInstances,
+        inverted: !!this.options.chart.inverted,
+        legendConfig: this.options.legend,
+      };
+
+      series.processData();
+      series.init(context);
+      series.render();
+
+      if (cfg.stacking) {
+        const stackKey = buildStackKey(cfg);
+        stackSeriesIndex.set(stackKey, (stackSeriesIndex.get(stackKey) || 0) + 1);
+      }
+      series.setOnVisibilityChange((dur) => this.animatedRedraw(dur));
+
+      const nonCartesianTypes = new Set([
+        'pie', 'donut', 'funnel', 'pyramid', 'sankey', 'dependencywheel',
+        'networkgraph', 'treemap', 'sunburst', 'gauge', 'solidgauge',
+        'timeline', 'gantt', 'map', 'heatmap', 'polar', 'radar', 'barchartrace', 'venn',
+        'clusteredheatmap', 'phylotree', 'circos',
+      ]);
+      const selfRenderedDataLabelTypes = new Set([
+        'line', 'spline', 'column', 'bar', 'scatter', 'bubble',
+        'area', 'areaspline', 'boxplot', 'waterfall', 'volume',
+      ]);
+      if (cfg.dataLabels?.enabled
+          && !nonCartesianTypes.has(cfg._internalType)
+          && !selfRenderedDataLabelTypes.has(cfg._internalType)) {
+        DataLabels.render(
+          series['group'],
+          series.data,
+          cfg.dataLabels,
+          xAxis, yAxis,
+          cfg.name || ''
+        );
+      }
+    }
+  }
+
+  private renderLegend(): void {
+    if (this.legend) {
+      this.legend.render(this.seriesInstances, this.layout.legendArea);
+    }
+  }
+
+  private setupSeriesDimming(): void {
+    const inactiveOpacity = this.options.plotOptions?.series?.states?.inactive?.opacity ?? 0.2;
+    let restoreTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const dimOtherSeries = (hoveredSeries: BaseSeries) => {
+      if (restoreTimer) {
+        clearTimeout(restoreTimer);
+        restoreTimer = null;
+      }
+      for (const s of this.seriesInstances) {
+        s['group']?.interrupt?.('seriesDim');
+        if (s !== hoveredSeries && s.visible) {
+          s['group']?.transition?.('seriesDim')?.duration?.(200)?.attr?.('opacity', inactiveOpacity);
+        } else {
+          s['group']?.attr?.('opacity', s.config.opacity ?? 1);
+        }
+      }
+    };
+
+    const restoreAllSeries = () => {
+      if (restoreTimer) clearTimeout(restoreTimer);
+      restoreTimer = setTimeout(() => {
+        for (const s of this.seriesInstances) {
+          s['group']?.interrupt?.('seriesDim');
+          s['group']?.transition?.('seriesDim')?.duration?.(200)?.attr?.('opacity', s.config.opacity ?? 1);
+        }
+        restoreTimer = null;
+      }, 50);
+    };
+
+    this.events.on('series:mouseenter', dimOtherSeries);
+    this.events.on('series:mouseleave', restoreAllSeries);
+    this.events.on('legend:itemHover', dimOtherSeries);
+    this.events.on('legend:itemLeave', restoreAllSeries);
+  }
+
+  private setupReflow(): void {
+    if (typeof ResizeObserver === 'undefined') return;
+
+    const handleResize = debounce(() => this.reflow(), 100);
+    this.resizeObserver = new ResizeObserver(handleResize);
+    this.resizeObserver.observe(this.container);
+  }
+
+  private fireEvent(name: string, ...args: any[]): void {
+    this.events.emit(`chart:${name}`, this, ...args);
+    const handler = this.options.chart.events?.[name as keyof typeof this.options.chart.events];
+    if (typeof handler === 'function') {
+      (handler as Function).call(this, ...args);
+    }
+  }
+
+  get plotRenderer() {
+    const sg = this.seriesGroup as any;
+    const xAxes = this.xAxes;
+    const yAxes = this.yAxes;
+    const pa = this.layout.plotArea;
+    return {
+      rect(x: number, y: number, w: number, h: number) {
+        return sg.insert('rect', ':first-child').attr('x', x).attr('y', y).attr('width', w).attr('height', h);
+      },
+      circle(cx: number, cy: number, r: number) {
+        return sg.insert('circle', ':first-child').attr('cx', cx).attr('cy', cy).attr('r', r);
+      },
+      ellipse(cx: number, cy: number, rx: number, ry: number) {
+        return sg.insert('ellipse', ':first-child').attr('cx', cx).attr('cy', cy).attr('rx', rx).attr('ry', ry);
+      },
+      path(d: string) {
+        return sg.insert('path', ':first-child').attr('d', d);
+      },
+      line(x1: number, y1: number, x2: number, y2: number) {
+        return sg.insert('line', ':first-child').attr('x1', x1).attr('y1', y1).attr('x2', x2).attr('y2', y2);
+      },
+      text(str: string, x: number, y: number) {
+        return sg.append('text').attr('x', x).attr('y', y).text(str);
+      },
+      group(className?: string) {
+        const g = sg.insert('g', ':first-child');
+        if (className) g.attr('class', className);
+        g.style('pointer-events', 'none');
+        return g;
+      },
+      get plotArea() { return { x: 0, y: 0, width: pa.width, height: pa.height }; },
+      get localPlotArea() { return { x: 0, y: 0, width: pa.width, height: pa.height }; },
+      xAxis: {
+        toPixels(val: number, axisIdx = 0) { return xAxes[axisIdx]?.getPixelForValue(val) ?? 0; },
+      },
+      yAxis: {
+        toPixels(val: number, axisIdx = 0) { return yAxes[axisIdx]?.getPixelForValue(val) ?? 0; },
+      },
+    };
+  }
+
+  private setupDrilldown(): void {
+    const cfg = this.options.drilldown;
+    if (!cfg?.series?.length) return;
+
+    this.drilldown = new Drilldown(cfg, this.events, this.container);
+
+    const drilldownStack: InternalSeriesConfig[][] = [];
+    const parser = new OptionsParser();
+
+    const drillAnimCfg = cfg.animation;
+    const drillDuration = typeof drillAnimCfg === 'object' ? (drillAnimCfg.duration ?? 400) : (drillAnimCfg !== false ? 400 : 0);
+
+    this.events.on('drilldown:drilldown', (data: any) => {
+      drilldownStack.push([...this.options.series]);
+
+      if (drillDuration > 0) {
+        this.seriesGroup.transition().duration(drillDuration / 2)
+          .style('opacity', '0')
+          .on('end', () => {
+            this.performDrillSwap(data, parser);
+            this.seriesGroup.style('opacity', '0')
+              .transition().duration(drillDuration / 2)
+              .style('opacity', '1');
+          });
+      } else {
+        this.performDrillSwap(data, parser);
+      }
+      this.fireEvent('drilldown', data);
+    });
+
+    this.events.on('drilldown:drillup', () => {
+      const prev = drilldownStack.pop();
+      if (prev) {
+        this.options.series = prev;
+      }
+
+      if (drillDuration > 0) {
+        this.seriesGroup.transition().duration(drillDuration / 2)
+          .style('opacity', '0')
+          .on('end', () => {
+            this.seriesInstances.forEach(s => s.destroy());
+            this.seriesInstances = [];
+            this.buildAxes();
+            this.buildSeries();
+            this.renderAll();
+            this.seriesGroup.style('opacity', '0')
+              .transition().duration(drillDuration / 2)
+              .style('opacity', '1');
+          });
+      } else {
+        this.seriesInstances.forEach(s => s.destroy());
+        this.seriesInstances = [];
+        this.buildAxes();
+        this.buildSeries();
+        this.renderAll();
+      }
+      this.fireEvent('drillup');
+    });
+  }
+
+  private performDrillSwap(data: any, parser: OptionsParser): void {
+    const newSeries = data.seriesOptions;
+    const parsed = parser.parse({
+      chart: this.options.chart,
+      xAxis: this.options.xAxis,
+      yAxis: this.options.yAxis,
+      series: [newSeries],
+    });
+    this.options.series = parsed.series;
+    this.seriesInstances.forEach(s => s.destroy());
+    this.seriesInstances = [];
+    this.buildAxes();
+    this.buildSeries();
+    this.renderAll();
+  }
+
+  private setupZoom(): void {
+    const zoomCfg = this.options.chart.zooming || this.options.chart.zoomType;
+    if (!zoomCfg) return;
+
+    const config: ZoomConfig | ZoomType = typeof zoomCfg === 'string'
+      ? zoomCfg as ZoomType
+      : {
+          type: (zoomCfg as any).type || 'x',
+          key: (zoomCfg as any).key,
+          mouseWheel: (zoomCfg as any).mouseWheel,
+          resetButton: (zoomCfg as any).resetButton,
+          panning: (zoomCfg as any).panning,
+          panKey: (zoomCfg as any).panKey,
+          pinchType: (zoomCfg as any).pinchType,
+          selectionMarkerFill: this.options.chart.selectionMarkerFill,
+        };
+
+    this.zoom = new Zoom(config, this.plotGroup as any, this.layout.plotArea, this.container, this.events);
+
+    this.events.on('zoom:changed', (data: any) => {
+      const transform = data.transform;
+      const type: string = data.type;
+      const pa = this.layout.plotArea;
+
+      if (type === 'x' || type === 'xy') {
+        for (const xAxis of this.xAxes) {
+          const origDomain = xAxis.scale.domain() as [number, number];
+          const fullRange = origDomain[1] - origDomain[0];
+          const newMin = origDomain[0] - (transform.x / pa.width) * (fullRange / transform.k);
+          const newMax = newMin + fullRange / transform.k;
+          xAxis.updateDomain({ min: newMin, max: newMax });
+        }
+      }
+      if (type === 'y' || type === 'xy') {
+        for (const yAxis of this.yAxes) {
+          const origDomain = yAxis.scale.domain() as [number, number];
+          const fullRange = origDomain[1] - origDomain[0];
+          const newMax = origDomain[1] + (transform.y / pa.height) * (fullRange / transform.k);
+          const newMin = newMax - fullRange / transform.k;
+          yAxis.updateDomain({ min: newMin, max: newMax });
+        }
+      }
+
+      this.renderAxes();
+      this.renderSeriesInstances();
+      this.renderLegend();
+    });
+  }
+
+  private setupResponsive(): void {
+    if (!this.options.responsive?.rules?.length) return;
+    this.responsiveEngine = new ResponsiveEngine(this.options.responsive);
+  }
+
+  private applyInitialResponsiveRules(): void {
+    if (!this.responsiveEngine) return;
+    const result = this.responsiveEngine.evaluate(this.chartWidth, this.chartHeight);
+    if (result.changed && result.matchingIndices.length > 0) {
+      const rules = this.responsiveEngine.getRules();
+      let effective = deepClone(this.originalUserOptions) as any;
+      for (const idx of result.matchingIndices) {
+        effective = deepMerge(effective, rules[idx].chartOptions as any);
+      }
+      const parser = new OptionsParser();
+      this.options = parser.parse(effective);
+      this.state.updateConfig(this.options);
+    }
+  }
+
+  private setupAccessibility(): void {
+    const cfg = this.options.accessibility;
+    if (!cfg || cfg.enabled === false) return;
+
+    this.a11yModule = new A11yModule(cfg);
+    this.a11yModule.apply(
+      this.renderer.svg,
+      this.seriesInstances,
+      this.options.title?.text ?? undefined
+    );
+  }
+
+  // --- Public API ---
+
+  addSeries(options: SeriesOptions, redraw = true): BaseSeries {
+    if (!this.originalUserOptions.series) this.originalUserOptions.series = [];
+    this.originalUserOptions.series.push(options);
+
+    const parser = new OptionsParser();
+    const parsed = parser.parse({ series: [options] });
+    const seriesCfg = {
+      ...parsed.series[0],
+      index: this.options.series.length,
+    };
+
+    this.state.addSeries(seriesCfg);
+    this.options = this.state.getConfig();
+
+    const Ctor = ChartRegistry.getType(seriesCfg._internalType) || ChartRegistry.getType('line');
+    if (!Ctor) throw new Error('KatuCharts: no series type registered');
+
+    const instance = new Ctor(seriesCfg) as BaseSeries;
+    this.seriesInstances.push(instance);
+
+    if (redraw) this.redraw();
+    return instance;
+  }
+
+  get(id: string): BaseSeries | AxisInstance | undefined {
+    const series = this.seriesInstances.find(s => s.config.id === id);
+    if (series) return series;
+    const xAxis = this.xAxes.find(a => a.config.id === id);
+    if (xAxis) return xAxis;
+    return this.yAxes.find(a => a.config.id === id);
+  }
+
+  private canReuseSeriesInstances(newConfig: InternalConfig): boolean {
+    if (this.seriesInstances.length !== newConfig.series.length) return false;
+
+    return this.seriesInstances.every((series, index) =>
+      series.config._internalType === newConfig.series[index]?._internalType
+    );
+  }
+
+  private syncSeriesInstances(newConfig: InternalConfig): void {
+    for (let i = 0; i < this.seriesInstances.length; i++) {
+      const series = this.seriesInstances[i];
+      const nextConfig = {
+        ...newConfig.series[i],
+        visible: series.visible,
+      };
+
+      this.options.series[i] = nextConfig;
+      series.config = nextConfig;
+      series.visible = nextConfig.visible !== false;
+      series.processData();
+    }
+  }
+
+  update(options: Partial<KatuChartsOptions>, redraw = true): void {
+    if (!this.isResponsiveUpdate) {
+      this.originalUserOptions = deepMerge(
+        deepClone(this.originalUserOptions),
+        options as any,
+      );
+    }
+    const parser = new OptionsParser();
+    const newConfig = parser.parse(deepMerge(this.optionsToExternal(), options) as KatuChartsOptions);
+    const canReuseSeries = this.canReuseSeriesInstances(newConfig);
+    this.state.updateConfig(newConfig);
+    this.options = this.state.getConfig();
+
+    if (redraw) {
+      if (!canReuseSeries) {
+        this.redraw();
+      } else {
+        this.buildAxes();
+        this.syncSeriesInstances(newConfig);
+        try {
+          this.animatedRedraw(300);
+        } catch {
+          this.redraw();
+        }
+      }
+    }
+  }
+
+  animatedRedraw(duration = 500): void {
+    this.updateAxesDomains();
+    this.updateTooltipCategories();
+
+    for (const axis of this.xAxes) {
+      axis.animateAxis(this.axisGroup as any, this.layout.plotArea, duration);
+    }
+    for (const axis of this.yAxes) {
+      axis.animateAxis(this.axisGroup as any, this.layout.plotArea, duration);
+    }
+
+    const typeCount = new Map<string, number>();
+    const typeIndex = new Map<string, number>();
+    const stackCount = new Map<string, number>();
+    const stackIdx = new Map<string, number>();
+    const stackAccum = new Map<string, Map<number | string, number>>();
+    const buildSK = (cfg: any) => `${cfg._internalType}__${cfg.stack ?? '_default'}`;
+    const stackTotalsMap2 = new Map<string, Map<number | string, number>>();
+    for (const s of this.seriesInstances) {
+      if (!s.visible) continue;
+      const t = s.config._internalType;
+      typeCount.set(t, (typeCount.get(t) || 0) + 1);
+      if (s.config.stacking) {
+        const sk = buildSK(s.config);
+        stackCount.set(sk, (stackCount.get(sk) || 0) + 1);
+        if (!stackAccum.has(sk)) stackAccum.set(sk, new Map());
+        if (!stackTotalsMap2.has(sk)) stackTotalsMap2.set(sk, new Map());
+        const totals = stackTotalsMap2.get(sk)!;
+        for (const d of s.data) {
+          const xKey = d.x ?? 0;
+          totals.set(xKey, (totals.get(xKey) || 0) + (d.y ?? 0));
+        }
+      }
+    }
+
+    for (let i = 0; i < this.seriesInstances.length; i++) {
+      const series = this.seriesInstances[i];
+      if (!series.visible) continue;
+
+      const cfg = this.options.series[i];
+      const t = cfg._internalType;
+      const idxInType = typeIndex.get(t) || 0;
+      typeIndex.set(t, idxInType + 1);
+
+      let totalOfType: number;
+      let idxOfType: number;
+      let stackOffsets: Map<number | string, number> | undefined;
+      let stackTotals: Map<number | string, number> | undefined;
+      if (cfg.stacking) {
+        const sk = buildSK(cfg);
+        totalOfType = stackCount.get(sk) || 1;
+        idxOfType = stackIdx.get(sk) || 0;
+        stackIdx.set(sk, idxOfType + 1);
+        stackOffsets = new Map(stackAccum.get(sk)!);
+        stackTotals = stackTotalsMap2.get(sk);
+      } else {
+        totalOfType = typeCount.get(t) || 1;
+        idxOfType = idxInType;
+      }
+
+      series.updateContext({
+        xAxis: this.xAxes[cfg._xAxisIndex] || this.xAxes[0],
+        yAxis: this.yAxes[cfg._yAxisIndex] || this.yAxes[0],
+        totalSeriesOfType: totalOfType,
+        indexInType: idxOfType,
+        stackOffsets,
+        stackTotals,
+      });
+
+      series.animateUpdate(duration);
+
+      if (cfg.stacking) {
+        const sk = buildSK(cfg);
+        const accum = stackAccum.get(sk)!;
+        for (const d of series.data) {
+          const xKey = d.x ?? 0;
+          accum.set(xKey, (accum.get(xKey) || 0) + (d.y ?? 0));
+        }
+      }
+    }
+
+    this.renderStackLabels();
+    this.renderTitles();
+    this.renderLegend();
+    this.fireEvent('render');
+  }
+
+  redraw(): void {
+    this.computeLayout();
+
+    this.plotGroup.attr('transform', `translate(${this.layout.plotArea.x},${this.layout.plotArea.y})`);
+    this.renderer.updateClipPath(this.clipPathId, 0, 0, this.layout.plotArea.width, this.layout.plotArea.height);
+
+    this.buildAxes();
+    this.seriesInstances.forEach(s => s.destroy());
+    this.seriesInstances = [];
+    this.buildSeries();
+    this.renderAll();
+
+    if (this.tooltip) this.tooltip.updatePlotArea(this.layout.plotArea);
+    this.renderTitles();
+    this.fireEvent('redraw');
+  }
+
+  reflow(): void {
+    if (this.options.chart.width) return;
+
+    const dims = getElementDimensions(this.container);
+    let newWidth = dims.width;
+    let newHeight = this.resolveHeight(this.options.chart.height, dims.height);
+
+    const scrollable = (this.options.chart as any).scrollablePlotArea as { minWidth?: number; minHeight?: number } | undefined;
+    if (scrollable?.minWidth && scrollable.minWidth > newWidth) newWidth = scrollable.minWidth;
+    if (scrollable?.minHeight && scrollable.minHeight > newHeight) newHeight = scrollable.minHeight;
+
+    if (newWidth === this.chartWidth && newHeight === this.chartHeight) return;
+
+    if (this.responsiveEngine) {
+      const result = this.responsiveEngine.evaluate(newWidth, newHeight);
+      if (result.changed) {
+        const rules = this.responsiveEngine.getRules();
+        let effective = deepClone(this.originalUserOptions) as any;
+        for (const idx of result.matchingIndices) {
+          effective = deepMerge(effective, rules[idx].chartOptions as any);
+        }
+        this.isResponsiveUpdate = true;
+        this.update(effective, false);
+        this.isResponsiveUpdate = false;
+      }
+    }
+
+    this.setSize(newWidth, newHeight);
+  }
+
+  setSize(width: number, height: number): void {
+    this.chartWidth = width;
+    this.chartHeight = height;
+    this.renderer.setSize(width, height);
+
+    this.renderer.svg.select('.katucharts-background')
+      .attr('width', width).attr('height', height);
+    this.renderer.svg.select('.katucharts-border')
+      .attr('width', width).attr('height', height);
+
+    this.exportButton?.updatePosition(width, height);
+    this.credits?.updatePosition(width, height);
+    this.redraw();
+  }
+
+  setTitle(titleOptions: { text?: string } | null, subtitleOptions?: { text?: string } | null): void {
+    if (titleOptions) {
+      this.options.title = deepMerge(this.options.title, titleOptions);
+      this.originalUserOptions.title = deepMerge(this.originalUserOptions.title || {} as any, titleOptions);
+    }
+    if (subtitleOptions) {
+      this.options.subtitle = deepMerge(this.options.subtitle, subtitleOptions);
+      this.originalUserOptions.subtitle = deepMerge(this.originalUserOptions.subtitle || {} as any, subtitleOptions);
+    }
+    this.renderTitles();
+  }
+
+  addAxis(options: AxisOptions, isX = true, redraw = true): AxisInstance {
+    const axes = isX ? this.options.xAxis : this.options.yAxis;
+    const newAxis = { ...options, index: axes.length, isX } as any;
+    axes.push(newAxis);
+
+    const instance = createAxis(newAxis, this.layout.plotArea);
+    (isX ? this.xAxes : this.yAxes).push(instance);
+
+    if (redraw) this.redraw();
+    return instance;
+  }
+
+  showLoading(text?: string): void {
+    let overlay = this.container.querySelector('.katucharts-loading') as HTMLDivElement;
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'katucharts-loading';
+      Object.assign(overlay.style, {
+        position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
+        backgroundColor: 'rgba(255,255,255,0.75)', display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
+        fontSize: '14px', fontWeight: 'bold', color: '#666', zIndex: '20',
+      });
+      this.container.appendChild(overlay);
+    }
+    overlay.textContent = text || 'Loading...';
+    overlay.style.display = 'flex';
+  }
+
+  hideLoading(): void {
+    const overlay = this.container.querySelector('.katucharts-loading') as HTMLDivElement;
+    if (overlay) overlay.style.display = 'none';
+  }
+
+  destroy(): void {
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+
+    this.seriesInstances.forEach(s => s.destroy());
+    this.tooltip?.destroy();
+    this.legend?.destroy();
+    this.crosshair?.destroy();
+    this.credits?.destroy();
+    this.exportButton?.destroy();
+    this.drilldown?.destroy();
+    this.zoom?.destroy();
+    this.responsiveEngine?.reset();
+    this.events.removeAllListeners();
+    this.renderer.destroy();
+
+    const loading = this.container.querySelector('.katucharts-loading');
+    if (loading) loading.remove();
+    const tooltipEl = this.container.querySelector('.katucharts-tooltip');
+    if (tooltipEl) tooltipEl.remove();
+    this.container.querySelectorAll('.katucharts-title-html, .katucharts-subtitle-html').forEach(el => el.remove());
+  }
+
+  getSVG(): string {
+    return this.renderer.getSerializedSVG();
+  }
+
+  getSeriesInstances(): BaseSeries[] {
+    return this.seriesInstances;
+  }
+
+  getXAxes(): AxisInstance[] {
+    return this.xAxes;
+  }
+
+  getYAxes(): AxisInstance[] {
+    return this.yAxes;
+  }
+
+  private getInlinedSVG(): string {
+    const node = this.renderer.getSVGNode();
+    if (!node) return this.renderer.getSerializedSVG();
+    return ExportModule.inlineStyles(node);
+  }
+
+  private handleExportAction(type: string): void {
+    const svg = this.getInlinedSVG();
+    const filename = this.options.exporting.filename ?? 'chart';
+    const scale = this.options.exporting.scale ?? 2;
+
+    switch (type) {
+      case 'downloadPNG':
+        ExportModule.exportPNG(svg, filename, scale).catch(e =>
+          console.warn('KatuCharts: PNG export failed.', e));
+        break;
+      case 'downloadJPEG':
+        ExportModule.exportJPEG(svg, filename, scale).catch(e =>
+          console.warn('KatuCharts: JPEG export failed.', e));
+        break;
+      case 'downloadSVG':
+        ExportModule.exportSVG(svg, filename);
+        break;
+      case 'downloadPDF':
+        ExportModule.exportPDF(svg, filename, scale).catch(e =>
+          console.warn('KatuCharts: PDF export failed.', e));
+        break;
+      case 'downloadCSV':
+        ExportModule.exportCSV(this.getSeriesDataForExport(), filename, this.options.exporting.csv);
+        break;
+      case 'downloadXLS':
+        this.exportXLS(filename);
+        break;
+      case 'viewDataTable':
+        ExportModule.viewDataTable(
+          this.getSeriesDataForExport(),
+          this.container,
+          this.options.exporting.tableCaption
+        );
+        break;
+      case 'viewFullScreen':
+        this.toggleFullScreen();
+        break;
+      case 'printChart':
+        this.fireEvent('beforePrint');
+        ExportModule.print(svg, this.options.exporting.printMaxWidth);
+        this.fireEvent('afterPrint');
+        break;
+    }
+  }
+
+  private toggleFullScreen(): void {
+    if (!this.container) return;
+
+    const doc = this.container.ownerDocument;
+    const isFullScreen = doc.fullscreenElement === this.container
+      || (doc as any).webkitFullscreenElement === this.container;
+
+    if (isFullScreen) {
+      if (doc.exitFullscreen) {
+        doc.exitFullscreen();
+      } else if ((doc as any).webkitExitFullscreen) {
+        (doc as any).webkitExitFullscreen();
+      }
+      return;
+    }
+
+    const style = this.container.style;
+    const savedCSS = {
+      width: style.width,
+      height: style.height,
+      maxWidth: style.maxWidth,
+      maxHeight: style.maxHeight,
+      background: style.background,
+    };
+
+    const bgColor = this.options.chart.backgroundColor || '#fff';
+    style.background = bgColor as string;
+    style.width = '100vw';
+    style.height = '100vh';
+    style.maxWidth = 'none';
+    style.maxHeight = 'none';
+
+    this.resizeObserver?.disconnect();
+
+    const restoreCSS = () => {
+      style.width = savedCSS.width;
+      style.height = savedCSS.height;
+      style.maxWidth = savedCSS.maxWidth;
+      style.maxHeight = savedCSS.maxHeight;
+      style.background = savedCSS.background;
+    };
+
+    let closeBtn: HTMLButtonElement | null = null;
+
+    const exitFullScreen = () => {
+      if (doc.exitFullscreen) {
+        doc.exitFullscreen();
+      } else if ((doc as any).webkitExitFullscreen) {
+        (doc as any).webkitExitFullscreen();
+      }
+    };
+
+    const onFullScreenChange = () => {
+      const stillFullScreen = doc.fullscreenElement === this.container
+        || (doc as any).webkitFullscreenElement === this.container;
+
+      if (stillFullScreen) {
+        closeBtn = doc.createElement('button');
+        closeBtn.textContent = '\u2715';
+        Object.assign(closeBtn.style, {
+          position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)', zIndex: '10000',
+          width: '32px', height: '32px', border: 'none', borderRadius: '50%',
+          background: 'rgba(0,0,0,0.4)', color: '#fff', fontSize: '18px',
+          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          lineHeight: '1', padding: '0',
+        });
+        closeBtn.addEventListener('mouseenter', () => { if (closeBtn) closeBtn.style.background = 'rgba(0,0,0,0.7)'; });
+        closeBtn.addEventListener('mouseleave', () => { if (closeBtn) closeBtn.style.background = 'rgba(0,0,0,0.4)'; });
+        closeBtn.addEventListener('click', exitFullScreen);
+        this.container.appendChild(closeBtn);
+
+        this.renderer.svg.style('width', '100%').style('height', '100%');
+        requestAnimationFrame(() => {
+          const dims = getElementDimensions(this.container);
+          this.setSize(dims.width, dims.height);
+        });
+      } else {
+        if (closeBtn) { closeBtn.remove(); closeBtn = null; }
+        restoreCSS();
+        this.renderer.svg.style('width', null).style('height', null);
+        this.renderer.svg.attr('width', 0).attr('height', 0);
+        doc.removeEventListener('fullscreenchange', onFullScreenChange);
+        doc.removeEventListener('webkitfullscreenchange', onFullScreenChange);
+        requestAnimationFrame(() => {
+          const dims = getElementDimensions(this.container);
+          this.setSize(dims.width, dims.height);
+          this.resizeObserver?.observe(this.container);
+          this.fireEvent('exitFullScreen');
+        });
+      }
+    };
+
+    doc.addEventListener('fullscreenchange', onFullScreenChange);
+    doc.addEventListener('webkitfullscreenchange', onFullScreenChange);
+
+    try {
+      if (this.container.requestFullscreen) {
+        this.container.requestFullscreen();
+      } else if ((this.container as any).webkitRequestFullscreen) {
+        (this.container as any).webkitRequestFullscreen();
+      }
+      this.fireEvent('enterFullScreen');
+    } catch {
+      restoreCSS();
+      this.renderer.svg.style('width', null).style('height', null);
+      this.resizeObserver?.observe(this.container);
+    }
+  }
+
+  private getSeriesDataForExport(): { name: string; data: { x?: any; y?: any; name?: string }[] }[] {
+    return this.seriesInstances.map(s => ({
+      name: s.config.name || `Series ${s.config.index + 1}`,
+      data: s.data.map(d => ({ x: d.x, y: d.y, name: d.name })),
+    }));
+  }
+
+  private exportXLS(filename: string): void {
+    const rows = ExportModule.getDataRows(this.getSeriesDataForExport());
+    let html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:spreadsheet" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"/></head><body><table>';
+    for (const row of rows) {
+      html += '<tr>';
+      for (const cell of row) {
+        html += `<td>${cell ?? ''}</td>`;
+      }
+      html += '</tr>';
+    }
+    html += '</table></body></html>';
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+    ExportModule.downloadBlob(blob, `${filename}.xls`);
+  }
+
+  getCSV(): string {
+    return ExportModule.getCSV(this.getSeriesDataForExport(), this.options.exporting.csv);
+  }
+
+  getTable(): string {
+    return ExportModule.getTable(this.getSeriesDataForExport(), this.options.exporting.tableCaption);
+  }
+
+  getDataRows(): (string | number | null)[][] {
+    return ExportModule.getDataRows(this.getSeriesDataForExport());
+  }
+
+  exportChart(exportingOptions?: Partial<ExportingOptions>, _chartOptions?: Partial<KatuChartsOptions>): void {
+    const merged = { ...this.options.exporting, ...exportingOptions };
+    const svg = this.getInlinedSVG();
+    const filename = merged.filename ?? 'chart';
+    const scale = merged.scale ?? 2;
+
+    switch (merged.type) {
+      case 'image/jpeg':
+        ExportModule.exportJPEG(svg, filename, scale);
+        break;
+      case 'image/svg+xml':
+        ExportModule.exportSVG(svg, filename);
+        break;
+      case 'application/pdf':
+        ExportModule.exportPDF(svg, filename, scale);
+        break;
+      case 'image/png':
+      default:
+        ExportModule.exportPNG(svg, filename, scale);
+        break;
+    }
+  }
+
+  print(): void {
+    this.fireEvent('beforePrint');
+    const svg = this.getInlinedSVG();
+    ExportModule.print(svg, this.options.exporting.printMaxWidth);
+    this.fireEvent('afterPrint');
+  }
+
+  private optionsToExternal(): KatuChartsOptions {
+    return {
+      chart: this.options.chart,
+      title: this.options.title,
+      subtitle: this.options.subtitle,
+      xAxis: this.options.xAxis,
+      yAxis: this.options.yAxis,
+      colorAxis: this.options.colorAxis,
+      series: this.options.series,
+      tooltip: this.options.tooltip,
+      legend: this.options.legend,
+      plotOptions: this.options.plotOptions,
+      credits: this.options.credits,
+      colors: this.options.colors,
+    };
+  }
+}
