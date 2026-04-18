@@ -41,13 +41,21 @@ D3.js charting library with a declarative configuration interface.
 
 ```bash
 npm install katucharts
+yarn add katucharts
+pnpm add katucharts
+bun add katucharts
 ```
 
 Optional peer dependencies:
 
 ```bash
-npm install jspdf        # required only for PDF export
-npm install react react-dom  # required only for React wrapper
+# required only for PDF export
+npm install jspdf
+pnpm add jspdf
+
+# required only for React wrapper
+npm install react react-dom
+pnpm add react react-dom
 ```
 
 ---
