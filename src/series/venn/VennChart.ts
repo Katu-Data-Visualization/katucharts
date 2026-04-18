@@ -35,6 +35,37 @@ interface RegionDatum {
   key: string;
 }
 
+const LABEL_COUNT_SPLIT = /^(.+?)\s+(\([^()]+\))\s*$/;
+const LABEL_LINE_HEIGHT_EM = 1.15;
+
+/**
+ * Render label text into `textEl` with wrapped lines (tspan per line):
+ * explicit \n breaks take priority, otherwise a trailing " (count)" is split
+ * onto its own line so labels from overlapping regions no longer collide.
+ */
+function renderWrappedLabel(textEl: SVGTextElement, raw: string, x: number): void {
+  while (textEl.firstChild) textEl.removeChild(textEl.firstChild);
+
+  let lines: string[];
+  if (raw.includes('\n')) {
+    lines = raw.split('\n');
+  } else {
+    const m = raw.match(LABEL_COUNT_SPLIT);
+    lines = m ? [m[1], m[2]] : [raw];
+  }
+
+  const ns = 'http://www.w3.org/2000/svg';
+  const n = lines.length;
+  const firstDy = n > 1 ? -((n - 1) * LABEL_LINE_HEIGHT_EM) / 2 : 0;
+  lines.forEach((line, i) => {
+    const tspan = document.createElementNS(ns, 'tspan');
+    tspan.setAttribute('x', String(x));
+    tspan.setAttribute('dy', `${i === 0 ? firstDy : LABEL_LINE_HEIGHT_EM}em`);
+    tspan.textContent = line;
+    textEl.appendChild(tspan);
+  });
+}
+
 const DASH_MAP: Record<string, string> = {
   Solid: 'none',
   ShortDash: '6,2',
@@ -327,7 +358,7 @@ export class VennChart extends BaseSeries {
     const interLabelRegions = regions.filter(r => r.sets.length >= 2);
 
     if (showSetLabels) {
-      const circleLabels = this.group.selectAll('.katucharts-venn-set-label')
+      const circleLabels = this.group.selectAll<SVGTextElement, RegionDatum>('.katucharts-venn-set-label')
         .data(setRegions, (d: any) => d.key)
         .join('text')
         .attr('class', 'katucharts-venn-set-label')
@@ -339,17 +370,18 @@ export class VennChart extends BaseSeries {
         .attr('font-weight', dlFontWeight)
         .attr('fill', dlColor)
         .style('pointer-events', 'none')
-        .style('text-shadow', '0 0 4px #fff, 0 0 4px #fff')
-        .text((d: RegionDatum) => {
-          if (dlCfg.formatter) {
-            return dlCfg.formatter.call({
+        .style('text-shadow', '0 0 4px #fff, 0 0 4px #fff');
+
+      circleLabels.each((d: RegionDatum, i: number, nodes: ArrayLike<SVGTextElement>) => {
+        const raw = dlCfg.formatter
+          ? dlCfg.formatter.call({
               point: { name: d.name, y: d.value, sets: d.sets },
               series: { name: this.config.name },
               x: d.name, y: d.value,
-            });
-          }
-          return d.name;
-        });
+            })
+          : d.name;
+        renderWrappedLabel(nodes[i], String(raw ?? ''), d.labelX);
+      });
 
       if (animate) {
         circleLabels.attr('opacity', 0)
@@ -370,8 +402,11 @@ export class VennChart extends BaseSeries {
       .attr('fill', DEFAULT_CHART_TEXT_COLOR)
       .style('pointer-events', 'none')
       .style('text-shadow', '0 0 3px #fff, 0 0 3px #fff')
-      .attr('opacity', showIntersectionLabels ? 1 : 0)
-      .text((d: RegionDatum) => d.name);
+      .attr('opacity', showIntersectionLabels ? 1 : 0);
+
+    interLabels.each((d: RegionDatum, i: number, nodes: ArrayLike<SVGTextElement>) => {
+      renderWrappedLabel(nodes[i], d.name, d.labelX);
+    });
 
     if (showIntersectionLabels) {
       const groupNode = this.group;
