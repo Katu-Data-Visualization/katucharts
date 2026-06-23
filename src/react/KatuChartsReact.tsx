@@ -5,24 +5,25 @@ import {
   memo,
   type HTMLAttributes,
 } from 'react';
+import type { KatuChartsOptions } from '../types/options';
 
 interface KatuChartsStatic {
-  chart(container: string | HTMLElement, options: Record<string, unknown>): KatuChartInstance;
+  chart(container: string | HTMLElement, options: KatuChartsOptions): KatuChartInstance;
 }
 
 interface KatuChartInstance {
-  update(options: Record<string, unknown>, redraw?: boolean): void;
+  update(options: Partial<KatuChartsOptions>, redraw?: boolean): void;
   destroy(): void;
 }
 
 export interface KatuChartsReactProps {
   katuCharts: KatuChartsStatic;
-  options: Record<string, unknown>;
+  options: KatuChartsOptions;
   callback?: (chart: KatuChartInstance) => void;
   containerProps?: HTMLAttributes<HTMLDivElement>;
 }
 
-function optionsChanged(prev: Record<string, unknown>, next: Record<string, unknown>): boolean {
+function optionsChanged(prev: KatuChartsOptions, next: KatuChartsOptions): boolean {
   try {
     return JSON.stringify(prev) !== JSON.stringify(next);
   } catch {
@@ -34,7 +35,7 @@ const KatuChartsReactInner = forwardRef<HTMLDivElement, KatuChartsReactProps>(
   ({ katuCharts, options, callback, containerProps }, ref) => {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const chartRef = useRef<KatuChartInstance | null>(null);
-    const prevOptionsRef = useRef<Record<string, unknown> | null>(null);
+    const prevOptionsRef = useRef<KatuChartsOptions | null>(null);
     const isInitialMount = useRef(true);
 
     const setRefs = (el: HTMLDivElement | null) => {
