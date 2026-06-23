@@ -11,7 +11,10 @@ export function resolveContainer(containerOrId: string | HTMLElement): HTMLEleme
   return containerOrId;
 }
 
-export function getElementDimensions(el: HTMLElement, heightAspectRatio = 0.5): { width: number; height: number } {
+export function getElementDimensions(
+  el: HTMLElement,
+  heightAspectRatio = 0.5,
+): { width: number; height: number; heightMeasured: boolean } {
   const computed = getComputedStyle(el);
   const padL = parseFloat(computed.paddingLeft) || 0;
   const padR = parseFloat(computed.paddingRight) || 0;
@@ -20,8 +23,9 @@ export function getElementDimensions(el: HTMLElement, heightAspectRatio = 0.5): 
   const rect = el.getBoundingClientRect();
   const width = (rect.width - padL - padR) || el.clientWidth - padL - padR || 600;
   const measuredHeight = (rect.height - padT - padB) || el.clientHeight - padT - padB;
-  const height = measuredHeight > 0 ? measuredHeight : Math.round(width * heightAspectRatio);
-  return { width, height };
+  const heightMeasured = measuredHeight > 0;
+  const height = heightMeasured ? measuredHeight : Math.round(width * heightAspectRatio);
+  return { width, height, heightMeasured };
 }
 
 export function createDiv(className?: string, parent?: HTMLElement): HTMLDivElement {

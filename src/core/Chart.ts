@@ -68,6 +68,7 @@ export class Chart {
   private clipPathId: string = '';
   private chartWidth: number;
   private chartHeight: number;
+  private autoHeight = false;
   private resizeObserver: ResizeObserver | null = null;
   private titleGroup!: ReturnType<SVGRenderer['createGroup']>;
   private stackLabelsGroup!: ReturnType<SVGRenderer['createGroup']>;
@@ -96,6 +97,8 @@ export class Chart {
     const useVerticalScroll = scrollable?.minHeight && scrollable.minHeight > outerHeight;
     const useHorizontalScroll = scrollable?.minWidth && scrollable.minWidth > outerWidth;
 
+    this.autoHeight = this.options.chart.height == null && !dims.heightMeasured;
+
     this.chartWidth = useHorizontalScroll ? scrollable!.minWidth! : outerWidth;
     this.chartHeight = useVerticalScroll ? scrollable!.minHeight! : outerHeight;
     this.scrollableOuterWidth = outerWidth;
@@ -120,6 +123,11 @@ export class Chart {
 
     this.setupResponsive();
     this.applyInitialResponsiveRules();
+
+    if (this.autoHeight && !this.useVerticalScroll) {
+      this.chartHeight = this.fitHeightToContent(this.chartHeight);
+      this.scrollableOuterHeight = this.chartHeight;
+    }
 
     this.renderer = new SVGRenderer(this.scrollableInner || this.container, this.chartWidth, this.chartHeight);
     if (this.scrollableInner) {
@@ -254,6 +262,64 @@ export class Chart {
     if (types.has('treemap') || types.has('sankey')) return 0.3;
     if (types.has('pie') || types.has('donut') || types.has('radar')) return 0.6;
     return 0.5;
+  }
+
+  /**
+   * Minimum usable plot-area height for an auto-sized chart. Below this the
+   * series get squeezed into an unreadable strip on narrow viewports.
+   */
+  private static readonly MIN_AUTO_PLOT_HEIGHT = 160;
+
+  /**
+   * Hard ceiling for auto-grown height so a chart with extreme fixed overhead
+   * (very long rotated labels, large legends) can't expand without bound.
+   */
+  private static readonly MAX_AUTO_HEIGHT = 900;
+
+  /**
+   * Minimum height per category band on a vertical category axis (heatmap rows,
+   * inverted/bar categories) so row labels don't overlap.
+   */
+  private static readonly MIN_CATEGORY_ROW_HEIGHT = 22;
+
+  /**
+   * When the height is derived rather than configured, a chart on a narrow
+   * viewport can end up shorter than the fixed vertical overhead (title,
+   * subtitle, legend, axis labels), collapsing the plot area to nothing.
+   *
+   * The overhead is independent of the chart height, so a single probe layout
+   * at a tall height yields the true overhead; the height is then grown just
+   * enough to give the plot area a usable minimum.
+   */
+  private fitHeightToContent(baseHeight: number): number {
+    const PROBE = 4000;
+    const probe = this.layoutEngine.compute(this.options, this.chartWidth, PROBE);
+    const overhead = PROBE - probe.plotArea.height;
+    const minPlot = Math.max(
+      Chart.MIN_AUTO_PLOT_HEIGHT,
+      this.verticalCategoryCount() * Chart.MIN_CATEGORY_ROW_HEIGHT,
+    );
+    const required = Math.ceil(overhead + minPlot);
+    if (required <= baseHeight) return baseHeight;
+    return Math.min(required, Math.max(baseHeight, Chart.MAX_AUTO_HEIGHT));
+  }
+
+  /**
+   * Categories rendered down the vertical axis (heatmap rows, or the category
+   * axis of an inverted/bar chart). Each one needs a minimum band so the labels
+   * stay legible instead of piling up when the plot is short.
+   */
+  private verticalCategoryCount(): number {
+    const series = this.options.series || [];
+    const hasHeatmap = series.some(s => (s as { _internalType?: string })._internalType === 'heatmap');
+    const axes = hasHeatmap ? this.options.yAxis : this.options.chart.inverted ? this.options.xAxis : null;
+    if (!axes) return 0;
+    let max = 0;
+    for (const a of axes) {
+      const n = a.categories?.length ?? 0;
+      if (n > max) max = n;
+    }
+    return max;
   }
 
   private resolveHeight(configured: number | string | null | undefined, containerHeight: number): number {
@@ -995,6 +1061,13 @@ export class Chart {
     const scrollable = (this.options.chart as any).scrollablePlotArea as { minWidth?: number; minHeight?: number } | undefined;
     if (scrollable?.minWidth && scrollable.minWidth > newWidth) newWidth = scrollable.minWidth;
     if (scrollable?.minHeight && scrollable.minHeight > newHeight) newHeight = scrollable.minHeight;
+
+    if (this.autoHeight && !scrollable?.minHeight) {
+      const prevWidth = this.chartWidth;
+      this.chartWidth = newWidth;
+      newHeight = this.fitHeightToContent(newHeight);
+      this.chartWidth = prevWidth;
+    }
 
     if (newWidth === this.chartWidth && newHeight === this.chartHeight) return;
 

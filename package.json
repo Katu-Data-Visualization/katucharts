@@ -1,6 +1,6 @@
 {
   "name": "katucharts.js",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "D3.js charting library with a simple declarative interface",
   "type": "module",
   "main": "./dist/katucharts.umd.js",
