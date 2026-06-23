@@ -146,7 +146,14 @@ export class LayoutEngine {
     }
     const s = chart.spacing || [10, 10, 15, 10];
     const hasExportButton = config.exporting?.enabled !== false;
-    const defaultRight = hasExportButton ? 40 : (s[1] ?? 10);
+    /**
+     * Axis-less circular charts (pie, sunburst, chord/dependencywheel, circos…)
+     * center their ring inside the plot area, so reserving extra width only on
+     * the right for the export button would shift them visibly off-centre on
+     * narrow viewports. Keep their horizontal margins symmetric — the export
+     * button floats in the empty top-right corner regardless.
+     */
+    const defaultRight = hasExportButton && !this.isNonCartesian(config) ? 40 : (s[1] ?? 10);
     return {
       top: chart.marginTop ?? chart.spacingTop ?? s[0],
       right: chart.marginRight ?? chart.spacingRight ?? defaultRight,

@@ -795,11 +795,13 @@ export class DependencyWheelChart extends BaseSeries {
         const ex = Math.sqrt(Math.max(0, lr * lr - clampedLy * clampedLy));
         const floor = outerRadius * 0.4 + colOffset;
         l.lx = l.isRight ? Math.max(ex, floor) : -Math.max(ex, floor);
+        const maxOut = (l.isRight ? halfRight : halfLeft) - ellipsisW - 4;
+        l.lx = l.isRight ? Math.min(l.lx, maxOut) : Math.max(l.lx, -maxOut);
       }
 
       const textX = (l: any): number => l.lx + (l.isRight ? 4 : -4);
       const budgetFor = (l: any): number =>
-        (l.isRight ? halfRight - textX(l) : textX(l) + halfLeft) - 6;
+        Math.max(0, (l.isRight ? halfRight - textX(l) : textX(l) + halfLeft) - 6);
 
       const connectors = labelsGroup.selectAll('.katucharts-chord-connector')
         .data(infos.filter((l: any) => l.visible))
@@ -829,7 +831,7 @@ export class DependencyWheelChart extends BaseSeries {
         .attr('opacity', 0)
         .attr('x', (l: any) => textX(l))
         .attr('y', (l: any) => l.ly)
-        .text((l: any) => l.visible ? truncateToWidth(names[l.index] || '', budgetFor(l)) : '');
+        .text((l: any) => (l.visible && budgetFor(l) >= ellipsisW) ? truncateToWidth(names[l.index] || '', budgetFor(l)) : '');
 
       if (animate) {
         connectors.transition('enter').duration(300).delay(labelDelay).ease(EASE_ENTRY).attr('opacity', 0.8);

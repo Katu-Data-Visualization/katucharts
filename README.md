@@ -2,7 +2,7 @@
 
 D3.js charting library with a declarative configuration interface.
 
-![version](https://img.shields.io/badge/version-0.2.2-blue) ![license](https://img.shields.io/badge/license-KatuCharts_EULA-orange)
+![version](https://img.shields.io/badge/version-0.2.3-blue) ![license](https://img.shields.io/badge/license-KatuCharts_EULA-orange)
 
 ---
 
