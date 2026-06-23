@@ -7,23 +7,31 @@ import {
 } from 'react';
 import type { KatuChartsOptions } from '../types/options';
 
+/**
+ * Options accepted by the component. {@link KatuChartsOptions} drives editor
+ * autocomplete when an object literal is written inline, while the plain-object
+ * arm lets options assembled in a separate `const` be passed straight through
+ * without a type annotation or cast.
+ */
+export type KatuChartsReactOptions = KatuChartsOptions | Record<string, unknown>;
+
 interface KatuChartsStatic {
-  chart(container: string | HTMLElement, options: KatuChartsOptions): KatuChartInstance;
+  chart(container: string | HTMLElement, options: KatuChartsReactOptions): KatuChartInstance;
 }
 
 interface KatuChartInstance {
-  update(options: Partial<KatuChartsOptions>, redraw?: boolean): void;
+  update(options: KatuChartsReactOptions, redraw?: boolean): void;
   destroy(): void;
 }
 
 export interface KatuChartsReactProps {
   katuCharts: KatuChartsStatic;
-  options: KatuChartsOptions;
+  options: KatuChartsReactOptions;
   callback?: (chart: KatuChartInstance) => void;
   containerProps?: HTMLAttributes<HTMLDivElement>;
 }
 
-function optionsChanged(prev: KatuChartsOptions, next: KatuChartsOptions): boolean {
+function optionsChanged(prev: KatuChartsReactOptions, next: KatuChartsReactOptions): boolean {
   try {
     return JSON.stringify(prev) !== JSON.stringify(next);
   } catch {
@@ -35,7 +43,7 @@ const KatuChartsReactInner = forwardRef<HTMLDivElement, KatuChartsReactProps>(
   ({ katuCharts, options, callback, containerProps }, ref) => {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const chartRef = useRef<KatuChartInstance | null>(null);
-    const prevOptionsRef = useRef<KatuChartsOptions | null>(null);
+    const prevOptionsRef = useRef<KatuChartsReactOptions | null>(null);
     const isInitialMount = useRef(true);
 
     const setRefs = (el: HTMLDivElement | null) => {
