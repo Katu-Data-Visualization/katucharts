@@ -118,6 +118,8 @@ export class ScatterChart extends BaseSeries {
         .attr('opacity', this.config.opacity ?? 1);
 
       enter.merge(circles)
+        .attr('fill', d => this.getPointFill(d, color))
+        .attr('stroke', d => d.marker?.lineColor ?? this.config.marker?.lineColor ?? color)
         .transition().duration(duration)
         .attr('cx', (_, i) => this.cachedPositions[i].cx)
         .attr('cy', (_, i) => this.cachedPositions[i].cy)
@@ -138,6 +140,8 @@ export class ScatterChart extends BaseSeries {
         .attr('opacity', this.config.opacity ?? 1);
 
       enter.merge(symbols)
+        .attr('fill', d => this.getPointFill(d, color))
+        .attr('stroke', d => d.marker?.lineColor ?? this.config.marker?.lineColor ?? color)
         .transition().duration(duration)
         .attr('transform', (_, i) =>
           `translate(${this.cachedPositions[i].cx},${this.cachedPositions[i].cy})`

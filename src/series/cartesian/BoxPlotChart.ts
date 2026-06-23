@@ -182,6 +182,7 @@ export class BoxPlotChart extends BaseSeries {
 
   animateUpdate(duration: number): void {
     const { xAxis, yAxis } = this.context;
+    const color = this.getColor();
     const data = this.data;
     const { boxWidth, boxOffset } = this.computeBoxGeometry();
 
@@ -204,33 +205,43 @@ export class BoxPlotChart extends BaseSeries {
       const q3 = d.q3 ?? d.high ?? 0;
       const high = d.high ?? 0;
 
+      const pointColor = d.color || this.getPointColor(i, color);
+      const stemColor = this.config.stemColor || pointColor;
+      const whiskerColor = this.config.whiskerColor || pointColor;
+      const medianStroke = this.config.medianColor || this.config.lineColor || pointColor;
+      const boxFill = this.config.fillColor ?? 'transparent';
+
       const lines = g.querySelectorAll('line');
       const rect = g.querySelector('rect');
 
       if (lines[0]) {
         const sel = (this.group as any).select(() => lines[0]);
-        sel.transition().duration(duration)
+        sel.attr('stroke', stemColor)
+          .transition().duration(duration)
           .attr('x1', cx).attr('x2', cx)
           .attr('y1', yAxis.getPixelForValue(low))
           .attr('y2', yAxis.getPixelForValue(q1));
       }
       if (lines[1]) {
         const sel = (this.group as any).select(() => lines[1]);
-        sel.transition().duration(duration)
+        sel.attr('stroke', stemColor)
+          .transition().duration(duration)
           .attr('x1', cx).attr('x2', cx)
           .attr('y1', yAxis.getPixelForValue(q3))
           .attr('y2', yAxis.getPixelForValue(high));
       }
       if (rect) {
         const sel = (this.group as any).select(() => rect);
-        sel.transition().duration(duration)
+        sel.attr('stroke', pointColor).attr('fill', boxFill)
+          .transition().duration(duration)
           .attr('x', cx - boxWidth / 2)
           .attr('y', yAxis.getPixelForValue(q3))
           .attr('height', Math.abs(yAxis.getPixelForValue(q1) - yAxis.getPixelForValue(q3)));
       }
       if (lines[2]) {
         const sel = (this.group as any).select(() => lines[2]);
-        sel.transition().duration(duration)
+        sel.attr('stroke', medianStroke)
+          .transition().duration(duration)
           .attr('x1', cx - boxWidth / 2).attr('x2', cx + boxWidth / 2)
           .attr('y1', yAxis.getPixelForValue(median))
           .attr('y2', yAxis.getPixelForValue(median));
@@ -238,7 +249,8 @@ export class BoxPlotChart extends BaseSeries {
       if (lines[3]) {
         const whiskerLen = this.parseWhiskerLength(this.config.whiskerLength, boxWidth);
         const sel = (this.group as any).select(() => lines[3]);
-        sel.transition().duration(duration)
+        sel.attr('stroke', whiskerColor)
+          .transition().duration(duration)
           .attr('x1', cx - whiskerLen / 2).attr('x2', cx + whiskerLen / 2)
           .attr('y1', yAxis.getPixelForValue(low))
           .attr('y2', yAxis.getPixelForValue(low));
@@ -246,7 +258,8 @@ export class BoxPlotChart extends BaseSeries {
       if (lines[4]) {
         const whiskerLen = this.parseWhiskerLength(this.config.whiskerLength, boxWidth);
         const sel = (this.group as any).select(() => lines[4]);
-        sel.transition().duration(duration)
+        sel.attr('stroke', whiskerColor)
+          .transition().duration(duration)
           .attr('x1', cx - whiskerLen / 2).attr('x2', cx + whiskerLen / 2)
           .attr('y1', yAxis.getPixelForValue(high))
           .attr('y2', yAxis.getPixelForValue(high));
