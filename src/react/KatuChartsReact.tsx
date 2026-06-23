@@ -9,11 +9,12 @@ import type { KatuChartsOptions } from '../types/options';
 
 /**
  * Options accepted by the component. {@link KatuChartsOptions} drives editor
- * autocomplete when an object literal is written inline, while the plain-object
- * arm lets options assembled in a separate `const` be passed straight through
- * without a type annotation or cast.
+ * autocomplete when an object literal is written inline, while the `object` arm
+ * lets options assembled elsewhere — a separate `const`, or a value typed with
+ * the caller's own interface — be passed straight through without a type
+ * annotation or cast.
  */
-export type KatuChartsReactOptions = KatuChartsOptions | Record<string, unknown>;
+export type KatuChartsReactOptions = KatuChartsOptions | object;
 
 interface KatuChartsStatic {
   chart(container: string | HTMLElement, options: KatuChartsReactOptions): KatuChartInstance;
