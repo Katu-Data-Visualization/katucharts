@@ -155,19 +155,70 @@ export class ExportModule {
     });
   }
 
+  private static readonly JSPDF_CDN_URL = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js';
+  private static jsPDFLoader: Promise<any> | null = null;
+
+  /**
+   * Resolve the `jsPDF` constructor across every runtime the library ships to.
+   * Tries, in order: a `jspdf` global already on the page (UMD consumers who
+   * loaded it themselves), the bundler-resolved module (consumers who ran
+   * `npm install jspdf`), and finally the UMD build from a CDN. The CDN fallback
+   * is what makes PDF export work in the plain-browser UMD build and in setups
+   * where `jspdf` was never installed — a bare `import('jspdf')` can't resolve
+   * without a bundler, so it always failed there before.
+   */
+  private static loadJsPDF(): Promise<any> {
+    if (ExportModule.jsPDFLoader) return ExportModule.jsPDFLoader;
+
+    ExportModule.jsPDFLoader = (async () => {
+      const fromGlobal = () => {
+        const g = (globalThis as any).jspdf?.jsPDF ?? (globalThis as any).jsPDF;
+        return typeof g === 'function' ? g : null;
+      };
+
+      const existing = fromGlobal();
+      if (existing) return existing;
+
+      try {
+        // @ts-expect-error optional peer dependency
+        const mod = await import(/* @vite-ignore */ 'jspdf');
+        const ctor = mod.jsPDF ?? mod.default?.jsPDF ?? mod.default;
+        if (typeof ctor === 'function') return ctor;
+      } catch {
+        /* not installed or unresolvable at runtime (e.g. UMD/CDN) — try the CDN */
+      }
+
+      await ExportModule.injectScript(ExportModule.JSPDF_CDN_URL);
+      const fromCdn = fromGlobal();
+      if (fromCdn) return fromCdn;
+
+      throw new Error('jsPDF unavailable');
+    })().catch((err) => {
+      ExportModule.jsPDFLoader = null;
+      throw err;
+    });
+
+    return ExportModule.jsPDFLoader;
+  }
+
+  /** Inject a `<script>` once and resolve when it loads. */
+  private static injectScript(src: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = src;
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => { script.remove(); reject(new Error(`Failed to load ${src}`)); };
+      document.head.appendChild(script);
+    });
+  }
+
   static async exportPDF(svgString: string, filename: string = 'chart', scale: number = 2): Promise<void> {
     let jsPDF: any;
     try {
-      // @ts-expect-error optional peer dependency
-      const mod = await import('jspdf');
-      jsPDF = mod.jsPDF ?? mod.default;
+      jsPDF = await ExportModule.loadJsPDF();
     } catch {
-      console.warn('KatuCharts: jspdf is not installed. Install it with `npm install jspdf` to enable PDF export.');
-      return;
-    }
-
-    if (typeof jsPDF !== 'function') {
-      console.warn('KatuCharts: jspdf is not installed. Install it with `npm install jspdf` to enable PDF export.');
+      console.warn('KatuCharts: jspdf could not be loaded. Install it with `npm install jspdf`, expose it as a global, or allow the CDN fallback to enable PDF export.');
       return;
     }
 
