@@ -38,6 +38,7 @@ export class Zoom {
   private selectionRect: Selection<SVGRectElement, unknown, null, undefined> | null = null;
   private selectionStart: { x: number; y: number } | null = null;
   private resetClickHandler: (() => void) | null = null;
+  private plotGroup: Selection<SVGGElement, unknown, null, undefined>;
 
   constructor(
     config: ZoomConfig | ZoomType,
@@ -49,6 +50,7 @@ export class Zoom {
     const cfg: ZoomConfig = typeof config === 'string' ? { type: config } : config;
     this.zoomKey = cfg.key;
     this.panKey = cfg.panKey;
+    this.plotGroup = plotGroup;
 
     const panCfg = cfg.panning;
     if (typeof panCfg === 'object') {
@@ -255,10 +257,16 @@ export class Zoom {
     }
   }
 
+  /**
+   * Mouse-wheel zoom is opt-in. Enabled by default it hijacks the wheel from
+   * page/plot scrolling — on a scrollable chart the user can no longer scroll,
+   * and each tick re-zooms the axis — so it only turns on when explicitly asked
+   * for via `mouseWheel: true` (or `{ enabled: true }`).
+   */
   private isMouseWheelEnabled(opt: ZoomConfig['mouseWheel']): boolean {
-    if (opt === false) return false;
-    if (typeof opt === 'object' && opt.enabled === false) return false;
-    return true;
+    if (opt === true) return true;
+    if (typeof opt === 'object' && opt.enabled !== false) return true;
+    return false;
   }
 
   private getMouseWheelSensitivity(opt: ZoomConfig['mouseWheel']): number {
@@ -309,6 +317,17 @@ export class Zoom {
 
   setResetButtonVisible(visible: boolean): void {
     if (this.resetButton) this.resetButton.style.display = visible ? 'block' : 'none';
+  }
+
+  /**
+   * Clears any accumulated wheel/pinch zoom transform back to identity without
+   * emitting a `zoom:changed` event, so the reset button can restore the original
+   * view (whose domains the caller has already put back) instead of leaving a
+   * stale transform that would re-zoom on the next wheel tick.
+   */
+  resetTransform(): void {
+    const node = this.plotGroup.node() as any;
+    if (node) node.__zoom = zoomIdentity;
   }
 
   destroy(): void {

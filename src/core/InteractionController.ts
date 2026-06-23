@@ -197,6 +197,15 @@ export class InteractionController {
     };
 
     const events = this.host.getEvents();
+
+    /**
+     * On a scrollable chart the wheel belongs to scrolling, not zooming — never
+     * let wheel-zoom claim it there regardless of the requested config.
+     */
+    if ((options.chart as any).scrollablePlotArea) {
+      config.mouseWheel = false;
+    }
+
     this.zoom = new Zoom(config, this.host.getPlotGroup() as any, this.host.getLayout().plotArea, this.host.getContainer(), events);
     this.zoom.setResetHandler(() => this.resetBoxZoom());
 
@@ -204,26 +213,39 @@ export class InteractionController {
       const transform = data.transform;
       const type: string = data.type;
       const pa = this.host.getLayout().plotArea;
+      const capture = !this.isBoxZoomed;
 
       if (type === 'x' || type === 'xy') {
-        for (const xAxis of this.host.getXAxes()) {
-          const origDomain = xAxis.scale.domain() as [number, number];
-          const fullRange = origDomain[1] - origDomain[0];
-          const newMin = origDomain[0] - (transform.x / pa.width) * (fullRange / transform.k);
-          const newMax = newMin + fullRange / transform.k;
-          xAxis.updateDomain({ min: newMin, max: newMax });
-        }
+        this.host.getXAxes().forEach((xAxis, i) => {
+          if (capture) this.origXDomains[i] = xAxis.scale.domain() as [number, number];
+          const orig = this.origXDomains[i];
+          if (!orig || typeof orig[0] !== 'number' || typeof orig[1] !== 'number') return;
+          const range = orig[1] - orig[0];
+          const visMinPx = (0 - transform.x) / transform.k;
+          const visMaxPx = (pa.width - transform.x) / transform.k;
+          xAxis.updateDomain({
+            min: orig[0] + (visMinPx / pa.width) * range,
+            max: orig[0] + (visMaxPx / pa.width) * range,
+          });
+        });
       }
       if (type === 'y' || type === 'xy') {
-        for (const yAxis of this.host.getYAxes()) {
-          const origDomain = yAxis.scale.domain() as [number, number];
-          const fullRange = origDomain[1] - origDomain[0];
-          const newMax = origDomain[1] + (transform.y / pa.height) * (fullRange / transform.k);
-          const newMin = newMax - fullRange / transform.k;
-          yAxis.updateDomain({ min: newMin, max: newMax });
-        }
+        this.host.getYAxes().forEach((yAxis, i) => {
+          if (capture) this.origYDomains[i] = yAxis.scale.domain() as [number, number];
+          const orig = this.origYDomains[i];
+          if (!orig || typeof orig[0] !== 'number' || typeof orig[1] !== 'number') return;
+          const range = orig[1] - orig[0];
+          const visTopPx = (0 - transform.y) / transform.k;
+          const visBotPx = (pa.height - transform.y) / transform.k;
+          yAxis.updateDomain({
+            max: orig[1] - (visTopPx / pa.height) * range,
+            min: orig[1] - (visBotPx / pa.height) * range,
+          });
+        });
       }
 
+      this.isBoxZoomed = true;
+      this.zoom?.setResetButtonVisible(true);
       this.host.renderAfterZoom();
     });
   }
@@ -277,6 +299,7 @@ export class InteractionController {
     this.isBoxZoomed = false;
     this.origXDomains = [];
     this.origYDomains = [];
+    this.zoom?.resetTransform();
     this.zoom?.setResetButtonVisible(false);
     this.host.renderAfterZoom();
     this.host.getEvents().emit('chart:afterZoom');
