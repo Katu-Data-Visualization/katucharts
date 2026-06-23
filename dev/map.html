@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Map chart harness — world choropleth</title>
+<style>
+  :root { color-scheme: light; }
+  html, body { margin: 0; padding: 0; background:#f5f5f7; font-family: system-ui, sans-serif; }
+  .wrap { max-width: 980px; margin: 24px auto; padding: 12px; box-sizing: border-box; }
+  .card { background:#fff; border-radius:12px; padding:16px 24px 24px; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+  h2 { margin:0 0 12px; font-size:18px; color:#2b2b2b; }
+  #chart { width:100%; height:560px; }
+  .toolbar { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+  .toolbar button { font-size:12px; padding:6px 10px; border:1px solid #ccc; border-radius:6px; background:#fff; cursor:pointer; }
+  .toolbar button.active { background:#2b6cb0; color:#fff; border-color:#2b6cb0; }
+  .toolbar span { font-size:12px; color:#777; align-self:center; margin-left:8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="toolbar">
+    <strong style="align-self:center;font-size:12px;">Projection:</strong>
+    <button data-proj="EqualEarth" class="active">Equal Earth</button>
+    <button data-proj="WebMercator">Web Mercator</button>
+    <button data-proj="Miller">Miller</button>
+    <span>|</span>
+    <strong style="align-self:center;font-size:12px;">Region:</strong>
+    <button data-region="world" class="active">World</button>
+    <button data-region="South America">South America</button>
+  </div>
+  <div class="card">
+    <h2>Estimated population by country (Natural Earth, CC0)</h2>
+    <div id="chart"></div>
+  </div>
+</div>
+
+<script type="module">
+  import KatuCharts from '/src/index.ts';
+
+  const world = await fetch('/dev/data/world-110m.geojson').then(r => r.json());
+
+  // Build choropleth data straight from the bundled feature properties.
+  const allData = world.features
+    .filter(f => Number(f.properties.POP_EST) > 0)
+    .map(f => ({ ADM0_A3: f.properties.ADM0_A3, name: f.properties.NAME, value: Math.log10(Number(f.properties.POP_EST)) }));
+
+  let projection = 'EqualEarth';
+  let region = 'world';
+
+  // Topology, projection, colorAxis and navigation all sit at the chart level.
+  function options() {
+    const features = region === 'world'
+      ? world.features
+      : world.features.filter(f => f.properties.CONTINENT === region);
+    const codes = new Set(features.map(f => f.properties.ADM0_A3));
+    const data = allData.filter(d => codes.has(d.ADM0_A3));
+    return {
+      chart: { type: 'map', height: 560, map: { type: 'FeatureCollection', features } },
+      title: { text: null },
+      credits: { enabled: false },
+      colorAxis: { stops: [[0, '#f7fbff'], [0.5, '#4292c6'], [1, '#08306b']], title: { text: 'log₁₀ pop' } },
+      mapView: { projection: { name: projection } },
+      mapNavigation: { enabled: true },
+      series: [{
+        name: 'Population (log₁₀)',
+        joinBy: 'ADM0_A3',
+        nullColor: '#ececec',
+        borderColor: '#ffffff',
+        borderWidth: 0.4,
+        dataLabels: { enabled: region !== 'world', format: '{point.name}', style: { fontSize: '9px' } },
+        data,
+      }],
+    };
+  }
+
+  const container = document.getElementById('chart');
+  let chart = KatuCharts.chart(container, options());
+  const render = () => { container.innerHTML = ''; chart = KatuCharts.chart(container, options()); window.__chart = chart; };
+
+  document.querySelectorAll('[data-proj]').forEach(b => b.onclick = () => {
+    projection = b.dataset.proj;
+    document.querySelectorAll('[data-proj]').forEach(x => x.classList.toggle('active', x === b));
+    render();
+  });
+  document.querySelectorAll('[data-region]').forEach(b => b.onclick = () => {
+    region = b.dataset.region;
+    document.querySelectorAll('[data-region]').forEach(x => x.classList.toggle('active', x === b));
+    render();
+  });
+  window.__chart = chart;
+</script>
+</body>
+</html>

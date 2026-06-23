@@ -1,0 +1,106 @@
+KatuCharts End-User License Agreement (EULA)
+
+Copyright (c) 2024-present KATU. All rights reserved.
+
+This End-User License Agreement ("Agreement") is a legal agreement between you
+("Licensee") and KATU ("Licensor") governing the use of the KatuCharts software
+library ("Software").
+
+By installing, copying, or otherwise using the Software, you agree to be bound
+by the terms of this Agreement. If you do not agree, do not use the Software.
+
+
+1. GRANT OF LICENSE
+
+   Licensor grants Licensee a non-exclusive, worldwide, royalty-free license to:
+   a) Use the Software in personal and commercial projects;
+   b) View and study the source code of the Software;
+   c) Distribute the Software in its unmodified form as a dependency of
+      Licensee's own projects;
+
+   subject to the conditions below.
+
+
+2. ATTRIBUTION REQUIREMENT
+
+   All copies and uses of the Software must retain the visible "Powered by:
+   KatuCharts" branding displayed by the Software in its default configuration.
+
+   Licensee shall NOT remove, hide, obscure, modify, or otherwise disable the
+   branding without obtaining a valid paid license key from Licensor.
+
+   This includes but is not limited to:
+   - Setting the credits option to disabled without a valid license key
+   - Removing or altering the branding via CSS, JavaScript, or DOM manipulation
+   - Covering the branding with overlapping elements
+   - Making the branding invisible through color, opacity, or size changes
+
+
+3. PAID LICENSE
+
+   Purchasers of a valid license key from Licensor are granted the additional
+   right to remove, hide, or customize the "Powered by: KatuCharts" branding.
+
+   A paid license key is personal to the purchasing entity and may not be
+   shared, resold, or sublicensed unless expressly authorized in writing by
+   Licensor.
+
+
+4. SOURCE-AVAILABLE; NO MODIFICATIONS
+
+   The source code of the Software is made publicly available for viewing and
+   study purposes only. This does NOT constitute an open-source license.
+
+   Licensee shall NOT:
+   a) Modify, adapt, translate, or create derivative works of the Software;
+   b) Distribute modified versions of the Software, whether in source or
+      compiled form;
+   c) Fork the Software to create a competing or alternative product;
+   d) Reverse-engineer, decompile, or disassemble the license key validation
+      mechanism for the purpose of generating unauthorized license keys;
+   e) Republish, sublicense, or redistribute the Software as a standalone
+      library or product;
+   f) Use the Software in any way that violates applicable law.
+
+   For clarity: Licensee MAY use the Software as an unmodified dependency in
+   their own applications and distribute those applications.
+
+
+5. INTELLECTUAL PROPERTY
+
+   The Software and all associated intellectual property rights remain the
+   exclusive property of Licensor. This Agreement does not grant Licensee any
+   ownership rights in the Software.
+
+
+6. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING
+   FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+   IN THE SOFTWARE.
+
+
+7. LIMITATION OF LIABILITY
+
+   IN NO EVENT SHALL LICENSOR BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL,
+   CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS OR REVENUES,
+   WHETHER INCURRED DIRECTLY OR INDIRECTLY, REGARDLESS OF THE CAUSE OF ACTION.
+
+
+8. TERMINATION
+
+   This license is effective until terminated. It will terminate automatically
+   if Licensee breaches any term of this Agreement. Upon termination, Licensee
+   must cease all use of the Software and destroy all copies.
+
+
+9. GENERAL
+
+   This Agreement constitutes the entire agreement between the parties and
+   supersedes all prior agreements relating to the Software. If any provision of
+   this Agreement is held unenforceable, the remaining provisions shall remain
+   in full force and effect.

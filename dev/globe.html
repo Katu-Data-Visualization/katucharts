@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Map chart harness — interactive globe</title>
+<style>
+  :root { color-scheme: light; }
+  html, body { margin: 0; padding: 0; background:#0b1622; font-family: system-ui, sans-serif; }
+  .wrap { max-width: 1100px; margin: 24px auto; padding: 12px; box-sizing: border-box; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width: 900px){ .grid{ grid-template-columns:1fr; } }
+  .card { background:#10243a; border-radius:12px; padding:16px 20px 20px; box-shadow:0 1px 8px rgba(0,0,0,0.4); }
+  h2 { margin:0 0 4px; font-size:16px; color:#e8f1fb; }
+  p.note { margin:0 0 12px; font-size:12px; color:#8fb0cf; }
+  .chart { width:100%; height:480px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="grid">
+    <div class="card">
+      <h2>GeoJSON source — Orthographic globe</h2>
+      <p class="note">Natural Earth 110m GeoJSON · drag to rotate · scroll to zoom</p>
+      <div class="chart" id="globeGeo"></div>
+    </div>
+    <div class="card">
+      <h2>TopoJSON source — same options</h2>
+      <p class="note">world-atlas TopoJSON passed straight into <code>chart.map</code></p>
+      <div class="chart" id="globeTopo"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import KatuCharts from '/src/index.ts';
+
+  const [geo, topo] = await Promise.all([
+    fetch('/dev/data/world-110m.geojson').then(r => r.json()),
+    fetch('/dev/data/countries-110m.topojson').then(r => r.json()),
+  ]);
+
+  // Pseudo-metric per country so the globe is colored, deterministic across reloads.
+  const hash = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) & 0x7fffffff; return h; };
+  const geoData = geo.features.map(f => ({ ADM0_A3: f.properties.ADM0_A3, value: hash(f.properties.NAME) % 100 }));
+  const topoData = topo.objects.countries.geometries.map(g => ({ name: g.properties.name, value: hash(g.properties.name) % 100 }));
+
+  // The Orthographic projection (set on mapView) renders the data as a globe.
+  const globe = (mapData, joinBy, data, stops, autoRotate) => ({
+    chart: { type: 'map', height: 480, backgroundColor: 'transparent', map: mapData },
+    title: { text: null },
+    credits: { enabled: false },
+    mapView: { projection: { name: 'Orthographic' } },
+    colorAxis: { stops, enabled: false },
+    series: [{
+      name: 'Index',
+      joinBy,
+      nullColor: '#37516b',
+      borderColor: 'rgba(255,255,255,0.35)',
+      borderWidth: 0.3,
+      data,
+      ...(autoRotate ? { options3d: { enabled: true, autoRotate: true, rotateSpeed: 0.25 } } : {}),
+    }],
+  });
+
+  // GeoJSON via chart.map — globe comes purely from mapView.projection 'Orthographic'
+  window.__geo = KatuCharts.chart(
+    document.getElementById('globeGeo'),
+    globe(geo, 'ADM0_A3', geoData, [[0, '#0b3d2e'], [1, '#7CFC9B']], false),
+  );
+
+  // TopoJSON via chart.map (auto-converted); join by the country name property
+  window.__topo = KatuCharts.chart(
+    document.getElementById('globeTopo'),
+    globe(topo, ['name', 'name'], topoData, [[0, '#3b0a45'], [1, '#f078b4']], true),
+  );
+</script>
+</body>
+</html>

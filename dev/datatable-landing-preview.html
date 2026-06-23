@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Landing DataTable preview (grafismo skin + new config)</title>
+<style>
+  body { margin: 0; padding: 40px; background: #ecdfc4; font-family: monospace; color: #1b1a15; }
+  .panel { max-width: 620px; border: 1.5px solid rgba(27,26,21,0.4); background: #ecdfc4; box-shadow: 7px 7px 0 0 rgba(27,26,21,0.16); }
+  .cap { padding: 12px 20px; border-bottom: 1.5px solid rgba(27,26,21,0.4); font-size: 11px; text-transform: uppercase; letter-spacing: 0.2em; color: #b43417; }
+
+  /* ── exact grafismo skin from KatuChartsLandingPage/app/globals.css ── */
+  .katu-dt-skin .katucharts-datatable {
+    --kdt-font-family: monospace;
+    --kdt-radius: 2px;
+    --kdt-bg: transparent;
+    --kdt-popover-bg: #efe5cd;
+    --kdt-fg: #221f18;
+    --kdt-muted: rgba(27, 26, 21, 0.06);
+    --kdt-muted-fg: rgba(27, 26, 21, 0.5);
+    --kdt-border: rgba(27, 26, 21, 0.18);
+    --kdt-accent: rgba(180, 52, 23, 0.1);
+    --kdt-accent-fg: #b43417;
+    --kdt-primary: #b43417;
+    --kdt-hover-bg: rgba(180, 52, 23, 0.08);
+    --kdt-selected-bg: rgba(180, 52, 23, 0.14);
+    border-left: 0;
+    border-right: 0;
+  }
+  .katu-dt-skin .katucharts-dt-th { text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; }
+  .katu-dt-skin .katucharts-dt-toolbar,
+  .katu-dt-skin .katucharts-dt-footer { background: transparent; }
+</style>
+</head>
+<body>
+<div class="panel">
+  <div class="cap">▣ code → table · live on the page</div>
+  <div id="grid" class="katu-dt-skin" style="padding: 16px; overflow: auto;"></div>
+</div>
+
+<script type="module">
+import { DataTable } from '../dist/katucharts-datatable.es.js';
+
+const stocks = [
+  { ticker: "AAPL", sector: "Technology", price: 229.87, change: 1.34 },
+  { ticker: "MSFT", sector: "Technology", price: 415.26, change: -0.62 },
+  { ticker: "NVDA", sector: "Semiconductors", price: 138.07, change: 3.18 },
+  { ticker: "AMZN", sector: "Consumer", price: 201.45, change: 0.87 },
+  { ticker: "GOOGL", sector: "Technology", price: 178.92, change: -1.05 },
+  { ticker: "TSLA", sector: "Automotive", price: 352.56, change: 4.21 },
+  { ticker: "META", sector: "Technology", price: 602.33, change: 1.97 },
+  { ticker: "JPM", sector: "Financials", price: 245.18, change: -0.34 },
+  { ticker: "V", sector: "Financials", price: 312.74, change: 0.52 },
+  { ticker: "WMT", sector: "Retail", price: 91.23, change: 0.18 },
+];
+
+// ── exact new dataTableExample config from Landing.tsx ──
+new DataTable('grid', {
+  data: stocks,
+  columns: [
+    { accessorKey: "ticker", header: "Ticker" },
+    { accessorKey: "sector", header: "Sector", filterType: "faceted" },
+    {
+      accessorKey: "price",
+      header: () => `<div style="text-align:right">Price</div>`,
+      cell: ({ row }) => `<div style="text-align:right">$${row.getValue("price").toFixed(2)}</div>`,
+    },
+    {
+      accessorKey: "change",
+      header: () => `<div style="text-align:right">Change %</div>`,
+      cell: ({ row }) => {
+        const v = row.getValue("change");
+        return `<div style="text-align:right;color:${v >= 0 ? "#1a7f37" : "#b43417"}">${v >= 0 ? "+" : ""}${v.toFixed(2)}%</div>`;
+      },
+    },
+  ],
+  initialState: { sorting: [{ id: "change", desc: true }] },
+  pagination: { pageSize: 5 },
+  filtering: { enabled: true },
+  toolbar: { enabled: false },
+});
+</script>
+</body>
+</html>

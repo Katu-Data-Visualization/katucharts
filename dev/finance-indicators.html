@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Declarative indicators harness</title>
+<style>
+  :root { color-scheme: light; }
+  html, body { margin: 0; padding: 0; background:#f5f5f7; font-family: system-ui, sans-serif; }
+  .wrap { max-width: 1100px; margin: 24px auto; padding: 12px; }
+  .card { background:#fff; border-radius:12px; padding:12px 16px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.08); margin-bottom:16px; }
+  h2 { margin:0 0 8px; font-size:14px; color:#2b2b2b; }
+  .chart { width:100%; height:340px; }
+  #log { font-family: monospace; font-size:12px; white-space:pre-wrap; color:#b00; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h2>1. Candlestick + declarative SMA(20) + EMA(10) + Bollinger(20,2) overlays</h2>
+    <div class="chart" id="c1"></div>
+  </div>
+  <div class="card">
+    <h2>2. Candlestick (top axis) + RSI(14) + MACD(12,26,9) on separate panes (yAxis index)</h2>
+    <div class="chart" id="c2" style="height:520px"></div>
+  </div>
+  <div id="log"></div>
+</div>
+
+<script type="module">
+  import KatuCharts from '/src/index.ts';
+  import '/src/finance.ts';
+
+  const log = (m) => { document.getElementById('log').textContent += m + '\n'; };
+  window.addEventListener('error', e => log('ERROR: ' + e.message));
+
+  const day = 24 * 3600 * 1000;
+  const start = Date.UTC(2024, 0, 1);
+  let price = 150;
+  const ohlc = [];
+  for (let i = 0; i < 120; i++) {
+    const open = price;
+    const change = (Math.sin(i / 6) * 4) + (((i * 9301 + 49297) % 233280) / 233280 - 0.5) * 6;
+    const close = Math.max(50, open + change);
+    const high = Math.max(open, close) + Math.abs(change) * 0.6 + 1;
+    const low = Math.min(open, close) - Math.abs(change) * 0.6 - 1;
+    ohlc.push({ x: start + i * day, open, high, low, close, volume: 1000 + (i % 7) * 250 });
+    price = close;
+  }
+
+  try {
+  window.__c1 = KatuCharts.chart('c1', {
+    credits: { enabled: false },
+    chart: { type: 'candlestick', zoomType: 'x' },
+    title: { text: '' },
+    xAxis: { type: 'datetime', crosshair: true },
+    yAxis: { title: { text: 'Price' } },
+    tooltip: { shared: true },
+    series: [
+      { id: 'katu', name: 'KATU', data: ohlc, color: '#f45b5b', upColor: '#2ca02c' },
+      { type: 'bollinger', linkedTo: 'katu', params: { period: 20, stdDev: 2 }, color: '#7798BF' },
+      { type: 'sma', linkedTo: 'katu', params: { period: 20 }, color: '#8000ff' },
+      { type: 'ema', linkedTo: 'katu', params: { period: 10 }, color: '#f7a35c' },
+    ],
+  });
+
+  window.__c2 = KatuCharts.chart('c2', {
+    credits: { enabled: false },
+    chart: { type: 'candlestick' },
+    title: { text: '' },
+    xAxis: { type: 'datetime' },
+    yAxis: [
+      { title: { text: 'Price' }, height: '55%' },
+      { title: { text: 'RSI' }, top: '60%', height: '18%', offset: 0, min: 0, max: 100 },
+      { title: { text: 'MACD' }, top: '80%', height: '20%', offset: 0 },
+    ],
+    tooltip: { shared: true },
+    series: [
+      { id: 'katu2', name: 'KATU', data: ohlc, color: '#f45b5b', upColor: '#2ca02c' },
+      { type: 'rsi', linkedTo: 'katu2', yAxis: 1, params: { period: 14 }, color: '#910000' },
+      { type: 'macd', linkedTo: 'katu2', yAxis: 2, params: { shortPeriod: 12, longPeriod: 26, signalPeriod: 9 } },
+    ],
+  });
+  log('built ok');
+  } catch (e) { log('THROWN: ' + e.message + '\n' + e.stack); }
+</script>
+</body>
+</html>

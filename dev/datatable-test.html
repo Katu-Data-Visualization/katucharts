@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>KatuCharts DataTable — shadcn API test</title>
+<style>
+  body { margin: 0; padding: 32px; background: #fafafa; font-family: ui-sans-serif, system-ui, sans-serif; color: #18181b; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: #71717a; margin: 36px 0 12px; }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  .grid { display: grid; gap: 12px; }
+  /* CSS-override demo: re-theme purely via custom properties + a class hook. */
+  .brand { --kdt-primary: #b43417; --kdt-radius: 14px; --kdt-accent: #fbeae5; --kdt-selected-bg: #fbeae5; --kdt-ring: #b43417; }
+  .brand .katucharts-dt-th { text-transform: uppercase; letter-spacing: .06em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>1 · shadcn-style API · sorting · selection · per-column filters</h2>
+  <div id="t1"></div>
+
+  <h2>2 · faceted filter · column visibility · density</h2>
+  <div id="t2"></div>
+
+  <h2>3 · dark theme</h2>
+  <div id="t3"></div>
+
+  <h2>4 · CSS override via custom properties (.brand)</h2>
+  <div id="t4" class="brand"></div>
+
+  <h2>5 · backward-compat · landing page's existing options (style.headerStyle, density, formatter)</h2>
+  <div id="t5"></div>
+</div>
+
+<script type="module">
+import { DataTable } from '../dist/katucharts-datatable.es.js';
+
+const payments = [
+  { id: 'm5gr84i9', amount: 316, status: 'success',    email: 'ken99@example.com' },
+  { id: '3u1reuv4', amount: 242, status: 'success',    email: 'abe45@example.com' },
+  { id: 'derv1ws0', amount: 837, status: 'processing', email: 'monserrat44@example.com' },
+  { id: '5kma53ae', amount: 874, status: 'success',    email: 'silas22@example.com' },
+  { id: 'bhqecj4p', amount: 721, status: 'failed',     email: 'carmella@example.com' },
+  { id: 'p0r9x2lk', amount: 459, status: 'processing', email: 'jason.lee@example.com' },
+  { id: 'q7w8e9r0', amount: 128, status: 'failed',     email: 'nadia.k@example.com' },
+  { id: 'z1x2c3v4', amount: 644, status: 'success',    email: 'omar.t@example.com' },
+  { id: 'a9s8d7f6', amount: 390, status: 'processing', email: 'lucy.h@example.com' },
+  { id: 'l5k4j3h2', amount: 512, status: 'success',    email: 'theo.m@example.com' },
+  { id: 'g6f7d8s9', amount: 275, status: 'failed',     email: 'priya.r@example.com' },
+  { id: 'w3e4r5t6', amount: 905, status: 'success',    email: 'noah.w@example.com' },
+];
+
+const usd = (n) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+const badge = (status) => {
+  const c = { success: '#16a34a', processing: '#2563eb', failed: '#dc2626' }[status] ?? '#71717a';
+  return `<span style="display:inline-flex;align-items:center;gap:6px;text-transform:capitalize">
+    <span style="width:8px;height:8px;border-radius:50%;background:${c}"></span>${status}</span>`;
+};
+
+// 1 — columns written in shadcn / TanStack form (accessorKey, header fn, cell fn).
+new DataTable('t1', {
+  data: payments,
+  selection: { mode: 'multi', checkbox: true },
+  columns: [
+    { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => badge(getValue()) },
+    {
+      accessorKey: 'email',
+      header: ({ column }) => {
+        const b = document.createElement('button');
+        b.className = 'katucharts-dt-btn';
+        b.style.cssText = 'height:auto;border:none;padding:0;background:none;font:inherit;color:inherit;gap:4px';
+        b.innerHTML = 'Email <span style="opacity:.5">↕</span>';
+        b.onclick = () => column.toggleSorting();
+        return b;
+      },
+    },
+    {
+      accessorKey: 'amount',
+      header: () => '<div style="text-align:right">Amount</div>',
+      cell: ({ row }) => `<div style="text-align:right;font-weight:600">${usd(row.getValue('amount'))}</div>`,
+    },
+  ],
+  initialState: { pagination: { pageSize: 6 } },
+});
+
+// 2 — faceted multi-select filter + toolbar controls.
+new DataTable('t2', {
+  data: payments,
+  toolbar: { items: ['search', 'columnToggle', 'density', 'export'] },
+  search: { enabled: true, placeholder: 'Search emails…' },
+  columns: [
+    { field: 'email', title: 'Email' },
+    { field: 'status', title: 'Status', filterType: 'faceted', cell: ({ getValue }) => badge(getValue()) },
+    { field: 'amount', title: 'Amount', type: 'number', filterType: 'numberrange', formatter() { return usd(this.value); } },
+  ],
+  initialState: { pagination: { pageSize: 6 } },
+});
+
+// 3 — dark theme via a single style flag.
+new DataTable('t3', {
+  data: payments,
+  style: { theme: 'dark' },
+  filtering: { enabled: false },
+  columns: [
+    { field: 'id', title: 'ID' },
+    { field: 'email', title: 'Email' },
+    { field: 'status', title: 'Status', cell: ({ getValue }) => badge(getValue()) },
+    { field: 'amount', title: 'Amount', type: 'number', formatter() { return usd(this.value); } },
+  ],
+  initialState: { pagination: { pageSize: 6 } },
+});
+
+// 5 — the landing page's CURRENT options object, verbatim (backward compat).
+new DataTable('t5', {
+  data: payments.map(p => ({ ticker: p.id.slice(0,4).toUpperCase(), sector: p.status, price: p.amount, change: (p.amount % 7) - 3 })),
+  columns: [
+    { field: 'ticker', title: 'Ticker', type: 'string', sortable: true },
+    { field: 'sector', title: 'Sector', type: 'string', sortable: true },
+    { field: 'price', title: 'Price', type: 'number', sortable: true, formatter: function () { return `$${this.value.toFixed(2)}`; } },
+    { field: 'change', title: 'Change %', type: 'number', sortable: true, formatter: function () { return `${this.value >= 0 ? '+' : ''}${this.value.toFixed(2)}%`; } },
+  ],
+  pagination: { enabled: true, pageSize: 6 },
+  filtering: { enabled: true },
+  style: {
+    fontFamily: 'monospace',
+    fontSize: '13px', headerFontSize: '11px', headerFontWeight: '700',
+    borderColor: 'rgba(27,26,21,0.18)',
+    alternateRowColor: 'rgba(27,26,21,0.05)',
+    hoverRowColor: 'rgba(180,52,23,0.10)',
+    selectedRowColor: 'rgba(180,52,23,0.16)',
+    headerStyle: { background: '#1B1A15', color: '#ECDFC4', textTransform: 'uppercase', letterSpacing: '0.08em' },
+    cellStyle: { color: '#221F18' },
+    showBorders: 'horizontal', density: 'comfortable',
+  },
+});
+
+// 4 — restyled purely through CSS variables on a wrapper class.
+new DataTable('t4', {
+  data: payments,
+  selection: { mode: 'multi', checkbox: true },
+  columns: [
+    { field: 'email', title: 'Email' },
+    { field: 'status', title: 'Status', filterType: 'select', cell: ({ getValue }) => badge(getValue()) },
+    { field: 'amount', title: 'Amount', type: 'number', formatter() { return usd(this.value); } },
+  ],
+  initialState: { pagination: { pageSize: 6 } },
+});
+</script>
+</body>
+</html>

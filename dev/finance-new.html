@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>New types + indicators harness</title>
+<style>
+  html, body { margin:0; padding:0; background:#f5f5f7; font-family: system-ui, sans-serif; }
+  .wrap { max-width: 1300px; margin: 24px auto; padding: 12px; }
+  .grid { display:grid; grid-template-columns: repeat(2, 1fr); gap:16px; }
+  .card { background:#fff; border-radius:12px; padding:12px 16px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+  h2 { margin:0 0 8px; font-size:13px; color:#2b2b2b; }
+  .chart { width:100%; height:300px; }
+  #log { font-family: monospace; font-size:12px; color:#b00; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<div class="wrap"><div class="grid" id="grid"></div><div id="log"></div></div>
+<script type="module">
+  import KatuCharts from '/src/index.ts';
+  import '/src/finance.ts';
+  const log = (m) => { document.getElementById('log').textContent += m + '\n'; };
+  window.addEventListener('error', e => log('ERROR: ' + e.message));
+
+  const day = 864e5, start = Date.UTC(2024,0,1);
+  let price = 150; const ohlc = [];
+  for (let i=0;i<140;i++){
+    const open=price;
+    const change=(Math.sin(i/6)*4)+(((i*9301+49297)%233280)/233280-0.5)*6;
+    const close=Math.max(50,open+change);
+    const high=Math.max(open,close)+Math.abs(change)*0.6+1;
+    const low=Math.min(open,close)-Math.abs(change)*0.6-1;
+    ohlc.push({x:start+i*day,open,high,low,close,volume:1000+(i%7)*250}); price=close;
+  }
+  const tempRange = Array.from({length:12},(_,i)=>[i, 5+Math.round(Math.sin(i/2)*6), 18+Math.round(Math.cos(i/2)*6)]);
+
+  const charts = [
+    ['columnrange (array [x,low,high])', { chart:{type:'columnrange'}, xAxis:{categories:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']}, series:[{name:'Temp',color:'#f7a35c',data:tempRange}] }],
+    ['areasplinerange (object {x,low,high})', { chart:{type:'areasplinerange'}, series:[{name:'Range',color:'#7cb5ec',data:ohlc.slice(0,30).map((d,i)=>({x:i,low:d.low,high:d.high}))}] }],
+    ['DEMA(20) + TEMA(20) over candlestick', { chart:{type:'candlestick'}, xAxis:{type:'datetime'}, series:[{id:'m',name:'KATU',data:ohlc,color:'#f45b5b',upColor:'#2ca02c'},{type:'dema',linkedTo:'m',params:{period:20},color:'#8000ff'},{type:'tema',linkedTo:'m',params:{period:20},color:'#0aa'}] }],
+    ['PSAR over candlestick', { chart:{type:'candlestick'}, xAxis:{type:'datetime'}, series:[{id:'m',name:'KATU',data:ohlc,color:'#f45b5b',upColor:'#2ca02c'},{type:'psar',linkedTo:'m',params:{increment:0.02,maximum:0.2},color:'#222'}] }],
+    ['CCI(20) pane', { chart:{type:'line'}, xAxis:{type:'datetime'}, yAxis:[{height:'60%'},{top:'65%',height:'35%',title:{text:'CCI'}}], series:[{id:'m',name:'KATU',data:ohlc.map(d=>({x:d.x,y:d.close})),color:'#2ca02c'},{type:'cci',linkedTo:'m',yAxis:1,params:{period:20},color:'#910000'}] }],
+    ['ADX(14) + ROC(9) + Momentum(14) panes', { chart:{type:'line'}, xAxis:{type:'datetime'}, yAxis:[{height:'40%'},{top:'42%',height:'28%',title:{text:'ADX'}},{top:'72%',height:'28%',title:{text:'ROC'}}], series:[{id:'m',name:'KATU',data:ohlc.map(d=>({x:d.x,y:d.close})),color:'#2ca02c'},{type:'adx',linkedTo:'m',yAxis:1,params:{period:14},color:'#910000'},{type:'roc',linkedTo:'m',yAxis:2,params:{period:9},color:'#7798BF'}] }],
+    ['VBP (volume by price) over candlestick', { chart:{type:'candlestick'}, xAxis:{type:'datetime'}, series:[{id:'m',name:'KATU',data:ohlc,color:'#f45b5b',upColor:'#2ca02c'},{type:'vbp',linkedTo:'m',params:{ranges:14},color:'rgba(100,140,200,0.45)'}] }],
+  ];
+
+  const grid = document.getElementById('grid');
+  charts.forEach(([title,opts],idx)=>{
+    const card=document.createElement('div'); card.className='card';
+    const h=document.createElement('h2'); h.textContent=title;
+    const div=document.createElement('div'); div.className='chart'; div.id='c'+idx;
+    card.appendChild(h); card.appendChild(div); grid.appendChild(card);
+    try { window['__c'+idx]=KatuCharts.chart('c'+idx, { credits:{enabled:false}, title:{text:''}, ...opts }); }
+    catch(e){ h.textContent=title+' — ERROR: '+e.message; h.style.color='red'; }
+  });
+  log('done');
+</script>
+</body>
+</html>
