@@ -91,15 +91,30 @@ export class Chart {
 
     const dims = getElementDimensions(this.container, this.getDefaultHeightAspectRatio());
     const outerWidth = (this.options.chart.width as number) || dims.width || 600;
-    const outerHeight = this.resolveHeight(this.options.chart.height, dims.height);
+    let outerHeight = this.resolveHeight(this.options.chart.height, dims.height);
 
     const scrollable = (this.options.chart as any).scrollablePlotArea as { minWidth?: number; minHeight?: number; scrollPositionX?: number; scrollPositionY?: number } | undefined;
-    const useVerticalScroll = scrollable?.minHeight && scrollable.minHeight > outerHeight;
     const useHorizontalScroll = scrollable?.minWidth && scrollable.minWidth > outerWidth;
 
     this.autoHeight = this.options.chart.height == null && !dims.heightMeasured;
-
     this.chartWidth = useHorizontalScroll ? scrollable!.minWidth! : outerWidth;
+
+    /**
+     * When the height is auto (no explicit height and none imposed by the container),
+     * grow the chart to show its content rather than trapping a tall category list in
+     * the small aspect-ratio default height. On a short/mobile viewport that internal
+     * scroll window otherwise collapses the plot to a few-row sliver. Grow up to the
+     * auto-height cap; only content taller than that falls back to the internal scroll.
+     */
+    if (this.autoHeight) {
+      const contentTarget = scrollable?.minHeight
+        ? Math.min(scrollable.minHeight, Chart.MAX_AUTO_HEIGHT)
+        : 0;
+      outerHeight = Math.max(this.fitHeightToContent(outerHeight), contentTarget);
+    }
+
+    const useVerticalScroll = scrollable?.minHeight && scrollable.minHeight > outerHeight;
+
     this.chartHeight = useVerticalScroll ? scrollable!.minHeight! : outerHeight;
     this.scrollableOuterWidth = outerWidth;
     this.scrollableOuterHeight = outerHeight;
