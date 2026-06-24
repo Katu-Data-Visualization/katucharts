@@ -287,9 +287,11 @@ export class Chart {
 
   /**
    * Hard ceiling for auto-grown height so a chart with extreme fixed overhead
-   * (very long rotated labels, large legends) can't expand without bound.
+   * (very long rotated labels, large legends) can't expand without bound. Kept
+   * compact so a long category list stays a reasonable size and scrolls past it
+   * rather than dominating the page.
    */
-  private static readonly MAX_AUTO_HEIGHT = 900;
+  private static readonly MAX_AUTO_HEIGHT = 450;
 
   /**
    * Minimum height per category band on a vertical category axis (heatmap rows,
