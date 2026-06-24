@@ -31,7 +31,6 @@ import {
   NON_CARTESIAN_TYPES,
   SELF_RENDERED_DATALABEL_TYPES,
   NO_CLIP_TYPES,
-  EXPAND_TYPES,
   isNonCartesianChart,
 } from './chartTypes';
 import { stackKey, accumulateStackTotals } from './StackComputer';
@@ -41,6 +40,13 @@ import { ChartExporter } from '../export/ChartExporter';
 import { AxisCoordinator } from '../axis/AxisCoordinator';
 import { InteractionController } from './InteractionController';
 import { StockController } from '../stock/StockController';
+
+/**
+ * Outward padding (px) added around the plot-area clip so data labels and edge
+ * markers sitting just past the bars/points stay visible instead of being sliced
+ * by the plot edge.
+ */
+const CLIP_MARGIN = 22;
 
 export class Chart {
   container: HTMLElement;
@@ -66,6 +72,7 @@ export class Chart {
   private interactions!: InteractionController;
   private stock: StockController | null = null;
   private clipPathId: string = '';
+  private clipMargin: number = 0;
   private chartWidth: number;
   private chartHeight: number;
   private autoHeight = false;
@@ -411,28 +418,26 @@ export class Chart {
       );
     }
 
-    this.clipPathId = this.renderer.createClipPath(
-      0, 0,
-      this.layout.plotArea.width,
-      this.layout.plotArea.height
-    );
-
     this.axisGroup = this.renderer.createGroup('katucharts-axis-group', this.plotGroup as any);
     this.seriesGroup = this.renderer.createGroup('katucharts-series-group', this.plotGroup as any);
     this.stackLabelsGroup = this.renderer.createGroup('katucharts-stack-labels-group', this.plotGroup as any);
 
     const clipDisabled = this.options.series.some(s => s.clip === false || NO_CLIP_TYPES.has(s._internalType));
-    const needsExpand = this.options.series.some(s => EXPAND_TYPES.has(s._internalType));
+
+    /**
+     * The plot-area clip is expanded by a small margin so that content sitting
+     * just outside the bars/points — a value label above the tallest column, an
+     * edge marker — is not sliced by the plot-area edge, while still clipping
+     * panned/zoomed series content.
+     */
+    this.clipMargin = (!isNonCartesianChart(this.options.series) && !clipDisabled) ? CLIP_MARGIN : 0;
+    this.clipPathId = this.renderer.createClipPath(
+      -this.clipMargin, -this.clipMargin,
+      this.layout.plotArea.width + 2 * this.clipMargin,
+      this.layout.plotArea.height + 2 * this.clipMargin
+    );
 
     if (!isNonCartesianChart(this.options.series) && !clipDisabled) {
-      if (needsExpand) {
-        const margin = 12;
-        this.clipPathId = this.renderer.createClipPath(
-          -margin, -margin,
-          this.layout.plotArea.width + 2 * margin,
-          this.layout.plotArea.height + 2 * margin
-        );
-      }
       this.seriesGroup.attr('clip-path', `url(#${this.clipPathId})`);
     }
 
@@ -476,7 +481,16 @@ export class Chart {
   }
 
   private buildAxes(): void {
-    this.xAxes = this.options.xAxis.map(cfg => createAxis(cfg, this.layout.plotArea));
+    /**
+     * Heatmaps center their color legend on the whole chart width, so the x-axis
+     * title is asked to center the same way (instead of on the plot) to stay
+     * aligned with that legend.
+     */
+    const centerXTitleOnChart = this.options.series.some(s => s._internalType === 'heatmap');
+    this.xAxes = this.options.xAxis.map(cfg => createAxis(
+      centerXTitleOnChart ? { ...cfg, _centerTitleOnChart: true, _chartWidth: this.chartWidth } as any : cfg,
+      this.layout.plotArea
+    ));
     this.yAxes = this.options.yAxis.map(cfg => createAxis(cfg, this.layout.plotArea));
   }
 
@@ -747,6 +761,7 @@ export class Chart {
 
       const context: SeriesContext = {
         plotArea: this.layout.plotArea,
+        chartWidth: this.chartWidth,
         xAxis,
         yAxis,
         colorIndex: i,
@@ -1055,7 +1070,12 @@ export class Chart {
     this.computeLayout();
 
     this.plotGroup.attr('transform', `translate(${this.layout.plotArea.x},${this.layout.plotArea.y})`);
-    this.renderer.updateClipPath(this.clipPathId, 0, 0, this.layout.plotArea.width, this.layout.plotArea.height);
+    this.renderer.updateClipPath(
+      this.clipPathId,
+      -this.clipMargin, -this.clipMargin,
+      this.layout.plotArea.width + 2 * this.clipMargin,
+      this.layout.plotArea.height + 2 * this.clipMargin
+    );
 
     this.buildAxes();
     this.seriesInstances.forEach(s => s.destroy());

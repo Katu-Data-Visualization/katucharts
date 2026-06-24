@@ -599,9 +599,20 @@ class BaseAxis {
         }
       }
 
+      /**
+       * Normally the horizontal title is centered on the plot. When the chart
+       * asks for it (e.g. a heatmap whose color legend is centered on the whole
+       * chart width), center the title on the chart instead so it lines up with
+       * that legend rather than drifting over the plot offset.
+       */
+      const cfgAny = this.config as any;
+      const titleX = cfgAny._centerTitleOnChart && cfgAny._chartWidth != null
+        ? cfgAny._chartWidth / 2 - plotArea.x
+        : plotArea.width / 2;
+
       const el = group.append('text')
         .attr('class', 'katucharts-axis-title')
-        .attr('x', plotArea.width / 2)
+        .attr('x', titleX)
         .attr('y', yPos)
         .attr('text-anchor', 'middle')
         .attr('font-size', title.style?.fontSize as string || DEFAULT_CHART_TEXT_SIZE)
@@ -609,7 +620,7 @@ class BaseAxis {
         .text(title.text!);
 
       if (rotation !== undefined) {
-        el.attr('transform', `rotate(${rotation}, ${plotArea.width / 2}, ${yPos})`);
+        el.attr('transform', `rotate(${rotation}, ${titleX}, ${yPos})`);
       }
     } else {
       const labelsEnabled = this.config.labels?.enabled !== false;

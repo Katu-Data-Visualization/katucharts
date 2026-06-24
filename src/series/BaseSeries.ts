@@ -20,6 +20,7 @@ import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE, readableTextColor } 
 
 export interface SeriesContext {
   plotArea: PlotArea;
+  chartWidth?: number;
   xAxis: AxisInstance;
   yAxis: AxisInstance;
   colorIndex: number;
