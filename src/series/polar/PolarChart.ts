@@ -373,7 +373,9 @@ export class PolarChart extends BaseSeries {
       .filter(o => o.d.y != null && o.d.y !== 0 && o.v >= minVisibleValue);
     const bigs = candidates.filter(c => c.v >= smallCutoff);
     const smalls = candidates.filter(c => c.v < smallCutoff);
-    smalls.sort((a, b) => a.v - b.v);
+    // When the small slices collapse to a single representative label, keep the
+    // largest of them so bigger values are always the ones that get labelled.
+    smalls.sort((a, b) => b.v - a.v);
     const smallRepresentative = smalls.length > 0 ? smalls[0] : null;
     const toRender = smallRepresentative ? [...bigs, smallRepresentative] : bigs;
     toRender.sort((a, b) => a.i - b.i);

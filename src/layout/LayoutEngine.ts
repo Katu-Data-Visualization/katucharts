@@ -399,16 +399,14 @@ export class LayoutEngine {
         } else if (hasExplicitRotation) {
           labelHeight = 45;
         } else if (axis.categories && axis.categories.length > 0) {
-          let maxLen = 0;
-          for (const cat of axis.categories) {
-            if (cat.length > maxLen) maxLen = cat.length;
-          }
+          /**
+           * Category labels are laid out horizontally; when they would collide the
+           * renderer thins them out (hiding labels) rather than rotating, so a
+           * single text line is always enough vertical room. Reserving rotated
+           * height here only left a large empty band between the plot and legend.
+           */
           const fontSize = parseFontSizePx(axis.labels?.style?.fontSize as string || DEFAULT_CHART_TEXT_SIZE);
-          const wouldOverlap = axis.categories.length > 6 || maxLen > 8;
-          if (wouldOverlap) {
-            const rotatedHeight = Math.min(maxLen * fontSize * 0.4 * Math.sin(Math.PI / 4), 120);
-            labelHeight = Math.max(30, rotatedHeight);
-          }
+          labelHeight = Math.max(fontSize + 8, 20);
         }
       } else {
         labelHeight = 0;

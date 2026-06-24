@@ -325,6 +325,17 @@ export class HeatmapChart extends BaseSeries {
     const isVertical = legendCfg.layout === 'vertical';
     const steps = 50;
 
+    /**
+     * The color legend group lives in the plot group (offset by the y-axis label
+     * column), so centering on the plot area alone pushes it off to the right.
+     * Center it on the whole chart width instead, falling back to the plot area
+     * when the chart width is unavailable.
+     */
+    const centeredX = (barWidth: number): number =>
+      this.context.chartWidth !== undefined
+        ? (this.context.chartWidth - barWidth) / 2 - plotArea.x
+        : (plotArea.width - barWidth) / 2;
+
     const parentGroup = this.context.plotGroup || this.group;
     parentGroup.selectAll('.katucharts-color-axis').remove();
     const axisGroup = parentGroup.append('g')
@@ -343,15 +354,20 @@ export class HeatmapChart extends BaseSeries {
     for (let v = tickStart; v <= maxVal + nice * 0.01; v += nice) {
       ticks.push(Math.round(v * 1e6) / 1e6);
     }
-    if (ticks.length === 0 || ticks[0] > minVal) ticks.unshift(minVal);
-    if (ticks[ticks.length - 1] < maxVal) ticks.push(maxVal);
+    /**
+     * Only pin the exact min/max endpoints when they are not already represented
+     * by a neighbouring nice tick — otherwise the endpoint label collides with the
+     * adjacent tick label (e.g. a "60" tick sitting under a forced "63" maximum).
+     */
+    if (ticks.length === 0 || ticks[0] - minVal > nice * 0.5) ticks.unshift(minVal);
+    if (maxVal - ticks[ticks.length - 1] > nice * 0.5) ticks.push(maxVal);
     const precision = nice >= 1 ? 0 : nice >= 0.1 ? 1 : 2;
 
     if (colorAxisCfg.dataClasses && colorAxisCfg.dataClasses.length > 0) {
       const classes = colorAxisCfg.dataClasses;
       const barWidth = Math.min(plotArea.width * 0.6, 300);
       const barHeight = 12;
-      const x = (plotArea.width - barWidth) / 2;
+      const x = centeredX(barWidth);
       const y = plotArea.height + 60;
       const segW = barWidth / classes.length;
       for (let i = 0; i < classes.length; i++) {
@@ -422,7 +438,7 @@ export class HeatmapChart extends BaseSeries {
     } else {
       const barHeight = 12;
       const barWidth = Math.min(plotArea.width * 0.6, 300);
-      const x = (plotArea.width - barWidth) / 2;
+      const x = centeredX(barWidth);
       const y = plotArea.height + 60;
 
       const defs = axisGroup.append('defs');

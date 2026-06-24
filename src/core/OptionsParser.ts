@@ -199,10 +199,10 @@ export class OptionsParser {
       if (count > 12) {
         /**
          * Keep the chart box the same size as its siblings and scroll the plot internally instead
-         * of growing the whole chart very tall — gives each bar a legible ~16px row without the
-         * chart dwarfing the rest of the page.
+         * of growing the whole chart very tall. Each row gets ~26px so long category labels stay
+         * legible (16px crammed the names) — the plot scrolls when the rows exceed the box.
          */
-        const minHeight = Math.min(count * 16 + 130, 6000);
+        const minHeight = Math.min(count * 26 + 130, 9000);
         const spa = (chart.scrollablePlotArea && typeof chart.scrollablePlotArea === 'object') ? chart.scrollablePlotArea : {};
         chart.scrollablePlotArea = { ...spa, minHeight };
         chart._autoScrollMinHeight = minHeight;

@@ -732,13 +732,32 @@ export class DependencyWheelChart extends BaseSeries {
        * fewer names than the cap keep all of them (no-op when not cluttered).
        */
       if (labelType === 'medium') {
-        const mediumPerSide = Math.max(1, Math.min(10, Math.floor(sideAvail / (lineHeight * 1.2))));
+        /**
+         * Decluttered subset: keep the globally highest-value names. Capping each
+         * side to a fixed count independently let a sparse side keep its small
+         * nodes while a busier side dropped bigger ones — so a tiny collaborator
+         * could be labelled while a major hub was not. Rank across the whole wheel
+         * and keep the top (perSideRoom * 2); distributeChordLabels below still
+         * drops a side's smallest if that side physically overflows.
+         */
+        const perSideRoom = Math.max(1, Math.min(10, Math.floor(sideAvail / (lineHeight * 1.2))));
+        const globalCap = perSideRoom * 2;
+        const ranked = infos.filter((l: any) => l.visible).sort((a: any, b: any) => b.rank - a.rank);
+        if (ranked.length > globalCap) {
+          ranked.slice(globalCap).forEach((l: any) => { l.visible = false; });
+        }
+      } else {
+        /**
+         * max auto-declutter: show as many names as read comfortably, but cap each
+         * side to a breathing-room density (keeping that side's largest nodes) so a
+         * hub-and-spoke wheel — where every collaborator lands opposite the few big
+         * hubs — can't collapse one side into a wall of overlapping leader lines.
+         * Larger than 'medium' so 'max' still shows more, just not an unreadable mass.
+         */
+        const comfortablePerSide = Math.max(3, Math.floor(sideAvail / (lineHeight * 2)));
         for (const isR of [true, false]) {
-          const side = infos.filter((l: any) => l.visible && l.isRight === isR);
-          if (side.length > mediumPerSide) {
-            side.sort((a: any, b: any) => b.rank - a.rank);
-            side.slice(mediumPerSide).forEach((l: any) => { l.visible = false; });
-          }
+          const side = infos.filter((l: any) => l.visible && l.isRight === isR).sort((a: any, b: any) => b.rank - a.rank);
+          side.slice(comfortablePerSide).forEach((l: any) => { l.visible = false; });
         }
       }
 
