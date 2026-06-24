@@ -190,24 +190,32 @@ export function createFixedAxisOverlay(ctx: ScrollableOverlayContext): SVGSVGEle
   }
 
   /**
-   * Pin legends in the overlay so they don't scroll with the plot content.
+   * Pin legends in the overlay so they don't scroll with the plot content — but
+   * NOT when a vertical scroll viewport is so short that a large legend would
+   * crush the plot to an unreadable sliver (e.g. a many-item legend on a small
+   * mobile card). There the legend stays in the scrollable content and the plot
+   * gets the full viewport; the user scrolls down to reach the legend.
    */
-  const legendGroups = mainSvg.querySelectorAll('.katucharts-legend');
-  legendGroups.forEach(legG => {
-    const origTransform = (legG as SVGGElement).getAttribute('transform') || '';
-    const m = origTransform.match(/translate\(([^,]+),\s*([^)]+)\)/);
-    const origX = m ? parseFloat(m[1]) : 0;
-    const origY = m ? parseFloat(m[2]) : 0;
-    const xShift = (chartWidth - overlayWidth) / 2;
-    const yShift = useVerticalScroll ? (chartHeight - overlayHeight) : 0;
-    const newX = origX - xShift;
-    const newY = origY - yShift;
-    (legG as SVGElement).style.visibility = 'hidden';
-    const clone = legG.cloneNode(true) as SVGGElement;
-    (clone as SVGElement).style.visibility = 'visible';
-    clone.setAttribute('transform', `translate(${newX}, ${newY})`);
-    overlay.appendChild(clone);
-  });
+  const legendHeight = (layout as { legendArea?: { height?: number } }).legendArea?.height ?? 0;
+  const pinLegend = !useVerticalScroll || legendHeight <= overlayHeight * 0.3;
+  if (pinLegend) {
+    const legendGroups = mainSvg.querySelectorAll('.katucharts-legend');
+    legendGroups.forEach(legG => {
+      const origTransform = (legG as SVGGElement).getAttribute('transform') || '';
+      const m = origTransform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+      const origX = m ? parseFloat(m[1]) : 0;
+      const origY = m ? parseFloat(m[2]) : 0;
+      const xShift = (chartWidth - overlayWidth) / 2;
+      const yShift = useVerticalScroll ? (chartHeight - overlayHeight) : 0;
+      const newX = origX - xShift;
+      const newY = origY - yShift;
+      (legG as SVGElement).style.visibility = 'hidden';
+      const clone = legG.cloneNode(true) as SVGGElement;
+      (clone as SVGElement).style.visibility = 'visible';
+      clone.setAttribute('transform', `translate(${newX}, ${newY})`);
+      overlay.appendChild(clone);
+    });
+  }
 
   /**
    * Move export button into the overlay so it stays visible without scrolling.

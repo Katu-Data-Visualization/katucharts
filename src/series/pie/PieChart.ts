@@ -282,7 +282,7 @@ export class PieChart extends BaseSeries {
      * labels of small slices that would collide near the centre.
      */
     for (const dlCfg of this.dataLabelConfigs()) {
-      this.renderPieLabels(g, pieData, arcGen, outerRadius, endAngle - startAngle, dlCfg);
+      this.renderPieLabels(g, pieData, arcGen, outerRadius, endAngle - startAngle, dlCfg, cx);
     }
 
     if (animate) {
@@ -292,7 +292,8 @@ export class PieChart extends BaseSeries {
 
   private renderPieLabels(
     g: any, pieData: any[], arcGen: any,
-    outerRadius: number, totalAngle: number, dlCfg: DataLabelOptions
+    outerRadius: number, totalAngle: number, dlCfg: DataLabelOptions,
+    centerX: number
   ): void {
     if (!dlCfg || dlCfg.enabled === false) return;
 
@@ -387,6 +388,19 @@ export class PieChart extends BaseSeries {
         const newLx = Math.sqrt(Math.max(0, labelR * labelR - clampedLy * clampedLy));
         const isRight = l.midAngle < Math.PI;
         l.lx = isRight ? Math.max(newLx, outerRadius * 0.3) : -Math.max(newLx, outerRadius * 0.3);
+        /**
+         * Keep the label text inside the plot horizontally so long names don't run
+         * off the edge of a narrow (mobile) card — ellipsis-truncate to the space
+         * left between the label anchor (centre + lx) and the near plot edge. Right
+         * labels run toward the right edge, left labels toward the left edge.
+         */
+        const anchorX = centerX + l.lx;
+        const avail = (l.lx >= 0 ? plotW - anchorX : anchorX) - 6;
+        if (avail > fontPx && measureTextWidth(l.text, fontPx) > avail) {
+          let t = l.text;
+          while (t.length > 1 && measureTextWidth(t + '…', fontPx) > avail) t = t.slice(0, -1);
+          l.text = t.trimEnd() + '…';
+        }
       }
     } else if (isInside && !dlCfg.allowOverlap) {
       /**
