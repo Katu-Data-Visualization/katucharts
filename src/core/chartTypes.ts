@@ -15,6 +15,7 @@ export const NO_AXES_TYPES: ReadonlySet<string> = new Set([
   'pyramid', 'timeline', 'map', 'mappoint', 'flowmap', 'barchartrace', 'venn',
   'clusteredheatmap', 'phylotree', 'circos',
   'circosHeatmap', 'circosComparative', 'circosSpiral',
+  'item', 'classroom',
 ]);
 
 /**
@@ -27,6 +28,7 @@ export const NON_CARTESIAN_TYPES: ReadonlySet<string> = new Set([
   'networkgraph', 'treemap', 'sunburst', 'gauge', 'solidgauge',
   'timeline', 'gantt', 'map', 'mappoint', 'flowmap', 'heatmap', 'polar', 'radar', 'barchartrace', 'venn',
   'clusteredheatmap', 'phylotree', 'circos',
+  'item', 'classroom',
 ]);
 
 /**
@@ -41,7 +43,7 @@ export const SELF_RENDERED_DATALABEL_TYPES: ReadonlySet<string> = new Set([
 /**
  * Series types whose geometry overflows the plot area and must not be clipped.
  */
-export const NO_CLIP_TYPES: ReadonlySet<string> = new Set(['pie', 'venn', 'forestplot', 'pcoa']);
+export const NO_CLIP_TYPES: ReadonlySet<string> = new Set(['pie', 'venn', 'forestplot', 'pcoa', 'item', 'classroom']);
 
 /**
  * Series types whose markers extend beyond data extents and need the plot clip

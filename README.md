@@ -128,6 +128,8 @@ KatuCharts.use(FinanceModule);
 | `solidgauge` | Solid radial gauge |
 | `polar` | Polar coordinate plot |
 | `radar` | Alias for polar |
+| `item` | Unit chart — one symbol per unit of each point's value (grid or arc) |
+| `classroom` | Hemicycle of seats (one per unit), grouped and colored by category |
 
 ### Core — Hierarchical
 

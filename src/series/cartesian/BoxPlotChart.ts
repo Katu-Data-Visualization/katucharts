@@ -9,6 +9,7 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries, resolveDashArray, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions, BorderRadiusOptions } from '../../types/options';
+import { resolveFillPaint } from '../../utils/gradient';
 import {
   ENTRY_DURATION,
   ENTRY_STAGGER_PER_ITEM,
@@ -63,7 +64,7 @@ export class BoxPlotChart extends BaseSeries {
       const midY = yAxis.getPixelForValue((low + high) / 2);
 
       const pointColor = d.color || this.getPointColor(i, color);
-      const fillColor = this.config.fillColor ?? 'transparent';
+      const fillColor = resolveFillPaint(this.config.fillColor, this.group, 'transparent');
       const stemColor = this.config.stemColor || pointColor;
       const whiskerColor = this.config.whiskerColor || pointColor;
 
@@ -209,7 +210,7 @@ export class BoxPlotChart extends BaseSeries {
       const stemColor = this.config.stemColor || pointColor;
       const whiskerColor = this.config.whiskerColor || pointColor;
       const medianStroke = this.config.medianColor || this.config.lineColor || pointColor;
-      const boxFill = this.config.fillColor ?? 'transparent';
+      const boxFill = resolveFillPaint(this.config.fillColor, this.group, 'transparent');
 
       const lines = g.querySelectorAll('line');
       const rect = g.querySelector('rect');

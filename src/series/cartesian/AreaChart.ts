@@ -8,8 +8,9 @@ import { area, line, curveLinear, curveCatmullRom, curveStep, curveStepAfter, cu
 import { Selection } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries, resolveDashArray, staggerDelay } from '../BaseSeries';
-import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import type { InternalSeriesConfig, PointOptions, GradientColor } from '../../types/options';
 import { lttbDecimate } from '../../utils/decimation';
+import { isGradientColor, resolveFillPaint } from '../../utils/gradient';
 import {
   ENTRY_DURATION,
   ENTRY_DATALABEL_DELAY,
@@ -73,11 +74,14 @@ export class AreaChart extends BaseSeries {
   private renderMainArea(data: PointOptions[], color: string, animate: boolean): void {
     const { areaGen, lineGen } = this.buildGenerators();
     const lineColor = this.config.lineColor || color;
+    const fillIsGradient = isGradientColor(this.config.fillColor);
+    const fillValue = resolveFillPaint(this.config.fillColor, this.group, color);
+    const targetFillOpacity = this.config.fillOpacity ?? (fillIsGradient ? 1 : 0.75);
 
     this.areaPath = this.group.append('path')
       .datum(data)
       .attr('d', areaGen as any)
-      .attr('fill', this.config.fillColor || color)
+      .attr('fill', fillValue)
       .attr('class', 'katucharts-area');
 
     this.linePath = this.group.append('path')
@@ -96,11 +100,11 @@ export class AreaChart extends BaseSeries {
       this.areaPath
         .attr('fill-opacity', 0)
         .transition().duration(duration).ease(EASE_ENTRY)
-        .attr('fill-opacity', this.config.fillOpacity ?? 0.75);
+        .attr('fill-opacity', targetFillOpacity);
 
       this.animateLineEntry(this.linePath);
     } else {
-      this.areaPath.attr('fill-opacity', this.config.fillOpacity ?? 0.75);
+      this.areaPath.attr('fill-opacity', targetFillOpacity);
     }
   }
 
@@ -109,9 +113,9 @@ export class AreaChart extends BaseSeries {
     const threshold = this.config.threshold ?? 0;
     const baseline = yAxis.getPixelForValue(threshold);
     const curveFactory = this.getCurve();
-    const fillOpacity = this.config.fillOpacity ?? 0.75;
-    const negFill = this.config.negativeFillColor || this.config.negativeColor || color;
-    const posFill = this.config.fillColor || color;
+    const fillOpacity = this.config.fillOpacity ?? (isGradientColor(this.config.fillColor) ? 1 : 0.75);
+    const negFill = resolveFillPaint(this.config.negativeFillColor || this.config.negativeColor, this.group, color);
+    const posFill = resolveFillPaint(this.config.fillColor, this.group, color);
     const lineColor = this.config.lineColor || color;
 
     const posData = data.filter(d => d.y !== null && d.y !== undefined && (d.y ?? 0) >= threshold);
@@ -194,7 +198,7 @@ export class AreaChart extends BaseSeries {
     const validData = data.filter(d => d.y !== null && d.y !== undefined);
 
     let prevThreshold = -Infinity;
-    const renderZoneSegment = (points: PointOptions[], color: string, fillColor?: string, dashStyle?: string) => {
+    const renderZoneSegment = (points: PointOptions[], color: string, fillColor?: string | GradientColor, dashStyle?: string) => {
       if (points.length < 2) return;
 
       const aGen = area<PointOptions>()
@@ -206,7 +210,7 @@ export class AreaChart extends BaseSeries {
       this.group.append('path')
         .datum(points)
         .attr('d', aGen as any)
-        .attr('fill', fillColor || color)
+        .attr('fill', resolveFillPaint(fillColor, this.group, color))
         .attr('fill-opacity', fillOpacity)
         .attr('class', 'katucharts-area katucharts-zone');
 

@@ -181,6 +181,12 @@ export const defaultOptions: KatuChartsOptions = {
       dataLabels: { enabled: true },
       showInLegend: false,
     },
+    item: {
+      marker: { radius: null },
+    },
+    classroom: {
+      marker: { radius: null },
+    },
     candlestick: {
       tooltip: {
         pointFormat: '<span style="color:{point.color}">\u25CF</span> <b>{series.name}</b><br/>Open: <b>{point.open}</b><br/>High: <b>{point.high}</b><br/>Low: <b>{point.low}</b><br/>Close: <b>{point.close}</b><br/>',

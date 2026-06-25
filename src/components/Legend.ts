@@ -161,17 +161,17 @@ export class Legend {
     const availWidth = legendWidth || (layoutArea.width - padding * 2);
     const rowStep = lineHeight + itemMarginBottom + itemMarginTop;
 
-    type LegendEntry = { label: string; color: string; series: BaseSeries; isLine: boolean };
+    type LegendEntry = { label: string; color: string; series: BaseSeries; isLine: boolean; multiIndex?: number; visible: boolean };
     const entries: LegendEntry[] = [];
     for (const s of visibleSeries) {
       const multiItems = s.getMultiLegendItems();
       const isLine = ['line', 'spline', 'area', 'areaspline', 'radar', 'polar'].includes(s.config._internalType);
       if (multiItems) {
-        for (const item of multiItems) {
-          entries.push({ label: item.label, color: item.color, series: s, isLine });
-        }
+        multiItems.forEach((item, mi) => {
+          entries.push({ label: item.label, color: item.color, series: s, isLine, multiIndex: mi, visible: item.visible !== false });
+        });
       } else {
-        entries.push({ label: this.resolveLabel(s), color: s.getColor(), series: s, isLine });
+        entries.push({ label: this.resolveLabel(s), color: s.getColor(), series: s, isLine, visible: s.visible });
       }
     }
     const labels = entries.map(e => e.label);
@@ -218,6 +218,7 @@ export class Legend {
       const color = entry.color;
       const isLine = entry.isLine;
       const label = entry.label;
+      let curVisible = entry.visible;
 
       let itemX: number;
       let itemY: number;
@@ -305,7 +306,7 @@ export class Legend {
       const textEl = itemGroup.append('text')
         .attr('x', symbolWidth + symbolPadding)
         .attr('y', 10)
-        .attr('fill', s.visible ? (itemStyle.color as string || this.autoText()) : (this.config.itemHiddenStyle?.color as string || '#cccccc'))
+        .attr('fill', curVisible ? (itemStyle.color as string || this.autoText()) : (this.config.itemHiddenStyle?.color as string || '#cccccc'))
         .attr('font-size', effectiveFontSize)
         .attr('font-weight', itemStyle.fontWeight as string || 'normal')
         .text(label);
@@ -323,8 +324,20 @@ export class Legend {
           if (result === false) return;
         }
 
-        s.toggleVisible();
-        textEl.attr('fill', s.visible
+        /**
+         * Per-category legend items (multi-item series like item/classroom) hide
+         * just their own category and let the series re-lay-out; everything else
+         * toggles the whole series. `toggleLegendItem` returns null when the
+         * series opts out, so the fallback preserves existing behavior.
+         */
+        const perItem = entry.multiIndex !== undefined ? s.toggleLegendItem(entry.multiIndex) : null;
+        if (perItem === null) {
+          s.toggleVisible();
+          curVisible = s.visible;
+        } else {
+          curVisible = perItem;
+        }
+        textEl.attr('fill', curVisible
           ? (itemStyle.color as string || this.autoText())
           : (this.config.itemHiddenStyle?.color as string || '#cccccc')
         );
@@ -339,7 +352,7 @@ export class Legend {
         this.events.emit('legend:itemHover', s);
       });
       itemGroup.on('mouseout', () => {
-        textEl.attr('fill', s.visible
+        textEl.attr('fill', curVisible
           ? (itemStyle.color as string || this.autoText())
           : (this.config.itemHiddenStyle?.color as string || '#cccccc')
         );

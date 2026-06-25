@@ -5,6 +5,7 @@ import { format as d3Format } from 'd3-format';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
+import { resolveFillPaint } from '../../utils/gradient';
 import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
@@ -142,7 +143,7 @@ export class PolarChart extends BaseSeries {
 
       const areaPath = g.append('path')
         .datum(data)
-        .attr('fill', this.config.fillColor || color)
+        .attr('fill', resolveFillPaint(this.config.fillColor, g, color))
         .attr('fill-opacity', this.config.fillOpacity ?? 0.3);
 
       if (animate) {

@@ -22,6 +22,7 @@ export type SeriesType =
   | 'volcano' | 'manhattan' | 'violin' | 'kaplanmeier' | 'forestplot'
   | 'sequencelogo' | 'clusteredheatmap' | 'phylotree' | 'circos'
   | 'circosHeatmap' | 'circosComparative' | 'circosSpiral'
+  | 'item' | 'classroom'
   | 'pcoa';
 
 export type CursorType = 'pointer' | 'default' | 'crosshair' | 'move' | 'help' | 'text' | 'not-allowed';
@@ -325,6 +326,8 @@ export interface PointOptions {
   visible?: boolean;
   custom?: Record<string, any>;
   description?: string;
+  /** Item/classroom: groups individual seats so color, legend and hover-dim work per group. */
+  group?: string;
   labelrank?: number;
   selected?: boolean;
   sliced?: boolean;
@@ -387,6 +390,7 @@ export interface DataLabelOptions {
   shadow?: boolean;
   shape?: 'square' | 'callout' | 'circle' | 'diamond' | string;
   alignTo?: 'plotEdges' | 'connectors';
+  alternate?: boolean;
   distance?: number;
   connectorWidth?: number;
   connectorColor?: string;
@@ -543,6 +547,18 @@ export interface PCoAEllipseOptions {
   strokeWidth?: number;
 }
 
+export interface LinearGradientColor {
+  linearGradient: { x1?: number; y1?: number; x2?: number; y2?: number };
+  stops: Array<[number, string]>;
+}
+
+export interface RadialGradientColor {
+  radialGradient: { cx?: number; cy?: number; r?: number };
+  stops: Array<[number, string]>;
+}
+
+export type GradientColor = LinearGradientColor | RadialGradientColor;
+
 export interface SeriesOptions {
   type?: SeriesType;
   ellipse?: PCoAEllipseOptions;
@@ -565,7 +581,7 @@ export interface SeriesOptions {
   lineWidth?: number;
   lineColor?: string;
   dashStyle?: DashStyleType;
-  fillColor?: string;
+  fillColor?: string | GradientColor;
   fillOpacity?: number;
   negativeColor?: string;
   negativeFillColor?: string;
@@ -608,6 +624,9 @@ export interface SeriesOptions {
   center?: (string | number)[];
   startAngle?: number;
   endAngle?: number;
+  itemPadding?: number;
+  rows?: number;
+  layout?: 'horizontal' | 'vertical' | 'radial' | 'rectangular';
   depth?: number;
   minSize?: string | number;
   maxSize?: string | number;

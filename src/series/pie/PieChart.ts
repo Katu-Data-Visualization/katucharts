@@ -5,6 +5,7 @@ import 'd3-transition';
 import { BaseSeries, staggerDelay, type SeriesContext } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions, DataLabelOptions, BorderRadiusOptions } from '../../types/options';
 import { templateFormat, stripHtmlTags, sanitizeColor } from '../../utils/format';
+import { resolveFillPaint } from '../../utils/gradient';
 import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE, parseFontSizePx, measureTextWidth } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
@@ -101,7 +102,7 @@ export class PieChart extends BaseSeries {
       const emptyArc = d3Arc<any>()
         .innerRadius(innerRadius).outerRadius(outerRadius)
         .startAngle(startAngle).endAngle(endAngle);
-      g.append('path').attr('d', emptyArc({}) as string).attr('fill', fillColor);
+      g.append('path').attr('d', emptyArc({}) as string).attr('fill', resolveFillPaint(fillColor, g, '#cccccc'));
       return;
     }
 

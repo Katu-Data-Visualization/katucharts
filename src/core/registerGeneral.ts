@@ -17,6 +17,7 @@ import { VennChart } from '../series/venn/VennChart';
 import { BarRaceChart } from '../series/race/BarRaceChart';
 import { TreegraphChart } from '../series/hierarchical/TreegraphChart';
 import { WordcloudChart } from '../series/hierarchical/WordcloudChart';
+import { ItemChart, ClassroomChart } from '../series/item/ItemChart';
 
 export function registerGeneralSeriesTypes(): void {
   ChartRegistry.registerType('waterfall', WaterfallChart);
@@ -37,4 +38,6 @@ export function registerGeneralSeriesTypes(): void {
   ChartRegistry.registerType('barchartrace', BarRaceChart);
   ChartRegistry.registerType('treegraph', TreegraphChart);
   ChartRegistry.registerType('wordcloud', WordcloudChart);
+  ChartRegistry.registerType('item', ItemChart);
+  ChartRegistry.registerType('classroom', ClassroomChart);
 }

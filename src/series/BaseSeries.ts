@@ -205,7 +205,17 @@ export abstract class BaseSeries {
     return bg;
   }
 
-  getMultiLegendItems(): { label: string; color: string }[] | null {
+  getMultiLegendItems(): { label: string; color: string; visible?: boolean }[] | null {
+    return null;
+  }
+
+  /**
+   * Toggle the visibility of an individual legend item (for series that expose
+   * several via getMultiLegendItems). Returns the item's new visible state, or
+   * null when the series doesn't support per-item toggling — in which case the
+   * legend falls back to toggling the whole series.
+   */
+  toggleLegendItem(_index: number): boolean | null {
     return null;
   }
 
