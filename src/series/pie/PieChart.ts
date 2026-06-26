@@ -21,7 +21,43 @@ export class PieChart extends BaseSeries {
 
   constructor(config: InternalSeriesConfig) {
     super(config);
-    config.showInLegend = false;
+    config.showInLegend = config.showInLegend ?? false;
+  }
+
+  /**
+   * Value-bearing points eligible for the legend — one entry per slice, in data
+   * order. Mirrors the renderer's filter so palette colours line up with slices.
+   */
+  private legendPoints(): PointOptions[] {
+    return this.data.filter(d => d.y !== null && d.y !== undefined && (d.y ?? 0) > 0);
+  }
+
+  /**
+   * One legend entry per slice (name + slice colour), so a pie can show a
+   * per-slice legend instead of a single series item. Hidden slices report
+   * `visible: false` so the legend can strike them through.
+   */
+  getMultiLegendItems(): { label: string; color: string; visible?: boolean }[] | null {
+    const cfgColors = this.config.colors;
+    const ctxColors = this.context?.colors ?? [];
+    return this.legendPoints().map((d, i) => ({
+      label: d.name ?? String(d.y ?? ''),
+      color: d.color ?? (cfgColors ? cfgColors[i % cfgColors.length] : ctxColors[i % ctxColors.length]),
+      visible: d.visible !== false,
+    }));
+  }
+
+  /**
+   * Toggles the slice at `position`, redraws, and returns its new visible state
+   * so the legend can update the item. Reuses the `point.visible` convention the
+   * renderer already honours to drop hidden slices.
+   */
+  toggleLegendItem(position: number): boolean | null {
+    const point = this.legendPoints()[position];
+    if (!point) return null;
+    point.visible = point.visible === false;
+    this.redraw();
+    return point.visible !== false;
   }
 
   /**

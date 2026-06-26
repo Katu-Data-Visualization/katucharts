@@ -220,8 +220,17 @@ export class LayoutEngine {
 
     let maxLabel = 0;
     visibleSeries.forEach((s, i) => {
-      const w = measureTextWidth(s.name || `Series ${i + 1}`, fontPx);
-      if (w > maxLabel) maxLabel = w;
+      /**
+       * Pie legends list one item per slice, so the reserved width must fit the
+       * widest slice name rather than the series name.
+       */
+      const labels = s._internalType === 'pie' && Array.isArray(s.data)
+        ? s.data.map(p => (p && typeof p === 'object' ? (p as { name?: string }).name : undefined) || '')
+        : [s.name || `Series ${i + 1}`];
+      for (const label of labels) {
+        const w = measureTextWidth(label, fontPx);
+        if (w > maxLabel) maxLabel = w;
+      }
     });
     let width = symbolWidth + symbolPadding + maxLabel;
 
