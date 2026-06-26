@@ -4,18 +4,18 @@
  * Validation is hybrid:
  *  - Offline: Ed25519 signature check, synchronous and instant. The bundle
  *    carries only the public key, so it can verify keys but never sign them.
- *    This alone governs behaviour when no verifyUrl is configured.
- *  - Online (opt-in via configureLicensing): a background POST to the issuing
- *    backend confirms the key is genuine, the subscription is active, and the
- *    current host is within the key's seat limit. Results are cached with an
- *    offline grace window. In 'strict' mode, once the grace window lapses a
- *    successful online check becomes mandatory; in 'lenient' mode an unreachable
- *    backend falls back to the offline signature.
+ *  - Online: a background POST to the issuing backend confirms the key is
+ *    genuine, the subscription is active, and the current host is within the
+ *    key's seat limit. Results are cached with an offline grace window. In
+ *    'strict' mode, once the grace window lapses a successful online check
+ *    becomes mandatory; in 'lenient' mode an unreachable backend falls back to
+ *    the offline signature.
  */
 
 import { ed25519 } from '@noble/curves/ed25519.js';
 
 declare const __KATU_LICENSE_PUBLIC_KEY__: string;
+declare const __KATU_LICENSE_VERIFY_URL__: string;
 
 export interface LicensePayload {
   customer: string;
@@ -60,12 +60,17 @@ const VERIFY_TIMEOUT_MS = 8000;
  */
 const DEFAULT_PUBLIC_KEY = '3ab57dfcba56a3c6b1949906ef075ff6536f2a40b328a77733e4d8d837cb6abe';
 
+const DEFAULT_VERIFY_URL = 'https://charts.katudv.com/api/v1/license/verify';
+
+const BUILTIN_VERIFY_URL =
+  typeof __KATU_LICENSE_VERIFY_URL__ !== 'undefined' ? __KATU_LICENSE_VERIFY_URL__ : DEFAULT_VERIFY_URL;
+
 class LicenseManagerClass {
   private licenseKey: string | null = null;
   private payload: LicensePayload | null = null;
   private offlineValid = false;
 
-  private verifyUrl: string | null = null;
+  private verifyUrl: string | null = BUILTIN_VERIFY_URL || null;
   private mode: LicenseMode = 'lenient';
   private gracePeriodMs = DEFAULT_GRACE_MS;
   private recheckIntervalMs = DEFAULT_RECHECK_MS;

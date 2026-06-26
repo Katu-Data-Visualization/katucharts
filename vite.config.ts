@@ -38,6 +38,9 @@ export default defineConfig({
     __KATU_LICENSE_PUBLIC_KEY__: JSON.stringify(
       process.env.KATU_LICENSE_PUBLIC_KEY || '3ab57dfcba56a3c6b1949906ef075ff6536f2a40b328a77733e4d8d837cb6abe',
     ),
+    __KATU_LICENSE_VERIFY_URL__: JSON.stringify(
+      process.env.KATU_LICENSE_VERIFY_URL || 'https://charts.katudv.com/api/v1/license/verify',
+    ),
   },
   build: {
     lib: {
