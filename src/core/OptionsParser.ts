@@ -121,6 +121,21 @@ export class OptionsParser {
         }
       }
     }
+    /**
+     * Pictorial charts render a silhouette gauge, not a plotted grid, so axis
+     * gridlines (the y-axis ones plus the category x-axis verticals) only show
+     * through the shape as stray lines. Suppress them on both axes.
+     */
+    const isPictorial = chartType === 'pictorial' ||
+      (Array.isArray(result.series) && result.series.some(s => s.type === 'pictorial'));
+    if (isPictorial) {
+      for (const axes of [result.xAxis, result.yAxis]) {
+        if (Array.isArray(axes)) {
+          for (const ax of axes as any[]) ax.gridLineWidth = 0;
+        }
+      }
+    }
+
     const hasPolar = !!(result.chart as any)?.polar;
     const chartTypeForPolar = result.chart?.type;
     if (hasPolar && Array.isArray(result.series)) {
@@ -540,6 +555,7 @@ export class OptionsParser {
       } as InternalConfig['chart'],
       title: options.title || {},
       subtitle: options.subtitle || {},
+      caption: options.caption || {},
       xAxis,
       yAxis,
       colorAxis: (options.colorAxis as any[]) || [],

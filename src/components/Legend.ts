@@ -115,7 +115,14 @@ export class Legend {
     this.series = series;
     this.group.selectAll('*').remove();
 
-    let visibleSeries = series.filter(s => s.config.showInLegend !== false);
+    /**
+     * A series bound to another via `linkedTo` (e.g. an arearange band attached
+     * to its line) is not listed in the legend — it shares the parent's entry,
+     * matching the convention for linked series.
+     */
+    let visibleSeries = series.filter(s =>
+      s.config.showInLegend !== false && !(s.config as any).linkedTo
+    );
     if (visibleSeries.length === 0) return;
 
     if (this.config.reversed) {

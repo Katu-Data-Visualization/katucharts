@@ -92,7 +92,7 @@ export class PieChart extends BaseSeries {
   }
 
   render(): void {
-    const { plotArea, colors } = this.context;
+    const { plotArea } = this.context;
     const ignoreHidden = this.config.ignoreHiddenPoint !== false;
     const rawData = this.data.filter(d => d.y !== null && d.y !== undefined && (d.y ?? 0) > 0);
     const data = ignoreHidden
@@ -102,16 +102,47 @@ export class PieChart extends BaseSeries {
 
     const outsideDls = this.dataLabelConfigs().filter(d => (d.distance ?? 30) >= 0);
     const labelsEnabled = outsideDls.length > 0;
-    const labelMargin = labelsEnabled
-      ? Math.max(...outsideDls.map(d => (d.distance ?? 30) + 10))
-      : 0;
 
     const center = this.config.center || ['50%', '50%'];
     const cx = this.resolvePercent(center[0], plotArea.width);
     const cy = this.resolvePercent(center[1], plotArea.height);
 
-    const availableW = plotArea.width - labelMargin * 2;
-    const availableH = plotArea.height - labelMargin;
+    const startAngle = (this.config.startAngle ?? 0) * Math.PI / 180;
+    const endAngle = this.config.endAngle !== undefined
+      ? this.config.endAngle * Math.PI / 180
+      : startAngle + 2 * Math.PI;
+
+    const totalValue = data.reduce((s, d) => s + (d.y ?? 0), 0);
+
+    const pieGen = d3Pie<PointOptions>()
+      .value(d => d.y ?? 0)
+      .sort(null)
+      .startAngle(startAngle)
+      .endAngle(endAngle);
+
+    const pieData = pieGen(data);
+
+    const totalAngleSpan = endAngle - startAngle;
+    for (const d of pieData) {
+      (d.data as any).percentage = ((d.endAngle - d.startAngle) / totalAngleSpan) * 100;
+      (d.data as any).total = totalValue;
+    }
+
+    /**
+     * Reserve plot space for external labels from their measured text width, not a
+     * flat radial estimate. A label like "Organic Search 42%" needs far more
+     * horizontal room than `distance + 10`, so without this the pie is sized too
+     * large and the labels run off the edge of a narrow (mobile) card. The vertical
+     * reserve stays radial since side labels stack vertically; the horizontal
+     * reserve is capped per side so one very long label can't collapse the pie —
+     * the renderer's ellipsis fallback covers that residual case.
+     */
+    const labelMargins = labelsEnabled
+      ? this.measureLabelMargins(pieData, outsideDls, plotArea.width)
+      : { horizontal: 0, vertical: 0 };
+
+    const availableW = plotArea.width - labelMargins.horizontal * 2;
+    const availableH = plotArea.height - labelMargins.vertical;
     const availableSpace = Math.min(availableW, availableH);
     const minDim = Math.min(plotArea.width, plotArea.height);
     const hasExplicitSize = this.config.size !== undefined && this.config.size !== null;
@@ -126,12 +157,6 @@ export class PieChart extends BaseSeries {
     const innerRadius = this.resolvePercent(this.config.innerSize || 0, outerRadius * 2) / 2;
     const depth = this.config.depth ?? 0;
 
-    const startAngle = (this.config.startAngle ?? 0) * Math.PI / 180;
-    const endAngle = this.config.endAngle !== undefined
-      ? this.config.endAngle * Math.PI / 180
-      : startAngle + 2 * Math.PI;
-
-    const totalValue = data.reduce((s, d) => s + (d.y ?? 0), 0);
     const fillColor = this.config.fillColor;
     if (totalValue === 0 && fillColor) {
       const g = this.group.append('g').attr('transform', `translate(${cx},${cy})`);
@@ -141,12 +166,6 @@ export class PieChart extends BaseSeries {
       g.append('path').attr('d', emptyArc({}) as string).attr('fill', resolveFillPaint(fillColor, g, '#cccccc'));
       return;
     }
-
-    const pieGen = d3Pie<PointOptions>()
-      .value(d => d.y ?? 0)
-      .sort(null)
-      .startAngle(startAngle)
-      .endAngle(endAngle);
 
     const borderRadiusVal = this.resolveBorderRadius(this.config.borderRadius);
     const arcGen = d3Arc<any>()
@@ -159,14 +178,6 @@ export class PieChart extends BaseSeries {
       .innerRadius(innerRadius)
       .outerRadius(outerRadius + slicedOffset * 0.4)
       .cornerRadius(borderRadiusVal);
-
-    const pieData = pieGen(data);
-
-    const totalAngleSpan = endAngle - startAngle;
-    for (const d of pieData) {
-      (d.data as any).percentage = ((d.endAngle - d.startAngle) / totalAngleSpan) * 100;
-      (d.data as any).total = totalValue;
-    }
 
     const g = this.group.append('g')
       .attr('transform', `translate(${cx},${cy})`);
@@ -182,11 +193,7 @@ export class PieChart extends BaseSeries {
     const selectBorderWidth = this.config.states?.select?.borderWidth;
     const inactiveOpacity = this.config.states?.inactive?.opacity ?? 0.4;
 
-    const getSliceColor = (d: any, i: number): string => {
-      if (d.data.color) return d.data.color;
-      if (this.config.colors) return this.config.colors[i % this.config.colors.length];
-      return colors[i % colors.length];
-    };
+    const getSliceColor = (d: any, i: number): string => this.resolveSliceColor(d.data, i);
 
     const computeSlicedTranslate = (d: any): string => {
       const midAngle = (d.startAngle + d.endAngle) / 2;
@@ -327,6 +334,76 @@ export class PieChart extends BaseSeries {
     }
   }
 
+  /**
+   * The colour of slice `index`: an explicit per-point colour wins, then the
+   * series palette, then the chart palette — matching the slice fill so labels,
+   * connectors and measurement all agree.
+   */
+  private resolveSliceColor(point: any, index: number): string {
+    if (point.color) return point.color;
+    if (this.config.colors) return this.config.colors[index % this.config.colors.length];
+    const ctxColors = this.context.colors;
+    return ctxColors[index % ctxColors.length];
+  }
+
+  /**
+   * Resolves a point's label to its rendered text (formatter/format/fallback,
+   * HTML stripped) plus any inline `color:` declared in the markup. Shared by the
+   * sizing pre-pass and the renderer so the measured width can't drift from what
+   * is actually drawn.
+   */
+  private resolveLabelText(
+    dlCfg: DataLabelOptions, point: any, sliceColor: string
+  ): { text: string; inlineColor?: string } {
+    const pointCtx = { ...point, color: sliceColor };
+    let text: string;
+    if (dlCfg.formatter) {
+      text = dlCfg.formatter.call({
+        point: pointCtx, series: { name: this.config.name },
+        x: point.x, y: point.y, percentage: point.percentage,
+      });
+    } else if (dlCfg.format) {
+      text = templateFormat(dlCfg.format, {
+        point: pointCtx, series: { name: this.config.name },
+      });
+    } else {
+      text = point.name || String(point.y);
+    }
+    let inlineColor: string | undefined;
+    const colorMatch = /(?:^|[\s;"'])color\s*:\s*([^;"'>]+)/i.exec(text);
+    if (colorMatch) inlineColor = sanitizeColor(colorMatch[1], sliceColor);
+    return { text: stripHtmlTags(text), inlineColor };
+  }
+
+  /**
+   * Plot space to reserve for external labels, measured from real text widths.
+   * Horizontal: the widest `distance + textWidth + connectorPadding` over each
+   * side, capped at a third of the plot width per side so a single long label
+   * can't shrink the pie to nothing. Vertical: the radial `distance + 10`, since
+   * side labels stack vertically and don't consume horizontal text room.
+   */
+  private measureLabelMargins(
+    pieData: any[], dlCfgs: DataLabelOptions[], plotWidth: number
+  ): { horizontal: number; vertical: number } {
+    let leftReq = 0, rightReq = 0, vertical = 0;
+    for (const dlCfg of dlCfgs) {
+      const distance = dlCfg.distance ?? 30;
+      const connectorPadding = dlCfg.connectorPadding ?? 5;
+      const fontPx = parseFontSizePx((dlCfg.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE);
+      vertical = Math.max(vertical, distance + 10);
+      for (const d of pieData) {
+        const sliceColor = this.resolveSliceColor(d.data, d.index);
+        const { text } = this.resolveLabelText(dlCfg, d.data, sliceColor);
+        const required = distance + measureTextWidth(text, fontPx) + connectorPadding;
+        const midAngle = (d.startAngle + d.endAngle) / 2;
+        if (midAngle < Math.PI) rightReq = Math.max(rightReq, required);
+        else leftReq = Math.max(leftReq, required);
+      }
+    }
+    const horizontal = Math.min(Math.max(leftReq, rightReq), plotWidth * 0.22);
+    return { horizontal, vertical };
+  }
+
   private renderPieLabels(
     g: any, pieData: any[], arcGen: any,
     outerRadius: number, totalAngle: number, dlCfg: DataLabelOptions,
@@ -359,17 +436,15 @@ export class PieChart extends BaseSeries {
     interface LabelInfo {
       lx: number; ly: number; text: string; midAngle: number;
       centroid: [number, number]; percentage: number; data: any;
-      visible: boolean; color: string; inlineColor?: string;
+      visible: boolean; color: string; inlineColor?: string; availWidth?: number;
     }
     const labels: LabelInfo[] = [];
 
-    const { colors } = this.context;
     pieData.forEach((d: any, idx: number) => {
       const percentage = (d.data as any).percentage as number;
       const centroid = arcGen.centroid(d) as [number, number];
       const midAngle = (d.startAngle + d.endAngle) / 2;
-      const sliceColor = d.data.color
-        || (this.config.colors ? this.config.colors[idx % this.config.colors.length] : colors[idx % colors.length]);
+      const sliceColor = this.resolveSliceColor(d.data, idx);
       const labelR = outerRadius + labelDistance;
       let lx = labelR * Math.sin(midAngle);
       let ly = -labelR * Math.cos(midAngle);
@@ -379,40 +454,27 @@ export class PieChart extends BaseSeries {
         lx = isRight ? plotHalfWidth - 5 : -(plotHalfWidth - 5);
       }
 
-      let text: string;
-      let inlineColor: string | undefined;
       /**
-       * Resolve `{point.color}` against the slice's actual colour so a format
-       * like `<b style="color:{point.color}">{point.name}</b>` yields real markup
-       * we can read the colour back from.
+       * Resolve the rendered text and any inline `color:` from the label markup
+       * (e.g. `<b style="color:{point.color}">{point.name}</b>`) via the same path
+       * the sizing pre-pass measured, so width and drawing stay in lockstep.
        */
-      const pointCtx = { ...d.data, color: sliceColor };
-      if (dlCfg.formatter) {
-        text = dlCfg.formatter.call({
-          point: pointCtx, series: { name: this.config.name },
-          x: d.data.x, y: d.data.y, percentage,
-        });
-      } else if (dlCfg.format) {
-        text = templateFormat(dlCfg.format, {
-          point: pointCtx, series: { name: this.config.name },
-        });
-      } else {
-        text = d.data.name || String(d.data.y);
-      }
-      /**
-       * Honour an inline `color:` in the label markup. We render the
-       * format's HTML, so a per-point colour declared there tints the label; we
-       * capture it before stripping the tags for the SVG <text>, reproducing the
-       * original coloured-label look instead of falling back to flat black.
-       */
-      const colorMatch = /(?:^|[\s;"'])color\s*:\s*([^;"'>]+)/i.exec(text);
-      if (colorMatch) inlineColor = sanitizeColor(colorMatch[1], sliceColor);
-      text = stripHtmlTags(text);
+      const { text, inlineColor } = this.resolveLabelText(dlCfg, d.data, sliceColor);
 
       labels.push({ lx, ly, text, midAngle, centroid, percentage, data: d.data, visible: true, color: sliceColor, inlineColor });
     });
 
     if (!isInside && !dlCfg.allowOverlap) {
+      /**
+       * Pre-compute each label's available width from its initial anchor so the
+       * vertical declutter can reserve the real (wrapped) height — a long name
+       * that breaks onto 2-3 lines needs more room than a single line, otherwise
+       * stacked multi-line labels overlap.
+       */
+      for (const l of labels) {
+        const anchorX = centerX + l.lx;
+        l.availWidth = (l.lx >= 0 ? plotW - anchorX : anchorX) - 6;
+      }
       const rightLabels = labels.filter(l => l.midAngle < Math.PI);
       const leftLabels = labels.filter(l => l.midAngle >= Math.PI);
       this.distribute(rightLabels, labelHeight, plotHalfHeight, plotHalfWidth, fontSize);
@@ -426,18 +488,13 @@ export class PieChart extends BaseSeries {
         const isRight = l.midAngle < Math.PI;
         l.lx = isRight ? Math.max(newLx, outerRadius * 0.3) : -Math.max(newLx, outerRadius * 0.3);
         /**
-         * Keep the label text inside the plot horizontally so long names don't run
-         * off the edge of a narrow (mobile) card — ellipsis-truncate to the space
-         * left between the label anchor (centre + lx) and the near plot edge. Right
-         * labels run toward the right edge, left labels toward the left edge.
+         * Record the horizontal space left between the label anchor (centre + lx)
+         * and the near plot edge. Long names wrap onto multiple lines at render
+         * time (see wrapLabelLines) instead of being ellipsis-truncated, so the
+         * full name stays readable when there's vertical room.
          */
         const anchorX = centerX + l.lx;
-        const avail = (l.lx >= 0 ? plotW - anchorX : anchorX) - 6;
-        if (avail > fontPx && measureTextWidth(l.text, fontPx) > avail) {
-          let t = l.text;
-          while (t.length > 1 && measureTextWidth(t + '…', fontPx) > avail) t = t.slice(0, -1);
-          l.text = t.trimEnd() + '…';
-        }
+        l.availWidth = (l.lx >= 0 ? plotW - anchorX : anchorX) - 6;
       }
     } else if (isInside && !dlCfg.allowOverlap) {
       /**
@@ -518,20 +575,65 @@ export class PieChart extends BaseSeries {
         }
       }
 
+      const labelX = (isInside ? centroid[0] : lx) + (dlCfg.x ?? 0);
       const labelEl = labelsGroup.append('text')
-        .attr('x', (isInside ? centroid[0] : lx) + (dlCfg.x ?? 0))
+        .attr('x', labelX)
         .attr('y', (isInside ? centroid[1] : ly) + (dlCfg.y ?? 0))
         .attr('text-anchor', isInside ? 'middle' : (isRight ? 'start' : 'end'))
         .attr('dominant-baseline', 'middle')
         .attr('font-size', fontSize)
         .attr('fill', inlineColor || fontColor)
-        .style('pointer-events', 'none')
-        .text(text);
+        .style('pointer-events', 'none');
+      if (!isInside && info.availWidth) {
+        this.wrapLabelLines(labelEl, text, info.availWidth, fontPx, labelX);
+      } else {
+        labelEl.text(text);
+      }
 
       const dlStyle = dlCfg.style || {};
-      if (dlStyle.fontWeight) labelEl.attr('font-weight', dlStyle.fontWeight as string);
+      labelEl.attr('font-weight', (dlStyle.fontWeight as string) || 'bold');
       if (dlStyle.fontFamily) labelEl.attr('font-family', dlStyle.fontFamily as string);
       if (dlStyle.textOutline) labelEl.style('text-shadow', dlStyle.textOutline as string);
+    });
+  }
+
+  /**
+   * Renders a pie label on one line, or word-wraps it onto multiple lines when
+   * it exceeds the horizontal space before the plot edge — so long category
+   * names break instead of being ellipsis-truncated. Lines are vertically
+   * centered on the anchor; an over-long run is capped at three lines and the
+   * last is ellipsized.
+   */
+  private wrapLabelLines(
+    textEl: any, text: string, maxWidth: number, fontPx: number, x: number
+  ): void {
+    if (!(maxWidth > fontPx) || measureTextWidth(text, fontPx) <= maxWidth) {
+      textEl.text(text);
+      return;
+    }
+    const words = String(text).split(/\s+/).filter(Boolean);
+    const lines: string[] = [];
+    let cur = '';
+    for (const w of words) {
+      const trial = cur ? `${cur} ${w}` : w;
+      if (cur && measureTextWidth(trial, fontPx) > maxWidth) { lines.push(cur); cur = w; }
+      else cur = trial;
+    }
+    if (cur) lines.push(cur);
+
+    const maxLines = 3;
+    if (lines.length > maxLines) {
+      let last = lines.slice(maxLines - 1).join(' ');
+      while (last.length > 1 && measureTextWidth(`${last}…`, fontPx) > maxWidth) last = last.slice(0, -1);
+      lines.length = maxLines - 1;
+      lines.push(`${last.trimEnd()}…`);
+    }
+
+    textEl.text(null);
+    const lineHeight = fontPx * 1.15;
+    const startDy = -((lines.length - 1) / 2) * lineHeight;
+    lines.forEach((ln, i) => {
+      textEl.append('tspan').attr('x', x).attr('dy', i === 0 ? startDy : lineHeight).text(ln);
     });
   }
 
@@ -544,7 +646,7 @@ export class PieChart extends BaseSeries {
    * regions instead of fanning every label out on a long leader line.
    */
   private distribute(
-    labels: { lx: number; ly: number; text: string; midAngle: number; percentage: number; visible: boolean }[],
+    labels: { lx: number; ly: number; text: string; midAngle: number; percentage: number; visible: boolean; availWidth?: number }[],
     labelHeight: number,
     halfHeight: number,
     plotHalfWidth: number,
@@ -566,9 +668,10 @@ export class PieChart extends BaseSeries {
       label: typeof active[0];
     }
 
+    const fontPx = parseFontSizePx(fontSize);
     const boxes: Box[] = active.map(l => ({
       target: l.ly - top,
-      size: labelHeight,
+      size: labelHeight * this.estimateLabelLines(l.text, l.availWidth ?? Infinity, fontPx),
       rank: l.percentage,
       pos: 0,
       removed: false,
@@ -587,9 +690,17 @@ export class PieChart extends BaseSeries {
       if (box.removed) {
         box.label.visible = false;
       } else {
-        box.label.ly = top + box.pos + labelHeight / 2;
+        box.label.ly = top + box.pos + box.size / 2;
       }
     }
+  }
+
+  /** Estimated wrapped line count for a label (1-3), from its width vs available space. */
+  private estimateLabelLines(text: string, maxWidth: number, fontPx: number): number {
+    if (!(maxWidth > fontPx)) return 1;
+    const w = measureTextWidth(text, fontPx);
+    if (w <= maxWidth) return 1;
+    return Math.min(3, Math.ceil(w / maxWidth));
   }
 
   private distributeBoxes(

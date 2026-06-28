@@ -112,11 +112,15 @@ KatuCharts.use(FinanceModule);
 | `areaspline` | Smooth filled area |
 | `column` | Vertical bars (stacked, grouped, or range) |
 | `bar` | Horizontal bars (inverted column) |
+| `columnrange` | Columns spanning a low–high range per category |
+| `arearange` | Filled band between low and high values |
+| `areasplinerange` | Smooth filled band between low and high values |
 | `scatter` | Point cloud |
 | `bubble` | Scatter with Z-value as radius |
 | `heatmap` | 2D grid with color scale |
 | `boxplot` | Box-and-whisker distribution |
 | `waterfall` | Cumulative change visualization |
+| `pictorial` | Stacked column whose fill is masked to a custom SVG silhouette (proportional gauge) |
 
 ### Core — Non-Cartesian
 
@@ -167,7 +171,6 @@ KatuCharts.use(FinanceModule);
 | `heikinashi` | Heikin-Ashi candlestick |
 | `hollowcandlestick` | Hollow candlestick |
 | `volume` | Trading volume bars |
-| `arearange` | Area between range boundaries |
 | `baseline` | Profit/loss from a baseline value |
 | `flags` | Event markers on a series |
 | `renko` | Fixed-move block chart |
@@ -409,9 +412,17 @@ Manually fires a chart event.
     text: 'Optional subtitle',
     align: 'center',
     style: { color: '#666666' }
+  },
+  caption: {
+    text: 'Source: World Bank, 2024',   // source/footnote shown in a band at the bottom
+    align: 'left',                       // 'left' | 'center' | 'right'
+    style: { fontSize: '11px', color: '#666666' }
   }
 }
 ```
+
+`caption` accepts the same options as `title`/`subtitle` and renders below the
+plot. The text may contain inline HTML.
 
 ### xAxis / yAxis
 
@@ -431,7 +442,7 @@ Both accept a single object or an array for multiple axes.
 | `tickLength` | `number` | `10` | Tick mark length |
 | `tickWidth` | `number` | `1` | Tick mark width |
 | `tickPosition` | `'inside' \| 'outside'` | `'outside'` | |
-| `gridLineWidth` | `number` | `1` | Grid line width |
+| `gridLineWidth` | `number` | `0` | Grid line width (set `> 0` to show grid lines) |
 | `gridLineColor` | `string` | `'#e6e6e6'` | |
 | `gridLineDashStyle` | `string` | `'Solid'` | |
 | `lineWidth` | `number` | `1` | Axis line width |
@@ -480,8 +491,11 @@ Each object in the `series` array accepts these options:
 | `borderRadius` | `number` | `0` | Column corner radius |
 | `marker` | `object` | — | `{ enabled, symbol, radius, fillColor, lineWidth, lineColor }` |
 | `dataLabels` | `object` | — | `{ enabled, format, formatter, style, position }` |
-| `stacking` | `'normal' \| 'percent'` | — | Stack series |
+| `stacking` | `'normal' \| 'percent'` | — | Stack series; positive and negative values diverge to opposite sides of the baseline |
 | `stack` | `string \| number` | — | Stack group identifier |
+| `linkedTo` | `string \| ':previous' \| ':next'` | — | Bind to another series (id or relative); linked series share one legend entry and hover/highlight as a unit |
+| `zIndex` | `number` | `0` | Paint order — higher draws on top |
+| `paths` | `{ definition: string }[]` | — | SVG silhouette paths for the `pictorial` type, cycled per point |
 | `negativeColor` | `string` | — | Color for values below threshold |
 | `threshold` | `number \| null` | `0` | |
 | `zones` | `Zone[]` | — | `[{ value, color, fillColor, dashStyle }]` |
@@ -593,6 +607,7 @@ KatuCharts.chart('container', {
 |--------|------|---------|-------------|
 | `enabled` | `boolean` | `true` | |
 | `shared` | `boolean` | `false` | Show all series at the hovered X |
+| `crosshairs` | `boolean \| [boolean, boolean]` | `false` | Show axis crosshairs at the hovered point; `true` for the x-axis, or `[x, y]` to control each axis |
 | `split` | `boolean` | `false` | Separate callout per series |
 | `useHTML` | `boolean` | `false` | Render tooltip content as HTML |
 | `followPointer` | `boolean` | `false` | Move with cursor |

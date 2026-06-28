@@ -18,6 +18,9 @@ import { BarRaceChart } from '../series/race/BarRaceChart';
 import { TreegraphChart } from '../series/hierarchical/TreegraphChart';
 import { WordcloudChart } from '../series/hierarchical/WordcloudChart';
 import { ItemChart, ClassroomChart } from '../series/item/ItemChart';
+import { PictorialChart } from '../series/pictorial/PictorialChart';
+import { AreaRangeChart, AreaSplineRangeChart } from '../series/financial/AreaRangeChart';
+import { ColumnRangeChart } from '../series/financial/ColumnRangeChart';
 
 export function registerGeneralSeriesTypes(): void {
   ChartRegistry.registerType('waterfall', WaterfallChart);
@@ -40,4 +43,8 @@ export function registerGeneralSeriesTypes(): void {
   ChartRegistry.registerType('wordcloud', WordcloudChart);
   ChartRegistry.registerType('item', ItemChart);
   ChartRegistry.registerType('classroom', ClassroomChart);
+  ChartRegistry.registerType('pictorial', PictorialChart);
+  ChartRegistry.registerType('arearange', AreaRangeChart);
+  ChartRegistry.registerType('areasplinerange', AreaSplineRangeChart);
+  ChartRegistry.registerType('columnrange', ColumnRangeChart);
 }

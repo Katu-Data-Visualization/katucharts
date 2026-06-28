@@ -16,7 +16,7 @@ import {
   EASE_ENTRY,
   EASE_HOVER,
 } from '../core/animationConstants';
-import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE, readableTextColor } from '../utils/chartText';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE, readableTextColor, parseFontSizePx, measureTextWidth } from '../utils/chartText';
 
 export interface SeriesContext {
   plotArea: PlotArea;
@@ -31,7 +31,12 @@ export interface SeriesContext {
   totalSeriesOfType?: number;
   indexInType?: number;
   animate?: boolean;
+  /** Positive-side running stack offset, also aliased as the plain offset for all-positive consumers (area/radar). */
   stackOffsets?: Map<number | string, number>;
+  /** Running same-sign stack offset for this series, split so diverging stacks (e.g. pyramids) fill opposite sides of zero. */
+  stackOffsetsPos?: Map<number | string, number>;
+  stackOffsetsNeg?: Map<number | string, number>;
+  /** Absolute stack height per category (positive sum + |negative sum|), used as the percent-stacking denominator. */
   stackTotals?: Map<number | string, number>;
   allSeries?: BaseSeries[];
   inverted?: boolean;
@@ -591,7 +596,9 @@ export abstract class BaseSeries {
   protected renderDataLabels(
     data: PointOptions[],
     getX: (d: PointOptions, i: number) => number,
-    getY: (d: PointOptions, i: number) => number
+    getY: (d: PointOptions, i: number) => number,
+    getPlacement?: (d: PointOptions, i: number, textWidth: number) => { x: number; anchor: 'start' | 'middle' | 'end' } | null,
+    defaultDy = -10
   ): void {
     const dlConfig = this.config.dataLabels;
     if (!dlConfig?.enabled) return;
@@ -623,6 +630,19 @@ export abstract class BaseSeries {
         text = String(d.y);
       }
 
+      /**
+       * A formatter (or format) may return inline HTML like
+       * `<span style="color:#fff">12%</span>` to color the label. Rather than
+       * print the raw markup, pull the color out of the span and strip the tags
+       * so the text shows in that color.
+       */
+      let htmlColor: string | undefined;
+      if (typeof text === 'string' && text.indexOf('<') !== -1) {
+        const colorMatch = text.match(/color:\s*([^;"')]+)/i);
+        if (colorMatch) htmlColor = colorMatch[1].trim();
+        text = stripHtmlTags(text);
+      }
+
       if (merged.filter) {
         const propVal = (d as any)[merged.filter.property ?? 'y'] ?? 0;
         const op = merged.filter.operator ?? '>';
@@ -637,7 +657,7 @@ export abstract class BaseSeries {
       }
 
       const px = getX(d, i) + (merged.x ?? 0);
-      const py = getY(d, i) + (merged.y ?? -10);
+      const py = getY(d, i) + (merged.y ?? defaultDy);
 
       const label = labelsGroup.append('text')
         .attr('x', px)
@@ -656,10 +676,26 @@ export abstract class BaseSeries {
       label
         .style('font-size', style.fontSize ?? DEFAULT_CHART_TEXT_SIZE)
         .style('font-weight', style.fontWeight ?? 'bold')
-        .style('fill', merged.color || style.color || this.autoLabelColor());
+        .style('fill', merged.color || htmlColor || style.color || this.autoLabelColor());
 
       if (style.textOutline) {
         label.style('text-shadow', style.textOutline as string);
+      }
+
+      /**
+       * Width-aware placement (e.g. a horizontal bar's value label that sits
+       * outside the bar end, but flips inside when it would overflow the plot).
+       * Runs after styling so the measured width reflects the final font.
+       */
+      if (getPlacement) {
+        /**
+         * Estimate the width rather than read getComputedTextLength: the latter
+         * returns 0 (or a pre-font value) when the label is measured before the
+         * SVG has laid out, which made the outside/inside decision flip wrongly.
+         */
+        const textWidth = measureTextWidth(text, parseFontSizePx((style.fontSize as string) || DEFAULT_CHART_TEXT_SIZE));
+        const placed = getPlacement(d, i, textWidth);
+        if (placed) label.attr('x', placed.x).attr('text-anchor', placed.anchor);
       }
 
       if (merged.rotation) {

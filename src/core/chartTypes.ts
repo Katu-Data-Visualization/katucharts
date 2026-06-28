@@ -37,13 +37,13 @@ export const NON_CARTESIAN_TYPES: ReadonlySet<string> = new Set([
  */
 export const SELF_RENDERED_DATALABEL_TYPES: ReadonlySet<string> = new Set([
   'line', 'spline', 'column', 'bar', 'scatter', 'bubble',
-  'area', 'areaspline', 'boxplot', 'waterfall', 'volume',
+  'area', 'areaspline', 'boxplot', 'waterfall', 'volume', 'pictorial',
 ]);
 
 /**
  * Series types whose geometry overflows the plot area and must not be clipped.
  */
-export const NO_CLIP_TYPES: ReadonlySet<string> = new Set(['pie', 'venn', 'forestplot', 'pcoa', 'item', 'classroom']);
+export const NO_CLIP_TYPES: ReadonlySet<string> = new Set(['pie', 'venn', 'forestplot', 'pcoa', 'item', 'classroom', 'pictorial']);
 
 /**
  * Series types whose markers extend beyond data extents and need the plot clip
@@ -54,7 +54,7 @@ export const EXPAND_TYPES: ReadonlySet<string> = new Set(['scatter', 'bubble']);
 /**
  * Cartesian series types that should anchor their value axis at zero by default.
  */
-export const ZERO_BASE_TYPES: ReadonlySet<string> = new Set(['column', 'bar', 'area', 'areaspline', 'waterfall']);
+export const ZERO_BASE_TYPES: ReadonlySet<string> = new Set(['column', 'bar', 'area', 'areaspline', 'waterfall', 'pictorial']);
 
 /**
  * Returns true when the given series type uses cartesian x/y axes.

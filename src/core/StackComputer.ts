@@ -37,3 +37,36 @@ export function accumulateStackTotals(
   }
   return totals;
 }
+
+/**
+ * Accumulates each point's `y` into separate positive and negative running
+ * sums keyed by `x`. This is what enables diverging stacks (e.g. a population
+ * pyramid): positive values stack one way from the zero baseline and negative
+ * values the other, instead of being summed into a single signed total that
+ * collapses them onto the same side. For all-positive stacks the negative map
+ * stays empty, so the positive sums match the plain accumulator exactly.
+ */
+export function accumulateSignedStackTotals(
+  data: ReadonlyArray<StackPoint>,
+  pos: Map<number | string, number>,
+  neg: Map<number | string, number>
+): void {
+  for (const d of data) {
+    const xKey = d.x ?? 0;
+    const v = d.y ?? 0;
+    if (v < 0) {
+      neg.set(xKey, (neg.get(xKey) || 0) + v);
+    } else {
+      pos.set(xKey, (pos.get(xKey) || 0) + v);
+    }
+  }
+}
+
+/** Absolute stack height at `xKey` = positive sum + magnitude of negative sum. */
+export function absStackTotal(
+  xKey: number | string,
+  pos: Map<number | string, number>,
+  neg: Map<number | string, number>
+): number {
+  return (pos.get(xKey) || 0) + Math.abs(neg.get(xKey) || 0);
+}

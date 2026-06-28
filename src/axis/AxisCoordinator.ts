@@ -17,7 +17,7 @@ import type { LayoutResult } from '../layout/LayoutEngine';
 import type { BaseSeries } from '../series/BaseSeries';
 import type { AxisInstance } from './Axis';
 import { NO_AXES_TYPES, ZERO_BASE_TYPES, isNonCartesianChart } from '../core/chartTypes';
-import { stackKey, accumulateStackTotals } from '../core/StackComputer';
+import { stackKey, accumulateSignedStackTotals } from '../core/StackComputer';
 
 type AxisGroup = ReturnType<SVGRenderer['createGroup']>;
 
@@ -105,14 +105,15 @@ export class AxisCoordinator {
 
       let yMin = Infinity, yMax = -Infinity;
 
-      const stackGroups = new Map<string, Map<number | string, number>>();
+      const stackPos = new Map<string, Map<number | string, number>>();
+      const stackNeg = new Map<string, Map<number | string, number>>();
       for (let si = 0; si < relatedSeries.length; si++) {
         const s = relatedSeries[si];
         const cfg = relatedConfigs[si];
         if (cfg?.stacking) {
           const key = stackKey(cfg);
-          if (!stackGroups.has(key)) stackGroups.set(key, new Map());
-          accumulateStackTotals(s.data, stackGroups.get(key)!);
+          if (!stackPos.has(key)) { stackPos.set(key, new Map()); stackNeg.set(key, new Map()); }
+          accumulateSignedStackTotals(s.data, stackPos.get(key)!, stackNeg.get(key)!);
         } else {
           const ext = s.getDataExtents();
           yMin = Math.min(yMin, ext.yMin);
@@ -121,18 +122,16 @@ export class AxisCoordinator {
       }
 
       const hasPercentStacking = relatedConfigs.some(cfg => cfg?.stacking === 'percent');
+      const hasNegativeStack = [...stackNeg.values()].some(m => [...m.values()].some(v => v < 0));
       if (hasPercentStacking) {
-        yMin = 0;
+        yMin = hasNegativeStack ? -100 : 0;
         yMax = 100;
-        axis.config.min = 0;
+        axis.config.min = yMin;
         axis.config.max = 100;
-      }
-      for (const accum of stackGroups.values()) {
-        if (!hasPercentStacking) {
-          for (const total of accum.values()) {
-            yMin = Math.min(yMin, 0);
-            yMax = Math.max(yMax, total);
-          }
+      } else {
+        for (const key of stackPos.keys()) {
+          for (const v of stackPos.get(key)!.values()) yMax = Math.max(yMax, v, 0);
+          for (const v of stackNeg.get(key)!.values()) yMin = Math.min(yMin, v, 0);
         }
       }
 

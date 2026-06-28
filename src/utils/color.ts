@@ -56,7 +56,7 @@ export function parseColor(input: string | undefined | null): KatuChartsColor {
 }
 
 export const PALETTES: Record<string, string[]> = {
-  default:    ['#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f','#edc948','#b07aa1','#ff9da7','#9c755f','#bab0ac'],
+  default:    ['#2caffe','#544fc5','#00e272','#fe6a35','#6b8abc','#d568fb','#2ee0ca','#fa4b42','#feb56a','#91e8e1'],
   tableau10:  ['#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f','#edc948','#b07aa1','#ff9da7','#9c755f','#bab0ac'],
   d3classic:  ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf'],
   brewer:     ['#66c2a5','#fc8d62','#8da0cb','#e78ac3','#a6d854','#ffd92f','#e5c494','#b3b3b3'],

@@ -70,14 +70,40 @@ export class InteractionController {
     const inactiveOpacity = this.host.getOptions().plotOptions?.series?.states?.inactive?.opacity ?? 0.2;
     let restoreTimer: ReturnType<typeof setTimeout> | null = null;
 
+    /**
+     * Resolves a series' link-group root by following `linkedTo`
+     * (`:previous`/`:next`/id). Series in the same group (e.g. a line and its
+     * linked area band) are treated as one unit, so hovering one does not dim
+     * the others.
+     */
+    const linkRoot = (list: BaseSeries[], i: number): number => {
+      let idx = i;
+      for (let guard = 0; guard < list.length; guard++) {
+        const lt = list[idx]?.config.linkedTo;
+        if (lt == null) break;
+        let parent = -1;
+        if (lt === ':previous') parent = idx - 1;
+        else if (lt === ':next') parent = idx + 1;
+        else parent = list.findIndex(s => s.config.id === lt);
+        if (parent < 0 || parent === idx) break;
+        idx = parent;
+      }
+      return idx;
+    };
+
     const dimOtherSeries = (hoveredSeries: BaseSeries) => {
       if (restoreTimer) {
         clearTimeout(restoreTimer);
         restoreTimer = null;
       }
-      for (const s of this.host.getSeriesInstances()) {
+      const list = this.host.getSeriesInstances();
+      const hoveredIdx = list.indexOf(hoveredSeries);
+      const hoveredRoot = hoveredIdx >= 0 ? linkRoot(list, hoveredIdx) : -1;
+      for (let i = 0; i < list.length; i++) {
+        const s = list[i];
         s['group']?.interrupt?.('seriesDim');
-        if (s !== hoveredSeries && s.visible) {
+        const sameGroup = hoveredIdx >= 0 && linkRoot(list, i) === hoveredRoot;
+        if (!sameGroup && s.visible) {
           s['group']?.transition?.('seriesDim')?.duration?.(200)?.attr?.('opacity', inactiveOpacity);
         } else {
           s['group']?.attr?.('opacity', s.config.opacity ?? 1);

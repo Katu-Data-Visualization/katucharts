@@ -10,9 +10,23 @@ import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig } from '../../types/options';
 import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
+import { parseColor } from '../../utils/color';
 import { ENTRY_DURATION, EASE_ENTRY } from '../../core/animationConstants';
 
 type Orientation = 'horizontal' | 'vertical';
+
+/**
+ * Resolves a label halo into a stroke width/color drawn behind the text fill.
+ * Accepts the `'<n>px <color>'` shorthand; defaults to a thin white halo so
+ * labels stay legible over links and colored nodes.
+ */
+function parseTextOutline(outline: string | false | undefined): { width: number; color: string } | null {
+  if (outline === false || outline === 'none' || outline === '0') return null;
+  if (outline == null) return { width: 3, color: '#ffffff' };
+  const m = /^([\d.]+)px\s+(.+)$/.exec(outline.trim());
+  if (m) return { width: parseFloat(m[1]), color: /contrast/i.test(m[2]) ? '#ffffff' : m[2].trim() };
+  return { width: 3, color: '#ffffff' };
+}
 
 interface TreegraphNodeDatum {
   id?: string | number;
@@ -121,23 +135,38 @@ export class TreegraphChart extends BaseSeries {
       (this.config as any).layout === 'vertical' ? 'vertical' : 'horizontal';
     const link = (this.config as any).link || {};
     const nodeRadius = (this.config as any).marker?.radius ?? 6;
+    const markerFill = (this.config as any).marker?.fillColor;
+    const markerLineWidth = (this.config as any).marker?.lineWidth;
     const linkColor = link.color || '#cccccc';
     const linkWidth = link.lineWidth ?? 1;
     const useCluster = (this.config as any).layoutAlgorithm === 'cluster';
     const levels: any[] = (this.config as any).levels || [];
     const dataLabels = this.config.dataLabels || {};
+    const labelsEnabled = dataLabels.enabled !== false;
     const labelFontSize = (dataLabels.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
     const labelColor = dataLabels.color || (dataLabels.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
+    const labelOffsetX = (dataLabels as any).x;
+    const labelOffsetY = (dataLabels as any).y ?? 0;
+    const outline = parseTextOutline(dataLabels.style?.textOutline as any);
 
     const root = this.buildRoot(rawData);
     if (!root) return;
 
-    const layoutSize: [number, number] = orientation === 'horizontal'
-      ? [plotArea.height, plotArea.width]
-      : [plotArea.width, plotArea.height];
+    /**
+     * Compress the depth axis so the tree clusters toward the start, leaving the
+     * far side free for node labels to extend into; the cross axis fills the plot.
+     */
+    const depthCount = Math.max(1, root.height);
+    const crossSize = orientation === 'horizontal' ? plotArea.height : plotArea.width;
+    const depthExtent = orientation === 'horizontal' ? plotArea.width : plotArea.height;
+    const levelGap = labelsEnabled
+      ? Math.min(160, (depthExtent * 0.5) / depthCount)
+      : depthExtent / depthCount;
     const layout = useCluster ? cluster() : tree();
-    layout.size(layoutSize);
+    layout.size([crossSize, levelGap * depthCount]);
     layout(root);
+
+    this.assignColors(root, levels, colors);
 
     const nodeX = (d: any) => orientation === 'horizontal' ? d.y : d.x;
     const nodeY = (d: any) => orientation === 'horizontal' ? d.x : d.y;
@@ -149,12 +178,6 @@ export class TreegraphChart extends BaseSeries {
 
     const nodes = root.descendants();
     const linksData = root.links();
-
-    const levelColor = (depth: number): string => {
-      const lvl = levels.find((l: any) => l.level === depth);
-      if (lvl?.color) return lvl.color;
-      return colors[depth % Math.max(1, colors.length)] || '#2f7ed8';
-    };
 
     rootGroup.append('g')
       .attr('class', 'katucharts-treegraph-links')
@@ -175,21 +198,31 @@ export class TreegraphChart extends BaseSeries {
 
     nodeGroup.append('circle')
       .attr('r', nodeRadius)
-      .attr('fill', (d: any) => d.data?.color || levelColor(d.depth))
-      .attr('stroke', this.autoBorderColor())
-      .attr('stroke-width', 1);
+      .attr('fill', (d: any) => markerFill ?? d.__color)
+      .attr('stroke', (d: any) => markerFill ? d.__color : this.autoBorderColor())
+      .attr('stroke-width', markerLineWidth ?? 1);
 
-    if (dataLabels.enabled !== false) {
-      nodeGroup.append('text')
+    if (labelsEnabled) {
+      /**
+       * Branch nodes label toward the start (their children sit on the far side),
+       * leaves toward the end — so labels never collide with the next level.
+       */
+      const offsetX = labelOffsetX ?? (nodeRadius + 4);
+      const text = nodeGroup.append('text')
+        .attr('x', orientation === 'horizontal' ? (d: any) => d.children ? -offsetX : offsetX : 0)
+        .attr('y', labelOffsetY)
         .attr('dy', orientation === 'horizontal' ? '0.32em' : nodeRadius + 12)
-        .attr('x', orientation === 'horizontal' ? (d: any) => d.children ? -(nodeRadius + 4) : (nodeRadius + 4) : 0)
-        .attr('text-anchor', orientation === 'horizontal'
-          ? (d: any) => d.children ? 'end' : 'start'
-          : 'middle')
+        .attr('text-anchor', orientation === 'horizontal' ? (d: any) => d.children ? 'end' : 'start' : 'middle')
         .attr('font-size', labelFontSize)
         .attr('fill', labelColor)
         .style('pointer-events', 'none')
         .text((d: any) => d.data?.name ?? d.data?.id ?? '');
+      if (outline) {
+        text.attr('stroke', outline.color)
+          .attr('stroke-width', outline.width)
+          .attr('paint-order', 'stroke')
+          .style('stroke-linejoin', 'round');
+      }
     }
 
     if (this.context.animate) {
@@ -199,6 +232,39 @@ export class TreegraphChart extends BaseSeries {
         .ease(EASE_ENTRY)
         .attr('opacity', 1);
     }
+  }
+
+  /**
+   * Assigns a color to each node top-down following the level options: explicit
+   * per-point or per-level color, `colorByPoint` cycling the palette across a
+   * level, or `colorVariation` brightening the inherited parent color across
+   * siblings. Result is stored as `__color` on each node.
+   */
+  private assignColors(root: any, levels: any[], colors: string[]): void {
+    const counters = new Map<number, number>();
+    const palette = colors.length ? colors : ['#2f7ed8'];
+    root.each((node: any) => {
+      const levelCfg = levels.find((l: any) => l.level === node.depth + 1);
+      if (node.data?.color) {
+        node.__color = node.data.color;
+      } else if (levelCfg?.color) {
+        node.__color = levelCfg.color;
+      } else if (levelCfg?.colorByPoint) {
+        const n = (counters.get(node.depth) ?? -1) + 1;
+        counters.set(node.depth, n);
+        node.__color = palette[n % palette.length];
+      } else if (levelCfg?.colorVariation && node.parent?.__color) {
+        const cv = levelCfg.colorVariation;
+        const sibs: any[] = node.parent.children || [node];
+        const frac = sibs.length > 1 ? sibs.indexOf(node) / (sibs.length - 1) : 0;
+        const amount = (cv.key === 'brightness' ? (cv.to ?? 0) : 0) * frac * 10;
+        node.__color = parseColor(node.parent.__color).brighten(amount).toString();
+      } else if (node.parent?.__color) {
+        node.__color = node.parent.__color;
+      } else {
+        node.__color = palette[node.depth % palette.length];
+      }
+    });
   }
 
   private buildRoot(data: TreegraphNodeDatum[]): any | null {

@@ -11,6 +11,7 @@ export interface LayoutResult {
   titleArea: { x: number; y: number; width: number; height: number };
   subtitleArea: { x: number; y: number; width: number; height: number };
   legendArea: { x: number; y: number; width: number; height: number };
+  captionArea: { x: number; y: number; width: number; height: number };
 }
 
 export class LayoutEngine {
@@ -72,6 +73,18 @@ export class LayoutEngine {
       bottom += (nav.height ?? 40) + (nav.margin ?? 20);
     }
 
+    /**
+     * Reserve a band at the very bottom for the caption ("source" note),
+     * measured with HTML tags stripped so markup doesn't inflate the estimate.
+     */
+    const captionPlain = config.caption?.text ? config.caption.text.replace(/<[^>]*>/g, '') : '';
+    const captionTextHeight = captionPlain
+      ? this.estimateWrappedTextHeight(captionPlain, config.caption?.style, chartWidth - 24)
+      : 0;
+    if (captionTextHeight > 0) {
+      bottom += captionTextHeight + 8;
+    }
+
     const isNonCartesian = this.isNonCartesian(config);
     const inv = !!config.chart.inverted;
 
@@ -80,7 +93,7 @@ export class LayoutEngine {
       : config;
     const yAxisLeftWidth = isNonCartesian ? 0 : this.estimateAxisWidth(layoutConfig, true, chartHeight, chartWidth);
     const yAxisRightWidth = isNonCartesian ? 0 : this.estimateAxisWidth(layoutConfig, false, chartHeight, chartWidth);
-    const xAxisBottomHeight = isNonCartesian ? 0 : this.estimateAxisHeight(layoutConfig);
+    const xAxisBottomHeight = isNonCartesian ? 0 : this.estimateAxisHeight(layoutConfig, chartWidth);
 
     let colorAxisRightWidth = 0;
     if (hasHeatmap && config.colorAxis?.length > 0 && config.legend?.layout === 'vertical') {
@@ -120,6 +133,12 @@ export class LayoutEngine {
             width: chartWidth,
             height: legendHeight,
           },
+      captionArea: {
+        x: spacing.left,
+        y: chartHeight - spacing.bottom - captionTextHeight,
+        width: chartWidth - spacing.left - spacing.right,
+        height: captionTextHeight,
+      },
     };
   }
 
@@ -383,7 +402,7 @@ export class LayoutEngine {
     return 25;
   }
 
-  private estimateAxisHeight(config: InternalConfig): number {
+  private estimateAxisHeight(config: InternalConfig, chartWidth = 600): number {
     const axes = config.xAxis.filter(a => !a.opposite);
     if (axes.length === 0) return 0;
 
@@ -409,13 +428,24 @@ export class LayoutEngine {
           labelHeight = 45;
         } else if (axis.categories && axis.categories.length > 0) {
           /**
-           * Category labels are laid out horizontally; when they would collide the
-           * renderer thins them out (hiding labels) rather than rotating, so a
-           * single text line is always enough vertical room. Reserving rotated
-           * height here only left a large empty band between the plot and legend.
+           * Category labels render horizontally when they fit. When they would
+           * collide and auto-rotation is enabled, the renderer rotates them
+           * (keeping all labels) — so reserve the rotated height in that case,
+           * estimated from the longest label. Otherwise a single text line is
+           * enough vertical room.
            */
           const fontSize = parseFontSizePx(axis.labels?.style?.fontSize as string || DEFAULT_CHART_TEXT_SIZE);
-          labelHeight = Math.max(fontSize + 8, 20);
+          const autoRotates = Array.isArray(axis.labels?.autoRotation) && axis.labels!.autoRotation!.length > 0;
+          let maxLen = 0;
+          for (const cat of axis.categories) if (cat.length > maxLen) maxLen = cat.length;
+          const perCategoryWidth = (chartWidth * 0.85) / axis.categories.length;
+          const willOverlap = maxLen * fontSize * 0.6 + 4 > perCategoryWidth;
+          if (autoRotates && willOverlap) {
+            const angleRad = Math.abs((axis.labels!.autoRotation as number[])[0] || 45) * (Math.PI / 180);
+            labelHeight = Math.max(30, Math.min(maxLen * fontSize * 0.62 * Math.sin(angleRad), 150));
+          } else {
+            labelHeight = Math.max(fontSize + 8, 20);
+          }
         }
       } else {
         labelHeight = 0;

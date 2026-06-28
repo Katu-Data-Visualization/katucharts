@@ -155,7 +155,10 @@ class BaseAxis {
       const style = cfg.labels?.style || {};
       axisGroup.selectAll('.tick text')
         .attr('fill', style.color as string || this.autoText())
-        .style('font-size', style.fontSize as string || DEFAULT_CHART_TEXT_SIZE);
+        .style('font-size', style.fontSize as string || DEFAULT_CHART_TEXT_SIZE)
+        .style('font-weight', ((style.fontWeight as string) || null) as any)
+        .style('font-family', ((style.fontFamily as string) || null) as any)
+        .style('font-style', ((style.fontStyle as string) || null) as any);
 
       if (cfg.labels?.x !== undefined || cfg.labels?.y !== undefined) {
         const dx = cfg.labels?.x ?? 0;
@@ -246,16 +249,23 @@ class BaseAxis {
     if (ticks.length < 2) return;
     if (!this.hasLabelOverlap(ticks)) return;
 
-    this.applyAutoStep(axisGroup, ticks);
-    const visibleTicks = ticks.filter(t => (t.style as any).display !== 'none');
-    if (!this.hasLabelOverlap(visibleTicks)) return;
+    /**
+     * Rotate every label to keep them all visible — the conventional response to
+     * crowded axis labels. Labels are shown in full at the rotated angle rather
+     * than thinning every Nth one out; only when even rotated labels are denser
+     * than roughly half a character width do we step them to avoid a solid smear.
+     */
+    const rotation = rotations.length > 0 ? rotations[0] : -45;
+    ticks.forEach(t => { (t.style as any).display = ''; });
+    axisGroup.selectAll('.tick text')
+      .attr('transform', `rotate(${rotation})`)
+      .style('text-anchor', rotation < 0 ? 'end' : 'start');
 
-    for (const rotation of (rotations.length > 0 ? rotations : [-45])) {
-      ticks.forEach(t => { (t.style as any).display = ''; });
-      axisGroup.selectAll('.tick text')
-        .attr('transform', `rotate(${rotation})`)
-        .style('text-anchor', rotation < 0 ? 'end' : 'start');
-      break;
+    const range = this.getRange() as [number, number];
+    const axisLength = Math.abs(range[1] - range[0]);
+    const perLabel = axisLength / Math.max(1, ticks.length - 1);
+    if (perLabel < 6) {
+      this.applyAutoStep(axisGroup, ticks);
     }
   }
 
@@ -308,6 +318,8 @@ class BaseAxis {
     plotArea: PlotArea,
     explicitTicks?: number[]
   ): void {
+    if (this.config.visible === false) return;
+
     const gridWidth = this.config.gridLineWidth;
     if (!gridWidth || gridWidth <= 0) return;
 

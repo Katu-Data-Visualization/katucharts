@@ -77,7 +77,7 @@ function wrapSvgText(textEl: any, maxWidth: number, x: number, fontSize: number)
 export function renderTitles(ctx: TitleRenderContext): void {
   const { titleGroup, container, options, layout, chartWidth } = ctx;
   titleGroup.selectAll('*').remove();
-  container.querySelectorAll('.katucharts-title-html, .katucharts-subtitle-html').forEach(el => el.remove());
+  container.querySelectorAll('.katucharts-title-html, .katucharts-subtitle-html, .katucharts-caption-html').forEach(el => el.remove());
 
   if (options.title?.text) {
     const titleOpts = options.title;
@@ -128,5 +128,17 @@ export function renderTitles(ctx: TitleRenderContext): void {
         .text(subOpts.text!);
       wrapSvgText(subEl, maxWidth, x, parseFontSizePx(fontSize));
     }
+  }
+
+  if (options.caption?.text) {
+    const capOpts = options.caption;
+    const fontSize = (capOpts.style?.fontSize as string) || '11px';
+    const div = document.createElement('div');
+    div.className = 'katucharts-caption-html';
+    div.innerHTML = capOpts.text!;
+    div.style.cssText = `position:absolute;top:${layout.captionArea.y}px;left:0;width:100%;`
+      + `text-align:${capOpts.align || 'left'};color:${(capOpts.style?.color as string) || '#666666'};`
+      + `font-size:${fontSize};line-height:1.25;box-sizing:border-box;padding:0 12px;pointer-events:none;`;
+    container.appendChild(div);
   }
 }

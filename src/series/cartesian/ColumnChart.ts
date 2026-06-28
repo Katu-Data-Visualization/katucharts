@@ -72,7 +72,7 @@ export class ColumnChart extends BaseSeries {
     super(config);
   }
 
-  private getEntryDuration(): number {
+  protected getEntryDuration(): number {
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
     return animOpts.duration ?? ENTRY_DURATION;
   }
@@ -87,14 +87,17 @@ export class ColumnChart extends BaseSeries {
 
     const { barWidth, barOffset, baseline } = this.computeBarGeometry();
     const stacking = this.config.stacking;
-    const stackOffsets = this.context.stackOffsets;
+    const stackOffsetsPos = this.context.stackOffsetsPos;
+    const stackOffsetsNeg = this.context.stackOffsetsNeg;
+    const offsetFor = (d: PointOptions): number =>
+      (((d.y ?? 0) < 0 ? stackOffsetsNeg?.get(d.x ?? 0) : stackOffsetsPos?.get(d.x ?? 0)) || 0);
     const isPercent = stacking === 'percent';
 
     const percentTotals = isPercent ? this.context.stackTotals : undefined;
 
     const getStackedY = (d: PointOptions): number => {
       const xKey = d.x ?? 0;
-      const offset = stackOffsets?.get(xKey) || 0;
+      const offset = offsetFor(d);
       const val = d.y ?? 0;
       if (isPercent && percentTotals) {
         const total = percentTotals.get(xKey) || 1;
@@ -105,7 +108,7 @@ export class ColumnChart extends BaseSeries {
 
     const getStackedBase = (d: PointOptions): number => {
       const xKey = d.x ?? 0;
-      const offset = stackOffsets?.get(xKey) || 0;
+      const offset = offsetFor(d);
       if (isPercent && percentTotals) {
         const total = percentTotals.get(xKey) || 1;
         return (offset / total) * 100;
@@ -414,7 +417,10 @@ export class ColumnChart extends BaseSeries {
     const data = this.data;
     const { barWidth, barOffset, baseline } = this.computeBarGeometry();
     const stacking = this.config.stacking;
-    const stackOffsets = this.context.stackOffsets;
+    const stackOffsetsPos = this.context.stackOffsetsPos;
+    const stackOffsetsNeg = this.context.stackOffsetsNeg;
+    const offsetFor = (d: PointOptions): number =>
+      (((d.y ?? 0) < 0 ? stackOffsetsNeg?.get(d.x ?? 0) : stackOffsetsPos?.get(d.x ?? 0)) || 0);
     const isPercent = stacking === 'percent';
     const crisp = this.config.crisp !== false;
     const borderRadius = resolveBorderRadius(this.config.borderRadius);
@@ -424,7 +430,7 @@ export class ColumnChart extends BaseSeries {
 
     const getStackedY = (d: PointOptions): number => {
       const xKey = d.x ?? 0;
-      const offset = stackOffsets?.get(xKey) || 0;
+      const offset = offsetFor(d);
       const val = d.y ?? 0;
       if (isPercent && percentTotals) {
         const total = percentTotals.get(xKey) || 1;
@@ -435,7 +441,7 @@ export class ColumnChart extends BaseSeries {
 
     const getStackedBase = (d: PointOptions): number => {
       const xKey = d.x ?? 0;
-      const offset = stackOffsets?.get(xKey) || 0;
+      const offset = offsetFor(d);
       if (isPercent && percentTotals) {
         const total = percentTotals.get(xKey) || 1;
         return (offset / total) * 100;
@@ -554,7 +560,7 @@ export class ColumnChart extends BaseSeries {
     return { barWidth, barOffset, baseline, groupWidth };
   }
 
-  private getPointColor(
+  protected getPointColor(
     d: PointOptions, i: number, seriesColor: string,
     negativeColor?: string, threshold?: number
   ): string {
@@ -569,7 +575,7 @@ export class ColumnChart extends BaseSeries {
     return seriesColor;
   }
 
-  private renderColumnDataLabels(
+  protected renderColumnDataLabels(
     data: PointOptions[], barWidth: number, barOffset: number, baseline: number,
     getStackedY?: (d: PointOptions) => number, getStackedBase?: (d: PointOptions) => number
   ): void {
@@ -579,11 +585,33 @@ export class ColumnChart extends BaseSeries {
     const { xAxis, yAxis } = this.context;
     const inside = dlConfig.inside ?? false;
 
+    const plotW = this.context.plotArea.width;
+    const barEndX = (d: PointOptions): number =>
+      getStackedY ? yAxis.getPixelForValue(getStackedY(d)) : yAxis.getPixelForValue(d.y ?? 0);
+
+    /**
+     * Horizontal-bar value labels sit just outside the bar's end, and flip to
+     * the inside (right-aligned) when there's no room left before the plot edge
+     * — so a near-100% bar's label stays readable instead of overflowing/clipping.
+     */
+    const horizontalPlacement = (this.isHorizontal && !inside)
+      ? (d: PointOptions, _i: number, textWidth: number) => {
+          const end = barEndX(d);
+          const outsidePad = 6;
+          const insidePad = 10;
+          if (end + outsidePad + textWidth <= plotW) {
+            return { x: end + outsidePad, anchor: 'start' as const };
+          }
+          const x = Math.max(end - insidePad, textWidth + 2);
+          return { x, anchor: 'end' as const };
+        }
+      : undefined;
+
     this.renderDataLabels(
       data,
       (d) => {
         if (this.isHorizontal) {
-          const py = yAxis.getPixelForValue(d.y ?? 0);
+          const py = barEndX(d);
           return inside ? (py + baseline) / 2 : py - 5;
         }
         return xAxis.getPixelForValue(d.x ?? 0) + barOffset + barWidth / 2;
@@ -596,11 +624,13 @@ export class ColumnChart extends BaseSeries {
           ? yAxis.getPixelForValue(getStackedY(d))
           : yAxis.getPixelForValue(d.y ?? 0);
         return inside ? (py + baseline) / 2 : py;
-      }
+      },
+      horizontalPlacement,
+      this.isHorizontal ? 0 : -10
     );
   }
 
-  private attachHoverEffects(bars: any, data: PointOptions[]): void {
+  protected attachHoverEffects(bars: any, data: PointOptions[]): void {
     if (this.config.enableMouseTracking === false) return;
 
     const { xAxis, yAxis } = this.context;

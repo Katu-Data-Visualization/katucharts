@@ -14,7 +14,7 @@ export type SeriesType =
   | 'candlestick' | 'ohlc' | 'heikinashi' | 'hollowcandlestick'
   | 'volume' | 'arearange' | 'baseline' | 'flags'
   | 'renko' | 'kagi' | 'pointandfigure' | 'linebreak'
-  | 'waterfall' | 'boxplot'
+  | 'waterfall' | 'boxplot' | 'pictorial'
   | 'funnel' | 'pyramid'
   | 'timeline' | 'gantt'
   | 'map' | 'mappoint' | 'flowmap'
@@ -130,6 +130,9 @@ export interface TitleOptions {
 }
 
 export interface SubtitleOptions extends TitleOptions {}
+
+/** Source/footnote text rendered in a band at the bottom of the chart. */
+export interface CaptionOptions extends TitleOptions {}
 
 export interface AxisLabelOptions {
   enabled?: boolean;
@@ -617,6 +620,8 @@ export interface SeriesOptions {
   borderWidth?: number;
   borderColor?: string;
   borderRadius?: number | BorderRadiusOptions;
+  /** Silhouette path definitions for the pictorial series, indexed (and cycled) by point. */
+  paths?: { definition: string }[];
   colorByPoint?: boolean;
   colors?: string[];
   innerSize?: string | number;
@@ -1139,6 +1144,7 @@ export interface KatuChartsOptions {
   chart?: ChartOptions;
   title?: TitleOptions;
   subtitle?: SubtitleOptions;
+  caption?: CaptionOptions;
   xAxis?: AxisOptions | AxisOptions[];
   yAxis?: AxisOptions | AxisOptions[];
   colorAxis?: ColorAxisOptions | ColorAxisOptions[];
@@ -1197,6 +1203,7 @@ export interface InternalConfig {
   chart: Required<Pick<ChartOptions, 'width' | 'height' | 'backgroundColor' | 'animation' | 'reflow'>> & ChartOptions;
   title: TitleOptions;
   subtitle: SubtitleOptions;
+  caption?: CaptionOptions;
   xAxis: InternalAxisConfig[];
   yAxis: InternalAxisConfig[];
   colorAxis: ColorAxisOptions[];

@@ -33,7 +33,7 @@ import {
   NO_CLIP_TYPES,
   isNonCartesianChart,
 } from './chartTypes';
-import { stackKey, accumulateStackTotals } from './StackComputer';
+import { stackKey, accumulateStackTotals, accumulateSignedStackTotals, absStackTotal } from './StackComputer';
 import { renderTitles as renderChartTitles } from '../components/TitleRenderer';
 import { createFixedAxisOverlay as buildFixedAxisOverlay } from './ScrollablePlotOverlay';
 import { ChartExporter } from '../export/ChartExporter';
@@ -463,8 +463,20 @@ export class Chart {
       );
     }
 
-    const xCrosshair = this.options.xAxis[0]?.crosshair;
-    const yCrosshair = this.options.yAxis[0]?.crosshair;
+    let xCrosshair = this.options.xAxis[0]?.crosshair;
+    let yCrosshair = this.options.yAxis[0]?.crosshair;
+    /**
+     * `tooltip.crosshairs` (true or [x, y]) is the conventional shorthand for
+     * enabling axis crosshairs alongside a shared tooltip; honor it when the
+     * axes themselves don't already opt in.
+     */
+    const ttCrosshairs = (this.options.tooltip as any)?.crosshairs;
+    if (ttCrosshairs) {
+      const cx = Array.isArray(ttCrosshairs) ? ttCrosshairs[0] : ttCrosshairs;
+      const cy = Array.isArray(ttCrosshairs) ? ttCrosshairs[1] : false;
+      if (cx && !xCrosshair) xCrosshair = (typeof cx === 'object' ? cx : true) as any;
+      if (cy && !yCrosshair) yCrosshair = (typeof cy === 'object' ? cy : true) as any;
+    }
     if (xCrosshair || yCrosshair) {
       this.crosshair = new Crosshair(xCrosshair, yCrosshair, this.plotGroup as any, this.layout.plotArea, this.events);
     }
@@ -697,6 +709,25 @@ export class Chart {
     this.axes.updateAxesDomains();
   }
 
+  /**
+   * Folds per-group positive and negative stack sums into a single absolute-
+   * height map per category, used as the denominator for percent stacking.
+   */
+  private buildAbsStackTotals(
+    pos: Map<string, Map<number | string, number>>,
+    neg: Map<string, Map<number | string, number>>
+  ): Map<string, Map<number | string, number>> {
+    const out = new Map<string, Map<number | string, number>>();
+    for (const sk of pos.keys()) {
+      const m = new Map<number | string, number>();
+      const p = pos.get(sk)!;
+      const n = neg.get(sk) || new Map();
+      for (const k of new Set([...p.keys(), ...n.keys()])) m.set(k, absStackTotal(k, p, n));
+      out.set(sk, m);
+    }
+    return out;
+  }
+
   private renderAxes(): void {
     this.axes.renderAxes();
   }
@@ -718,30 +749,34 @@ export class Chart {
 
     const stackSeriesCount = new Map<string, number>();
     const stackSeriesIndex = new Map<string, number>();
-    const stackTotalsMap = new Map<string, Map<number | string, number>>();
-    const precomputedOffsets = new Map<number, Map<number | string, number>>();
+    const stackTotalsPos = new Map<string, Map<number | string, number>>();
+    const stackTotalsNeg = new Map<string, Map<number | string, number>>();
+    const precomputedOffsetsPos = new Map<number, Map<number | string, number>>();
+    const precomputedOffsetsNeg = new Map<number, Map<number | string, number>>();
     for (let i = 0; i < this.options.series.length; i++) {
       const cfg = this.options.series[i];
       if (cfg.stacking) {
         const sk = buildStackKey(cfg);
         stackSeriesCount.set(sk, (stackSeriesCount.get(sk) || 0) + 1);
-        if (!stackTotalsMap.has(sk)) stackTotalsMap.set(sk, new Map());
-        const totals = stackTotalsMap.get(sk)!;
+        if (!stackTotalsPos.has(sk)) { stackTotalsPos.set(sk, new Map()); stackTotalsNeg.set(sk, new Map()); }
         const s = this.seriesInstances[i];
         s.processData();
-        accumulateStackTotals(s.data, totals);
+        accumulateSignedStackTotals(s.data, stackTotalsPos.get(sk)!, stackTotalsNeg.get(sk)!);
       }
     }
 
-    const forwardStackAccum = new Map<string, Map<number | string, number>>();
+    const stackTotalsAbs = this.buildAbsStackTotals(stackTotalsPos, stackTotalsNeg);
+
+    const fwdPos = new Map<string, Map<number | string, number>>();
+    const fwdNeg = new Map<string, Map<number | string, number>>();
     for (let i = 0; i < this.options.series.length; i++) {
       const cfg = this.options.series[i];
       if (!cfg.stacking) continue;
       const sk = buildStackKey(cfg);
-      if (!forwardStackAccum.has(sk)) forwardStackAccum.set(sk, new Map());
-      const accum = forwardStackAccum.get(sk)!;
-      precomputedOffsets.set(i, new Map(accum));
-      accumulateStackTotals(this.seriesInstances[i].data, accum);
+      if (!fwdPos.has(sk)) { fwdPos.set(sk, new Map()); fwdNeg.set(sk, new Map()); }
+      precomputedOffsetsPos.set(i, new Map(fwdPos.get(sk)!));
+      precomputedOffsetsNeg.set(i, new Map(fwdNeg.get(sk)!));
+      accumulateSignedStackTotals(this.seriesInstances[i].data, fwdPos.get(sk)!, fwdNeg.get(sk)!);
     }
 
     for (let i = 0; i < this.seriesInstances.length; i++) {
@@ -754,9 +789,11 @@ export class Chart {
       const idxInType = typeIndex.get(t) || 0;
       typeIndex.set(t, idxInType + 1);
 
-      let stackOffsets: Map<number | string, number> | undefined;
+      let stackOffsetsPos: Map<number | string, number> | undefined;
+      let stackOffsetsNeg: Map<number | string, number> | undefined;
       if (cfg.stacking) {
-        stackOffsets = precomputedOffsets.get(i) || new Map();
+        stackOffsetsPos = precomputedOffsetsPos.get(i) || new Map();
+        stackOffsetsNeg = precomputedOffsetsNeg.get(i) || new Map();
       }
 
       const context: SeriesContext = {
@@ -772,8 +809,10 @@ export class Chart {
         totalSeriesOfType: cfg.stacking ? (stackSeriesCount.get(buildStackKey(cfg)) || 1) : (typeCount.get(t) || 1),
         indexInType: cfg.stacking ? (stackSeriesIndex.get(buildStackKey(cfg)) || 0) : idxInType,
         animate: chartAnimate && cfg.animation !== false,
-        stackOffsets,
-        stackTotals: cfg.stacking ? stackTotalsMap.get(buildStackKey(cfg)) : undefined,
+        stackOffsets: stackOffsetsPos,
+        stackOffsetsPos,
+        stackOffsetsNeg,
+        stackTotals: cfg.stacking ? stackTotalsAbs.get(buildStackKey(cfg)) : undefined,
         allSeries: this.seriesInstances,
         inverted: !!this.options.chart.inverted,
         legendConfig: this.options.legend,
@@ -803,6 +842,27 @@ export class Chart {
         );
       }
     }
+
+    this.reorderSeriesByZIndex();
+  }
+
+  /**
+   * Paints series in ascending `zIndex` order so a higher-zIndex series sits on
+   * top — e.g. a line (zIndex 1) over its linked area band (zIndex 0), instead
+   * of the band covering the line's markers. Stable for the all-default (0)
+   * case, so the original order is preserved when no zIndex is set.
+   */
+  private reorderSeriesByZIndex(): void {
+    const parent = (this.seriesGroup as any)?.node?.() as SVGGElement | undefined;
+    if (!parent) return;
+    const groups = Array.from(parent.querySelectorAll(':scope > g.katucharts-series')) as SVGGElement[];
+    if (groups.length < 2) return;
+    const zByIndex = new Map(this.seriesInstances.map(s => [s.config.index, s.config.zIndex ?? 0]));
+    const decorated = groups.map((g, i) => ({
+      g, i, z: zByIndex.get(Number(g.getAttribute('data-series-index'))) ?? 0,
+    }));
+    decorated.sort((a, b) => (a.z - b.z) || (a.i - b.i));
+    for (const d of decorated) parent.appendChild(d.g);
   }
 
   private renderLegend(): void {
@@ -1003,9 +1063,11 @@ export class Chart {
     const typeIndex = new Map<string, number>();
     const stackCount = new Map<string, number>();
     const stackIdx = new Map<string, number>();
-    const stackAccum = new Map<string, Map<number | string, number>>();
+    const stackAccumPos = new Map<string, Map<number | string, number>>();
+    const stackAccumNeg = new Map<string, Map<number | string, number>>();
     const buildSK = stackKey;
-    const stackTotalsMap2 = new Map<string, Map<number | string, number>>();
+    const stackTotalsPos2 = new Map<string, Map<number | string, number>>();
+    const stackTotalsNeg2 = new Map<string, Map<number | string, number>>();
     for (const s of this.seriesInstances) {
       if (!s.visible) continue;
       const t = s.config._internalType;
@@ -1013,11 +1075,12 @@ export class Chart {
       if (s.config.stacking) {
         const sk = buildSK(s.config);
         stackCount.set(sk, (stackCount.get(sk) || 0) + 1);
-        if (!stackAccum.has(sk)) stackAccum.set(sk, new Map());
-        if (!stackTotalsMap2.has(sk)) stackTotalsMap2.set(sk, new Map());
-        accumulateStackTotals(s.data, stackTotalsMap2.get(sk)!);
+        if (!stackAccumPos.has(sk)) { stackAccumPos.set(sk, new Map()); stackAccumNeg.set(sk, new Map()); }
+        if (!stackTotalsPos2.has(sk)) { stackTotalsPos2.set(sk, new Map()); stackTotalsNeg2.set(sk, new Map()); }
+        accumulateSignedStackTotals(s.data, stackTotalsPos2.get(sk)!, stackTotalsNeg2.get(sk)!);
       }
     }
+    const stackTotalsAbs2 = this.buildAbsStackTotals(stackTotalsPos2, stackTotalsNeg2);
 
     for (let i = 0; i < this.seriesInstances.length; i++) {
       const series = this.seriesInstances[i];
@@ -1030,15 +1093,17 @@ export class Chart {
 
       let totalOfType: number;
       let idxOfType: number;
-      let stackOffsets: Map<number | string, number> | undefined;
+      let stackOffsetsPos: Map<number | string, number> | undefined;
+      let stackOffsetsNeg: Map<number | string, number> | undefined;
       let stackTotals: Map<number | string, number> | undefined;
       if (cfg.stacking) {
         const sk = buildSK(cfg);
         totalOfType = stackCount.get(sk) || 1;
         idxOfType = stackIdx.get(sk) || 0;
         stackIdx.set(sk, idxOfType + 1);
-        stackOffsets = new Map(stackAccum.get(sk)!);
-        stackTotals = stackTotalsMap2.get(sk);
+        stackOffsetsPos = new Map(stackAccumPos.get(sk)!);
+        stackOffsetsNeg = new Map(stackAccumNeg.get(sk)!);
+        stackTotals = stackTotalsAbs2.get(sk);
       } else {
         totalOfType = typeCount.get(t) || 1;
         idxOfType = idxInType;
@@ -1049,14 +1114,16 @@ export class Chart {
         yAxis: this.yAxes[cfg._yAxisIndex] || this.yAxes[0],
         totalSeriesOfType: totalOfType,
         indexInType: idxOfType,
-        stackOffsets,
+        stackOffsets: stackOffsetsPos,
+        stackOffsetsPos,
+        stackOffsetsNeg,
         stackTotals,
       });
 
       series.animateUpdate(duration);
 
       if (cfg.stacking) {
-        accumulateStackTotals(series.data, stackAccum.get(buildSK(cfg))!);
+        accumulateSignedStackTotals(series.data, stackAccumPos.get(buildSK(cfg))!, stackAccumNeg.get(buildSK(cfg))!);
       }
     }
 

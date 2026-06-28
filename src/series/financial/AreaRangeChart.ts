@@ -2,6 +2,7 @@ import { BaseSeries } from '../BaseSeries';
 import { area as d3area, line as d3line, curveLinear, curveCatmullRom, type CurveFactory } from 'd3-shape';
 import type { InternalSeriesConfig } from '../../types/options';
 import { ENTRY_DURATION, EASE_ENTRY } from '../../core/animationConstants';
+import { isGradientColor, resolveFillPaint } from '../../utils/gradient';
 
 export class AreaRangeChart extends BaseSeries {
   constructor(config: InternalSeriesConfig) {
@@ -18,10 +19,21 @@ export class AreaRangeChart extends BaseSeries {
     const animate = this.context.animate;
     const data = this.data;
 
-    const color = this.getColor();
-    const fillOpacity = (this.config as any).fillOpacity ?? 0.3;
-    const fillColor = (this.config as any).fillColor || color;
-    const lineColor = (this.config as any).lineColor || color;
+    /**
+     * `color` may be a gradient object (the Highcharts pattern for arearange
+     * bands). Keep a solid base color for the line/legend, and resolve the fill
+     * — from `fillColor` or `color` — into an SVG paint (a `<linearGradient>`
+     * def referenced by url) so the band shows the gradient instead of a broken
+     * "[object Object]" black fill.
+     */
+    const rawColor = this.config.color;
+    const paletteColor = this.context.colors[this.context.colorIndex % this.context.colors.length];
+    const baseColor = this.gradientBaseColor(rawColor)
+      ?? (isGradientColor(rawColor) ? paletteColor : (rawColor || paletteColor));
+    const fillSource = (this.config as any).fillColor ?? rawColor;
+    const fillColor = resolveFillPaint(fillSource, this.group, baseColor);
+    const fillOpacity = (this.config as any).fillOpacity ?? (isGradientColor(fillSource) ? 1 : 0.3);
+    const lineColor = (this.config as any).lineColor || baseColor;
     const lineWidth = this.config.lineWidth ?? 1;
 
     const validData = data.filter(d => {
@@ -115,6 +127,70 @@ export class AreaRangeChart extends BaseSeries {
 
       this.emitAfterAnimate(ENTRY_DURATION);
     }
+
+    this.setupHoverMarkers(validData, xVal, lowVal, highVal, baseColor);
+  }
+
+  /**
+   * Picks a solid representative color from a gradient `color` (the first fully
+   * opaque stop, else the middle stop) so line/markers match the band instead
+   * of falling back to an unrelated palette color. Returns null for non-gradients.
+   */
+  private gradientBaseColor(color: unknown): string | null {
+    if (!isGradientColor(color)) return null;
+    const stops = (color as any).stops as [number, string][] | undefined;
+    if (!Array.isArray(stops) || stops.length === 0) return null;
+    for (const [, c] of stops) {
+      if (typeof c === 'string' && !/rgba?\([^)]*,\s*0?\.\d+\s*\)/.test(c)) return c;
+    }
+    return stops[Math.floor(stops.length / 2)]?.[1] ?? null;
+  }
+
+  private hoverHandlers?: { over: (p: any) => void; out: () => void };
+
+  /**
+   * Shows diamond markers at the band's high and low for the hovered category,
+   * so a shared-tooltip hover highlights the range extremes (the line series
+   * draws its own marker). Driven by the `point:mouseover` event the hovered
+   * series emits, matched by x so it works in shared mode.
+   */
+  private setupHoverMarkers(
+    validData: any[],
+    xVal: (d: any, i: number) => number,
+    lowVal: (d: any) => number,
+    highVal: (d: any) => number,
+    color: string
+  ): void {
+    const events = this.context.events;
+    if (this.hoverHandlers) {
+      events.off('point:mouseover', this.hoverHandlers.over);
+      events.off('point:mouseout', this.hoverHandlers.out);
+      events.off('series:mouseleave', this.hoverHandlers.out);
+    }
+    if (this.config.enableMouseTracking === false) return;
+
+    const g = this.group.append('g').attr('class', 'katucharts-arearange-hover').style('pointer-events', 'none');
+    const radius = this.config.marker?.radius ?? 4;
+    const mk = () => g.append('circle').attr('r', radius).attr('fill', color)
+      .attr('stroke', '#ffffff').attr('stroke-width', 1).attr('opacity', 0);
+    const high = mk();
+    const low = mk();
+
+    const byX = new Map<number | string, { x: number; hi: number; lo: number }>();
+    validData.forEach((d, i) => byX.set(d.x ?? i, { x: xVal(d, i), hi: highVal(d), lo: lowVal(d) }));
+
+    const over = (p: any): void => {
+      const pos = byX.get(p?.point?.x);
+      if (!pos) { high.attr('opacity', 0); low.attr('opacity', 0); return; }
+      high.attr('cx', pos.x).attr('cy', pos.hi).attr('opacity', 1);
+      low.attr('cx', pos.x).attr('cy', pos.lo).attr('opacity', 1);
+    };
+    const out = (): void => { high.attr('opacity', 0); low.attr('opacity', 0); };
+
+    events.on('point:mouseover', over);
+    events.on('point:mouseout', out);
+    events.on('series:mouseleave', out);
+    this.hoverHandlers = { over, out };
   }
 
   /**
