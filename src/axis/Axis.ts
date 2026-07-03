@@ -14,10 +14,10 @@ import 'd3-transition';
 import { timeFormat, utcFormat } from 'd3-time-format';
 import type { InternalAxisConfig, PlotArea, PlotBandOptions, PlotLineOptions } from '../types/options';
 import { siFormat, numberFormat, getUseUTC } from '../utils/format';
-import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE, parseFontSizePx, readableTextColor } from '../utils/chartText';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE, ROTATED_AXIS_LABEL_MAX_EXTENT, parseFontSizePx, readableTextColor } from '../utils/chartText';
 
 export type AnyScale = ScaleLinear<number, number> | ScaleLogarithmic<number, number>
-  | ScaleTime<number, number> | ScaleBand<string>;
+  | ScaleTime<number, number> | ScaleBand<number>;
 
 export interface AxisInstance {
   config: InternalAxisConfig;
@@ -111,6 +111,22 @@ class BaseAxis {
     return opposite ? axisRight(scale) : axisLeft(scale);
   }
 
+  /**
+   * Position of the axis group inside the plot: an `opposite` axis anchors to
+   * the far edge (top for a horizontal axis, right for a vertical one), matching
+   * the tick orientation `createD3Axis` picks — otherwise the ticks of an
+   * opposite axis would draw inward, into the plot area.
+   */
+  protected getTransform(plotArea: PlotArea): string {
+    const inv = this.config._inverted;
+    if (this.config.isX) {
+      if (inv) return this.config.opposite ? `translate(${plotArea.width},0)` : '';
+      return this.config.opposite ? '' : `translate(0,${plotArea.height})`;
+    }
+    if (inv) return this.config.opposite ? '' : `translate(0,${plotArea.height})`;
+    return this.config.opposite ? `translate(${plotArea.width},0)` : '';
+  }
+
   protected applyAxisStyles(
     axisGroup: Selection<SVGGElement, unknown, null, undefined>,
     plotArea: PlotArea
@@ -189,6 +205,9 @@ class BaseAxis {
         axisGroup.selectAll('.tick text')
           .attr('transform', `rotate(${cfg.labels.rotation})`)
           .style('text-anchor', cfg.labels.rotation < 0 ? 'end' : 'start');
+        if (Math.abs(Math.sin(cfg.labels.rotation * (Math.PI / 180))) > 0.01) {
+          this.truncateRotatedLabels(axisGroup, plotArea, cfg.labels.rotation);
+        }
       } else if ((cfg.isX ? !cfg._inverted : !!cfg._inverted) && cfg.labels?.autoRotation) {
         this.applyAutoRotation(axisGroup, cfg.labels.autoRotation, plotArea);
       } else if (
@@ -202,7 +221,7 @@ class BaseAxis {
          * excluded (they self-size to short numbers). Full text stays available on hover via a <title>.
          */
         const tickLen = cfg.tickLength ?? 10;
-        this.truncateSideLabels(axisGroup, plotArea.x - tickLen - 4);
+        this.truncateLabels(axisGroup, plotArea.x - tickLen - 4);
       }
     }
 
@@ -212,31 +231,67 @@ class BaseAxis {
   }
 
   /**
-   * Truncates left-of-plot horizontal tick labels that are wider than `maxWidth`, appending an ellipsis
-   * and stashing the full text in a `<title>` so it stays readable on hover. Labels that already fit are
-   * left untouched. Measured live via getComputedTextLength so it follows the host page's actual font.
+   * Truncates tick labels wider than `maxWidth`, appending an ellipsis and stashing the full text in a
+   * `<title>` so it stays readable on hover. Used both for left-of-plot category labels (capped by the
+   * side margin) and for rotated bottom labels (capped so their rotated drop stays within the reserved
+   * band). Labels that already fit are left untouched. Measured live via getComputedTextLength so it
+   * follows the host page's actual font.
    */
-  protected truncateSideLabels(
+  protected truncateLabels(
     axisGroup: Selection<SVGGElement, unknown, null, undefined>,
     maxWidth: number
   ): void {
     if (!(maxWidth > 12)) return;
-    const ELLIPSIS = '…';
-    axisGroup.selectAll<SVGTextElement, unknown>('.tick text').each(function () {
-      const node = this;
-      const full = node.textContent || '';
-      if (!full) return;
-      const fullWidth = node.getComputedTextLength();
-      if (fullWidth <= maxWidth) return;
-      let len = Math.max(1, Math.min(full.length, Math.ceil((full.length * maxWidth) / fullWidth)));
-      node.textContent = full.slice(0, len).replace(/\s+$/, '') + ELLIPSIS;
-      while (len > 1 && node.getComputedTextLength() > maxWidth) {
-        len--;
-        node.textContent = full.slice(0, len).replace(/\s+$/, '') + ELLIPSIS;
+    axisGroup.selectAll<SVGTextElement, unknown>('.tick text').each((_d, i, nodes) => {
+      this.truncateTextNode(nodes[i] as SVGTextElement, maxWidth);
+    });
+  }
+
+  /** Ellipsise one tick label to `maxWidth`, stashing the full text in a `<title>` for hover. */
+  private truncateTextNode(node: SVGTextElement, maxWidth: number): void {
+    if (!(maxWidth > 12)) return;
+    const full = node.textContent || '';
+    if (!full) return;
+    const fullWidth = node.getComputedTextLength();
+    if (fullWidth <= maxWidth) return;
+    let len = Math.max(1, Math.min(full.length, Math.ceil((full.length * maxWidth) / fullWidth)));
+    node.textContent = full.slice(0, len).replace(/\s+$/, '') + '…';
+    while (len > 1 && node.getComputedTextLength() > maxWidth) {
+      len--;
+      node.textContent = full.slice(0, len).replace(/\s+$/, '') + '…';
+    }
+    const sel = select(node);
+    sel.select('title').remove();
+    sel.append('title').text(full);
+  }
+
+  /**
+   * Truncates rotated bottom-axis labels with a per-tick width budget. Every label is capped to the
+   * reserved vertical band, and a label leaning toward an edge (lower-left for negative rotation) is
+   * additionally capped by its distance to that edge — so the labels nearest the edge are ellipsised
+   * earliest and their readable start stays on-chart, while inner labels keep their full length.
+   */
+  protected truncateRotatedLabels(
+    axisGroup: Selection<SVGGElement, unknown, null, undefined>,
+    plotArea: PlotArea,
+    rotationDeg: number
+  ): void {
+    const rad = Math.abs(rotationDeg) * (Math.PI / 180);
+    const sin = Math.sin(rad) || 1;
+    const cos = Math.abs(Math.cos(rad));
+    const bandCap = ROTATED_AXIS_LABEL_MAX_EXTENT / sin;
+    const towardLeftEdge = rotationDeg < 0;
+    axisGroup.selectAll<SVGGElement, unknown>('.tick').each((_d, i, nodes) => {
+      const tickEl = nodes[i] as SVGGElement;
+      const node = tickEl.querySelector('text') as SVGTextElement | null;
+      if (!node) return;
+      let maxWidth = bandCap;
+      if (towardLeftEdge && cos > 0.01) {
+        const m = (tickEl.getAttribute('transform') || '').match(/translate\(\s*([-\d.]+)/);
+        const tickX = plotArea.x + (m ? parseFloat(m[1]) : 0);
+        maxWidth = Math.min(bandCap, tickX / cos);
       }
-      const sel = select(node);
-      sel.select('title').remove();
-      sel.append('title').text(full);
+      this.truncateTextNode(node, maxWidth);
     });
   }
 
@@ -249,23 +304,42 @@ class BaseAxis {
     if (ticks.length < 2) return;
     if (!this.hasLabelOverlap(ticks)) return;
 
-    /**
-     * Rotate every label to keep them all visible — the conventional response to
-     * crowded axis labels. Labels are shown in full at the rotated angle rather
-     * than thinning every Nth one out; only when even rotated labels are denser
-     * than roughly half a character width do we step them to avoid a solid smear.
-     */
     const rotation = rotations.length > 0 ? rotations[0] : -45;
+    const sin = Math.abs(Math.sin(rotation * (Math.PI / 180))) || 1;
+
     ticks.forEach(t => { (t.style as any).display = ''; });
     axisGroup.selectAll('.tick text')
       .attr('transform', `rotate(${rotation})`)
       .style('text-anchor', rotation < 0 ? 'end' : 'start');
 
+    /**
+     * Truncate so each label's rotated drop stays within the reserved band AND its
+     * readable start stays on-chart. A label leaning to the lower-left runs off the
+     * left edge near the first ticks, so those get a tighter width budget (their
+     * distance to the edge) and are ellipsised earlier — matching the reference,
+     * where the leftmost labels are shortest and inner ones run full length.
+     */
+    this.truncateRotatedLabels(axisGroup, plotArea, rotation);
+
+    /**
+     * Thin to every Nth label only when the rotated strips would truly collide —
+     * their clearance is the along-axis step projected onto the label normal
+     * (step·sinθ) versus the strip's own thickness (~a font cap-height), not the
+     * upright bounding boxes. Two regimes: short codes (dates, periods) read as a
+     * scale, so they keep a full line-height of breathing room and drop
+     * intermediate ticks when crowded; long names label individual bars, so every
+     * one is kept and we step only if even their thin strips can't fit.
+     */
     const range = this.getRange() as [number, number];
-    const axisLength = Math.abs(range[1] - range[0]);
-    const perLabel = axisLength / Math.max(1, ticks.length - 1);
-    if (perLabel < 6) {
-      this.applyAutoStep(axisGroup, ticks);
+    const step = Math.abs(range[1] - range[0]) / Math.max(1, ticks.length - 1);
+    const fontPx = parseFontSizePx(this.config.labels?.style?.fontSize as string || DEFAULT_CHART_TEXT_SIZE);
+    let maxLabelWidth = 0;
+    ticks.forEach(t => { maxLabelWidth = Math.max(maxLabelWidth, t.getComputedTextLength()); });
+    const longLabels = maxLabelWidth > fontPx * 7;
+    const minGap = longLabels ? fontPx * 0.7 : fontPx * 1.1;
+    const stride = Math.max(1, Math.ceil(minGap / Math.max(step * sin, 0.5)));
+    if (stride > 1) {
+      ticks.forEach((t, i) => { (t.style as any).display = i % stride === 0 ? '' : 'none'; });
     }
   }
 
@@ -292,24 +366,6 @@ class BaseAxis {
       }
     }
     return false;
-  }
-
-  /**
-   * Hides every Nth label until labels no longer overlap, matching
-   * auto-step behavior for extreme ranges.
-   */
-  protected applyAutoStep(
-    axisGroup: Selection<SVGGElement, unknown, null, undefined>,
-    ticks: SVGTextElement[]
-  ): void {
-    const totalTicks = ticks.length;
-    for (let step = 2; step <= totalTicks; step++) {
-      ticks.forEach((t, i) => {
-        select(t).style('display', i % step === 0 ? '' : 'none');
-      });
-      const visible = ticks.filter((_, i) => i % step === 0);
-      if (!this.hasLabelOverlap(visible)) return;
-    }
   }
 
   protected renderGridLines(
@@ -612,6 +668,13 @@ class BaseAxis {
       }
 
       /**
+       * An opposite horizontal axis sits at the plot top with its labels drawn
+       * upward, so the title mirrors above the line too — below it would land
+       * inside the plot.
+       */
+      if (this.config.opposite) yPos = -yPos;
+
+      /**
        * Normally the horizontal title is centered on the plot. When the chart
        * asks for it (e.g. a heatmap whose color legend is centered on the whole
        * chart width), center the title on the chart instead so it lines up with
@@ -706,14 +769,7 @@ class BaseAxis {
       }
     }
 
-    if (this.config.labels?.formatter) {
-      const formatter = this.config.labels.formatter;
-      axisGen.tickFormat((d: any) => formatter.call({ value: d, axis: this }));
-    } else if ((this as any).linearTickFormat) {
-      axisGen.tickFormat((d: any) => (this as any).linearTickFormat(d as number, axisGen));
-    } else {
-      axisGen.tickFormat((d: any) => siFormat(d as number));
-    }
+    this.applyTickFormat(axisGen);
 
     const className = `katucharts-axis-${this.config.isX ? 'x' : 'y'}`;
     const existing = group.select<SVGGElement>(`.${className}`);
@@ -721,6 +777,24 @@ class BaseAxis {
     if (!existing.empty()) {
       (existing.transition().duration(duration) as any).call(axisGen as any);
       this.animateGridLines(group, scale, plotArea, duration);
+    }
+  }
+
+  /**
+   * Tick label formatting applied during an animated redraw. Kept separate from
+   * `render()` so a subclass that maps tick values to custom labels (category
+   * names, dates) reproduces that mapping on a legend toggle / `update()` instead
+   * of falling back to the numeric default. Subclasses overriding `render()`'s
+   * tick format must override this too, or animated redraws lose those labels.
+   */
+  protected applyTickFormat(axisGen: D3Axis<any>): void {
+    if (this.config.labels?.formatter) {
+      const formatter = this.config.labels.formatter;
+      axisGen.tickFormat((d: any) => formatter.call({ value: d, axis: this }));
+    } else if ((this as any).linearTickFormat) {
+      axisGen.tickFormat((d: any) => (this as any).linearTickFormat(d as number, axisGen));
+    } else {
+      axisGen.tickFormat((d: any) => siFormat(d as number));
     }
   }
 
@@ -947,11 +1021,23 @@ export class LinearAxis extends BaseAxis implements AxisInstance {
   }
 
   /**
-   * SI suffixes (k, M, G, T) are applied only when
-   * the tick interval is >= 1000. Below that, plain numbers with thousands separators are used.
+   * SI suffixes (k, M, G, T) are applied only when the tick interval is >= 1000.
+   * Below that, plain numbers (with thousands separators) are used, so a small
+   * step over large values — e.g. yearly periods like 2023.2 — reads as "2023.2"
+   * rather than "2.023k".
+   *
+   * The spacing is read from the rendered ticks, but those set via d3's
+   * `.ticks(count)` (the tickAmount path) expose no `tickValues()`, so fall back
+   * to the scale's own ticks; for a single-tick/degenerate domain (e.g. a series
+   * with one point) print the value plainly instead of collapsing it to a suffix.
    */
   private linearTickFormat(value: number, axisGen: D3Axis<any>): string {
-    const tickValues = (axisGen as any).tickValues?.() as number[] | null;
+    let tickValues = (axisGen as any).tickValues?.() as number[] | null;
+    if ((!tickValues || tickValues.length < 2) && (this.scale as any)?.ticks) {
+      const derived = (this.scale as any).ticks(10) as number[];
+      if (derived && derived.length >= 2) tickValues = derived;
+    }
+
     if (tickValues && tickValues.length >= 2) {
       const rawInterval = Math.abs(tickValues[1] - tickValues[0]);
       const interval = parseFloat(rawInterval.toPrecision(6));
@@ -962,19 +1048,12 @@ export class LinearAxis extends BaseAxis implements AxisInstance {
         if (decimals === 0) return formatted;
         return formatted.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
       }
+      return siFormat(value);
     }
-    return siFormat(value);
+
+    return Math.abs(value) < 1e6 ? numberFormat(value) : siFormat(value);
   }
 
-  private getTransform(plotArea: PlotArea): string {
-    const inv = this.config._inverted;
-    if (this.config.isX) {
-      if (inv) return this.config.opposite ? `translate(${plotArea.width},0)` : '';
-      return this.config.opposite ? '' : `translate(0,${plotArea.height})`;
-    }
-    if (inv) return this.config.opposite ? '' : `translate(0,${plotArea.height})`;
-    return this.config.opposite ? `translate(${plotArea.width},0)` : '';
-  }
 }
 
 export class LogarithmicAxis extends BaseAxis implements AxisInstance {
@@ -1084,10 +1163,9 @@ export class LogarithmicAxis extends BaseAxis implements AxisInstance {
       axisGen.tickFormat((d: any) => siFormat(d as number));
     }
 
-    const atBottom = this.config.isX ? !this.config._inverted : !!this.config._inverted;
     const axisGroup = group.append('g')
       .attr('class', `katucharts-axis katucharts-axis-${this.config.isX ? 'x' : 'y'}`)
-      .attr('transform', atBottom ? `translate(0,${plotArea.height})` : '');
+      .attr('transform', this.getTransform(plotArea));
 
     this.renderGridLines(group, this.scale, plotArea, ticks);
     axisGroup.call(axisGen as any);
@@ -1124,7 +1202,20 @@ export class DateTimeAxis extends BaseAxis implements AxisInstance {
     this.scale.range(this.getRange() as any);
 
     const axisGen = this.createD3Axis(this.scale);
+    this.applyTickFormat(axisGen);
 
+    const axisGroup = group.append('g')
+      .attr('class', `katucharts-axis katucharts-axis-${this.config.isX ? 'x' : 'y'}`)
+      .attr('transform', this.getTransform(plotArea));
+
+    this.renderGridLines(group, this.scale, plotArea);
+    axisGroup.call(axisGen as any);
+    this.applyAxisStyles(axisGroup, plotArea);
+    this.renderTitle(axisGroup, plotArea);
+  }
+
+  /** Render date-formatted ticks on both static and animated redraws (d3's default otherwise). */
+  protected applyTickFormat(axisGen: D3Axis<any>): void {
     if (this.config.labels?.formatter) {
       const formatter = this.config.labels.formatter;
       axisGen.tickFormat((d: any) => formatter.call({ value: d.getTime(), axis: this }));
@@ -1137,16 +1228,6 @@ export class DateTimeAxis extends BaseAxis implements AxisInstance {
         return tf(fmt)(date);
       });
     }
-
-    const atBottom = this.config.isX ? !this.config._inverted : !!this.config._inverted;
-    const axisGroup = group.append('g')
-      .attr('class', `katucharts-axis katucharts-axis-${this.config.isX ? 'x' : 'y'}`)
-      .attr('transform', atBottom ? `translate(0,${plotArea.height})` : '');
-
-    this.renderGridLines(group, this.scale, plotArea);
-    axisGroup.call(axisGen as any);
-    this.applyAxisStyles(axisGroup, plotArea);
-    this.renderTitle(axisGroup, plotArea);
   }
 
   private pickDateFormat(date: Date, fmts: Record<string, string>): string {
@@ -1177,23 +1258,46 @@ export class DateTimeAxis extends BaseAxis implements AxisInstance {
 }
 
 export class CategoryAxis extends BaseAxis implements AxisInstance {
-  scale: ScaleBand<string>;
+  scale: ScaleBand<number>;
+  /**
+   * Display names per category. The band scale is keyed by INDEX (not by name)
+   * so repeated category names — common when the same item recurs across groups
+   * (e.g. a discipline listed in several blocks) — each get their own band.
+   * Keying by name would let the band scale collapse duplicates onto one slot,
+   * orphaning every point past the last unique name onto the first band.
+   */
+  private labels: string[] = [];
 
   constructor(config: InternalAxisConfig, plotArea: PlotArea) {
     super(config, plotArea);
-    this.scale = scaleBand<string>()
+    /**
+     * Each category occupies its full step (no inner/outer gap baked into the
+     * scale). Column/bar series carve their own gaps from this full band via
+     * groupPadding/pointPadding, so any padding here would stack on top of those
+     * and shrink the bars below the conventional ~48%-of-step width. Keeping the
+     * band equal to the step also lets a single category sit half a step from
+     * each plot edge, matching the standard category-axis extents.
+     */
+    this.scale = scaleBand<number>()
       .range(this.getRange() as [number, number])
-      .paddingInner(0.3)
-      .paddingOuter(0.05);
+      .paddingInner(0)
+      .paddingOuter(0);
 
     if (config.categories) {
-      this.scale.domain(config.categories);
+      this.setCategories(config.categories);
     }
+  }
+
+  /** Sets the display names and keys the band scale by their indices. */
+  private setCategories(categories: string[]): void {
+    this.labels = categories;
+    this.scale.domain(categories.map((_, i) => i));
   }
 
   updateDomain(data: string[] | { min: number; max: number }): void {
     if (Array.isArray(data)) {
-      this.scale.domain(data).range(this.getRange() as [number, number]);
+      this.setCategories(data);
+      this.scale.range(this.getRange() as [number, number]);
     }
   }
 
@@ -1204,11 +1308,11 @@ export class CategoryAxis extends BaseAxis implements AxisInstance {
     this.scale.range(range);
 
     const axisGen = this.createD3Axis(this.scale);
+    this.applyTickFormat(axisGen);
 
-    const atBottom = this.config.isX ? !this.config._inverted : !!this.config._inverted;
     const axisGroup = group.append('g')
       .attr('class', `katucharts-axis katucharts-axis-${this.config.isX ? 'x' : 'y'}`)
-      .attr('transform', atBottom ? `translate(0,${plotArea.height})` : '');
+      .attr('transform', this.getTransform(plotArea));
 
     this.renderGridLines(group, this.scale, plotArea);
     axisGroup.call(axisGen as any);
@@ -1217,34 +1321,59 @@ export class CategoryAxis extends BaseAxis implements AxisInstance {
     this.applyAutoStepIfNeeded(axisGroup);
   }
 
+  /** Render the category name for each index-keyed tick, on both static and animated redraws. */
+  protected applyTickFormat(axisGen: D3Axis<any>): void {
+    if (this.config.labels?.formatter) {
+      const formatter = this.config.labels.formatter;
+      axisGen.tickFormat((d: any) => formatter.call({ value: this.labels[d as number] ?? d, axis: this }));
+    } else {
+      axisGen.tickFormat((d: any) => this.labels[d as number] ?? '');
+    }
+  }
+
   private applyAutoStepIfNeeded(axisGroup: Selection<SVGGElement, unknown, null, undefined>): void {
     if (this.config.labels?.enabled === false) return;
     const bandwidth = this.scale.bandwidth();
     if (bandwidth <= 0) return;
     const configFontSize = parseFontSizePx(this.config.labels?.style?.fontSize as string || DEFAULT_CHART_TEXT_SIZE);
-    if (configFontSize <= bandwidth) return;
 
+    /**
+     * Category labels stacked down the side (the category axis of a bar chart, or
+     * a left/right category y-axis) read top-to-bottom, so each needs roughly a
+     * line-height of vertical room. When many categories pack the band tighter
+     * than that, show every Nth label at full size — the conventional response to
+     * crowded category labels — rather than letting them pile into an unreadable
+     * overlap or shrinking them to illegible sizes.
+     */
+    const verticalLabels = this.config.isX ? !!this.config._inverted : !this.config._inverted;
+    if (verticalLabels) {
+      const lineHeight = configFontSize * 1.15;
+      if (bandwidth < lineHeight) {
+        const stride = Math.ceil(lineHeight / bandwidth);
+        axisGroup.selectAll<SVGTextElement, unknown>('.tick text').each(function (_d, i) {
+          (this.style as any).display = i % stride === 0 ? '' : 'none';
+        });
+      }
+      return;
+    }
+
+    if (configFontSize <= bandwidth) return;
     const minFontPx = 5;
     const sizePx = Math.min(configFontSize, Math.max(minFontPx, Math.round(bandwidth * 1.1)));
     axisGroup.selectAll('.tick text').style('font-size', `${sizePx}px`);
   }
 
   getPixelForValue(value: any): number {
-    const domain = this.scale.domain();
-    let key: string;
+    const bw = this.scale.bandwidth();
     if (typeof value === 'number') {
       const idx = Math.round(value);
-      if (idx >= 0 && idx < domain.length) {
-        key = domain[idx];
-        const basePixel = (this.scale(key) ?? 0) + this.scale.bandwidth() / 2;
-        const offset = (value - idx) * this.scale.bandwidth();
-        return basePixel + offset;
-      }
-      key = String(value);
-    } else {
-      key = String(value);
+      const basePixel = (this.scale(idx) ?? 0) + bw / 2;
+      const offset = (value - idx) * bw;
+      return basePixel + offset;
     }
-    return (this.scale(key) ?? 0) + this.scale.bandwidth() / 2;
+    /** A category name resolves to its first matching slot. */
+    const idx = this.labels.indexOf(String(value));
+    return (this.scale(idx >= 0 ? idx : 0) ?? 0) + bw / 2;
   }
 
   getBandwidth(): number {
@@ -1252,9 +1381,8 @@ export class CategoryAxis extends BaseAxis implements AxisInstance {
   }
 
   getValueForPixel(pixel: number): string {
-    const domain = this.scale.domain();
     const step = this.scale.step();
     const index = Math.floor(pixel / step);
-    return domain[Math.min(index, domain.length - 1)];
+    return this.labels[Math.min(Math.max(index, 0), this.labels.length - 1)];
   }
 }

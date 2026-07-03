@@ -499,6 +499,40 @@ export class OptionsParser {
     };
   }
 
+  /**
+   * Ensures every category axis has at least one band per data point. A band
+   * scale only has slots for the labels in its domain, so a series with more
+   * points than the supplied `categories` would leave the surplus points without
+   * a band — they collapse onto the first one (pixel 0), piling bars and labels
+   * at the very top. Padding the domain with blank labels gives those points
+   * their own bands so they render in order, the way a conventional category axis
+   * absorbs unlabeled trailing points. Blank (zero-width) labels are used so the
+   * padding stays invisible rather than printing stray index numbers.
+   */
+  private padCategoryAxesToData(xAxis: InternalAxisConfig[], series: InternalSeriesConfig[]): void {
+    for (const ax of xAxis) {
+      if (!Array.isArray(ax.categories) || ax.categories.length === 0) continue;
+      let maxIdx = -1;
+      for (const s of series) {
+        if ((s._xAxisIndex ?? 0) !== ax.index) continue;
+        const data = s._processedData as PointOptions[] | undefined;
+        if (!Array.isArray(data)) continue;
+        for (const p of data) {
+          const x = (p as { x?: number }).x;
+          if (typeof x === 'number' && x > maxIdx) maxIdx = x;
+        }
+      }
+      const needed = Math.min(maxIdx + 1, 10000);
+      if (needed > ax.categories.length) {
+        const padded = ax.categories.slice();
+        for (let i = padded.length; i < needed; i++) {
+          padded.push('​'.repeat(i - ax.categories.length + 1));
+        }
+        ax.categories = padded;
+      }
+    }
+  }
+
   private toInternal(options: KatuChartsOptions): InternalConfig {
     const inverted = !!options.chart?.inverted;
     const backgroundColor = options.chart?.backgroundColor;
@@ -541,6 +575,8 @@ export class OptionsParser {
         ...(hidesLegendByDefault && s.showInLegend === undefined ? { showInLegend: false } : {}),
       } as InternalSeriesConfig;
     });
+
+    this.padCategoryAxesToData(xAxis, series);
 
     const expandedSeries = expandIndicatorSeries(series);
 

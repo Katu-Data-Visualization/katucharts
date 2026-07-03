@@ -537,23 +537,60 @@ export class ColumnChart extends BaseSeries {
     const effectiveGroupPadding = stacked ? 0 : groupPadding;
     const effectivePointPadding = stacked ? 0 : pointPadding;
 
+    /**
+     * The group's usable span (band minus group padding), and the per-series
+     * slot carved from it. The auto width fills that slot minus point padding.
+     */
+    const usableGroup = groupWidth * (1 - effectiveGroupPadding * 2);
+    let seriesSpacing = usableGroup / totalInGroup;
+    const autoBarWidth = seriesSpacing * (1 - effectivePointPadding * 2);
     let barWidth: number;
     if (this.config.pointWidth !== undefined) {
-      barWidth = this.config.pointWidth;
+      /**
+       * Honor an explicit `pointWidth` literally — the bar keeps its configured
+       * thickness even when many categories pack the axis tighter than that
+       * width. Shrinking it to fit the band collapses dense charts into
+       * unreadable slivers, which defeats the point of a fixed width. Only an
+       * axis-length bound guards against a runaway value exceeding the plot.
+       */
+      const axisExtent = this.isHorizontal ? plotArea.height : plotArea.width;
+      barWidth = Math.min(this.config.pointWidth, axisExtent);
     } else {
-      barWidth = (groupWidth * (1 - effectiveGroupPadding * 2)) / totalInGroup * (1 - effectivePointPadding * 2);
+      barWidth = autoBarWidth;
     }
 
     if (this.config.maxPointWidth !== undefined) {
       barWidth = Math.min(barWidth, this.config.maxPointWidth);
     }
 
+    /**
+     * Keep a gap between adjacent category bands even when an explicit pointWidth
+     * makes the whole group (bars + inter-series spacing) wider than the band —
+     * otherwise dense charts pack the rows edge to edge with no breathing room.
+     * The bar and the spacing are scaled down together so the grouped layout is
+     * preserved, just tightened to leave ~the band's GROUP_FILL fraction filled.
+     */
+    if (!this.config.centerInCategory) {
+      const GROUP_FILL = 0.82;
+      const maxExtent = groupWidth * GROUP_FILL;
+      const groupExtent = seriesSpacing * (totalInGroup - 1) + barWidth;
+      if (groupExtent > maxExtent) {
+        const f = maxExtent / groupExtent;
+        barWidth *= f;
+        seriesSpacing *= f;
+      }
+    }
+
     let barOffset: number;
     if (this.config.centerInCategory) {
       barOffset = -barWidth / 2;
     } else {
-      const groupStart = -groupWidth * (1 - effectiveGroupPadding * 2) / 2;
-      barOffset = groupStart + (barWidth + barWidth * effectivePointPadding * 2) * indexInGroup + barWidth * effectivePointPadding;
+      /**
+       * Centre the group of series in the band, then centre each bar on its own
+       * slot. Keeps the group balanced around the category tick at any width.
+       */
+      const center = -seriesSpacing * (totalInGroup - 1) / 2 + seriesSpacing * indexInGroup;
+      barOffset = center - barWidth / 2;
     }
     const baseline = yAxis.getPixelForValue(this.config.threshold ?? 0);
 

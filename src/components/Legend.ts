@@ -3,7 +3,7 @@ import type { LegendOptions, PlotArea } from '../types/options';
 import { EventBus } from '../core/EventBus';
 import { templateFormat, stripHtmlTags } from '../utils/format';
 import type { BaseSeries } from '../series/BaseSeries';
-import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE, parseFontSizePx, readableTextColor } from '../utils/chartText';
+import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE, parseFontSizePx, readableTextColor, measureTextWidth } from '../utils/chartText';
 
 export class Legend {
   private config: LegendOptions;
@@ -75,8 +75,31 @@ export class Legend {
   }
 
   private estimateTextWidth(text: string, fontSize: string): number {
-    const size = parseFontSizePx(fontSize);
-    return text.length * size * 0.62;
+    const weight = (this.config.itemStyle?.fontWeight as string) || 'normal';
+    return measureTextWidth(text, parseFontSizePx(fontSize), weight);
+  }
+
+  /**
+   * Trims a legend label with an ellipsis so it fits its column, preventing a
+   * long name from overrunning into the next column. The full label is kept in a
+   * `<title>` so it stays readable on hover.
+   */
+  private truncateLabel(
+    textEl: Selection<SVGTextElement, unknown, null, undefined>,
+    label: string, maxWidth: number, fontPx: number, weight: string
+  ): void {
+    if (maxWidth <= 0 || measureTextWidth(label, fontPx, weight) <= maxWidth) {
+      textEl.text(label);
+      return;
+    }
+    let lo = 0, hi = label.length;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      const fits = measureTextWidth(label.slice(0, mid).trimEnd() + '…', fontPx, weight) <= maxWidth;
+      if (fits) lo = mid; else hi = mid - 1;
+    }
+    textEl.text(label.slice(0, lo).trimEnd() + '…');
+    textEl.append('title').text(label);
   }
 
   static computeGridLayout(
@@ -90,6 +113,7 @@ export class Legend {
       itemDistance: number;
       padding: number;
       itemWidth?: number;
+      fontWeight?: string;
     }
   ): { columns: number; itemWidth: number } {
     if (config.itemWidth) {
@@ -98,9 +122,10 @@ export class Legend {
     }
 
     const fontPx = parseFontSizePx(config.fontSize);
+    const weight = config.fontWeight || 'normal';
     let maxTextWidth = 0;
     for (const label of labels) {
-      const w = label.length * fontPx * 0.62;
+      const w = measureTextWidth(label, fontPx, weight);
       if (w > maxTextWidth) maxTextWidth = w;
     }
 
@@ -211,6 +236,7 @@ export class Legend {
           itemDistance,
           padding,
           itemWidth: this.config.itemWidth,
+          fontWeight: this.config.itemStyle?.fontWeight as string,
         }
       );
       gridColumns = grid.columns;
@@ -317,6 +343,18 @@ export class Legend {
         .attr('font-size', effectiveFontSize)
         .attr('font-weight', itemStyle.fontWeight as string || 'normal')
         .text(label);
+
+      /**
+       * In the multi-column grid each item is confined to a fixed column width;
+       * clip an over-long label to that width so it can't bleed into the
+       * neighbouring column.
+       */
+      if (useGrid && !this.config.rtl) {
+        const fontPx = parseFontSizePx(effectiveFontSize);
+        const weight = (itemStyle.fontWeight as string) || 'normal';
+        const maxTextW = gridItemWidth - (symbolWidth + symbolPadding) - 6;
+        this.truncateLabel(textEl, label, maxTextW, fontPx, weight);
+      }
 
       if (this.config.rtl) {
         textEl.attr('text-anchor', 'end')

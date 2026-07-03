@@ -8,15 +8,19 @@ export class Crosshair {
   private xLabel: Selection<SVGGElement, unknown, null, undefined> | null = null;
   private yLabel: Selection<SVGGElement, unknown, null, undefined> | null = null;
   private plotArea: PlotArea;
+  private hideDelay: number;
+  private hideTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     xConfig: boolean | CrosshairOptions | undefined,
     yConfig: boolean | CrosshairOptions | undefined,
     plotGroup: Selection<SVGGElement, unknown, null, undefined>,
     plotArea: PlotArea,
-    events: EventBus
+    events: EventBus,
+    hideDelay = 0
   ) {
     this.plotArea = plotArea;
+    this.hideDelay = hideDelay;
 
     if (xConfig) {
       const opts = typeof xConfig === 'object' ? xConfig : {};
@@ -68,6 +72,10 @@ export class Crosshair {
     const ySnap = yOpts.snap !== false;
 
     events.on('point:mouseover', (data: any) => {
+      if (this.hideTimeout) {
+        clearTimeout(this.hideTimeout);
+        this.hideTimeout = null;
+      }
       if (this.xLine) {
         const xPos = xSnap ? data.plotX : (data.event?.offsetX ?? data.plotX);
         this.xLine.attr('x1', xPos).attr('x2', xPos).style('display', null);
@@ -86,12 +94,32 @@ export class Crosshair {
       }
     });
 
-    events.on('point:mouseout', () => {
-      if (this.xLine) this.xLine.style('display', 'none');
-      if (this.yLine) this.yLine.style('display', 'none');
-      if (this.xLabel) this.xLabel.style('display', 'none');
-      if (this.yLabel) this.yLabel.style('display', 'none');
-    });
+    events.on('point:mouseout', () => this.scheduleHide());
+  }
+
+  /**
+   * Hide the crosshair on a cancellable delay that mirrors the tooltip's, so the
+   * two stay in sync. Moving slowly between point markers leaves a gap with no
+   * marker hovered; hiding immediately there made the crosshair flicker off while
+   * the tooltip lingered. The next `point:mouseover` cancels the pending hide.
+   */
+  private scheduleHide(): void {
+    if (this.hideDelay <= 0) {
+      this.hideAll();
+      return;
+    }
+    if (this.hideTimeout) clearTimeout(this.hideTimeout);
+    this.hideTimeout = setTimeout(() => {
+      this.hideAll();
+      this.hideTimeout = null;
+    }, this.hideDelay);
+  }
+
+  private hideAll(): void {
+    if (this.xLine) this.xLine.style('display', 'none');
+    if (this.yLine) this.yLine.style('display', 'none');
+    if (this.xLabel) this.xLabel.style('display', 'none');
+    if (this.yLabel) this.yLabel.style('display', 'none');
   }
 
   private getDashArray(style?: string): string {
@@ -163,6 +191,10 @@ export class Crosshair {
   }
 
   destroy(): void {
+    if (this.hideTimeout) {
+      clearTimeout(this.hideTimeout);
+      this.hideTimeout = null;
+    }
     if (this.xLine) this.xLine.remove();
     if (this.yLine) this.yLine.remove();
     if (this.xLabel) this.xLabel.remove();

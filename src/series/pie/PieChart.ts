@@ -379,8 +379,12 @@ export class PieChart extends BaseSeries {
    * Plot space to reserve for external labels, measured from real text widths.
    * Horizontal: the widest `distance + textWidth + connectorPadding` over each
    * side, capped at a third of the plot width per side so a single long label
-   * can't shrink the pie to nothing. Vertical: the radial `distance + 10`, since
-   * side labels stack vertically and don't consume horizontal text room.
+   * can't shrink the pie to nothing.
+   *
+   * Vertical: the pie is centred in the plot, so the top and bottom labels each
+   * sit `distance` beyond the radius plus their own text height. Reserving
+   * `2 * (distance + labelHeight)` shrinks the pie just enough that those labels
+   * stay inside the plot instead of riding up over the subtitle.
    */
   private measureLabelMargins(
     pieData: any[], dlCfgs: DataLabelOptions[], plotWidth: number
@@ -390,7 +394,8 @@ export class PieChart extends BaseSeries {
       const distance = dlCfg.distance ?? 30;
       const connectorPadding = dlCfg.connectorPadding ?? 5;
       const fontPx = parseFontSizePx((dlCfg.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE);
-      vertical = Math.max(vertical, distance + 10);
+      const labelHeight = fontPx * 1.4;
+      vertical = Math.max(vertical, 2 * (distance + labelHeight));
       for (const d of pieData) {
         const sliceColor = this.resolveSliceColor(d.data, d.index);
         const { text } = this.resolveLabelText(dlCfg, d.data, sliceColor);

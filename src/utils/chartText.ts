@@ -3,6 +3,14 @@ import { color as d3Color } from 'd3-color';
 export const DEFAULT_CHART_TEXT_SIZE = '12px';
 export const DEFAULT_CHART_TEXT_COLOR = '#000000';
 
+/**
+ * Vertical band (px) reserved below a horizontal axis for rotated tick labels.
+ * Long labels are truncated so their rotated drop stays within this band, and
+ * the layout reserves the matching space — keeping long category names from
+ * spilling past the chart edge while bounding how much height the labels claim.
+ */
+export const ROTATED_AXIS_LABEL_MAX_EXTENT = 130;
+
 const AUTO_DARK_TEXT_COLOR = '#1a1a1a';
 const AUTO_LIGHT_TEXT_COLOR = '#ffffff';
 
@@ -91,12 +99,23 @@ function getMeasureCtx(): CanvasRenderingContext2D | null {
 }
 
 /**
+ * The font family text is measured against. Defaults to a generic 'sans-serif',
+ * but charts set it to the host page's actual font so width estimates (axis label
+ * reservations, label wrapping, legend columns) match what the browser renders —
+ * an inaccurate metric otherwise forces a wide safety margin that wastes space.
+ */
+let _measureFontFamily = 'sans-serif';
+export function setMeasureFontFamily(family: string | undefined): void {
+  if (family && family.trim()) _measureFontFamily = family.trim();
+}
+
+/**
  * Measure the rendered width of a text string using canvas 2d measureText.
  * Falls back to `length * fontPx * 0.62` when running in a non-DOM env.
  */
-export function measureTextWidth(text: string, fontPx: number, fontWeight: string = 'normal', fontFamily: string = 'sans-serif'): number {
+export function measureTextWidth(text: string, fontPx: number, fontWeight: string = 'normal', fontFamily?: string): number {
   const ctx = getMeasureCtx();
   if (!ctx) return text.length * fontPx * 0.62;
-  ctx.font = `${fontWeight} ${fontPx}px ${fontFamily}`;
+  ctx.font = `${fontWeight} ${fontPx}px ${fontFamily || _measureFontFamily}`;
   return ctx.measureText(text).width;
 }

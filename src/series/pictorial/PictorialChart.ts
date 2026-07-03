@@ -10,6 +10,7 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { ColumnChart } from '../cartesian/ColumnChart';
 import type { PointOptions } from '../../types/options';
+import { DEFAULT_CHART_TEXT_SIZE, parseFontSizePx } from '../../utils/chartText';
 
 interface PictorialPath {
   definition: string;
@@ -128,8 +129,17 @@ export class PictorialChart extends ColumnChart {
       const yBase = sil.pixelFor(getStackedBase(d));
       const segTop = Math.min(yTop, yBase);
       const segH = Math.abs(yTop - yBase);
+      /**
+       * A zero/thin segment at a stack edge would center its label on the band
+       * boundary — poking out of the plot into the subtitle above (or the axis
+       * area below). Clamp the label center so the text stays inside the band.
+       */
+      const labelHalf = parseFontSizePx(
+        (this.config.dataLabels?.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE
+      ) * 0.75;
+      const bandTop = bandBottom - bandHeight;
       (d as any)._labelX = sil.left + sil.width / 2;
-      (d as any)._labelY = (yTop + yBase) / 2;
+      (d as any)._labelY = Math.max(bandTop + labelHalf, Math.min(bandBottom - labelHalf, (yTop + yBase) / 2));
 
       el.attr('x', sil.left)
         .attr('width', sil.width)
@@ -151,14 +161,18 @@ export class PictorialChart extends ColumnChart {
 
   /**
    * Draws the value labels centered within each stacked segment so they read on
-   * top of the filled silhouette instead of piling up at the segment edges.
+   * top of the filled silhouette instead of piling up at the segment edges. The
+   * anchor already is the segment center, so the default "float above the
+   * point" offset is disabled.
    */
   private renderPictorialLabels(data: PointOptions[]): void {
     if (!this.config.dataLabels?.enabled) return;
     this.renderDataLabels(
       data,
       (d) => (d as any)._labelX ?? 0,
-      (d) => (d as any)._labelY ?? 0
+      (d) => (d as any)._labelY ?? 0,
+      undefined,
+      0
     );
   }
 

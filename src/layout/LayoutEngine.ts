@@ -3,7 +3,7 @@
  */
 
 import type { InternalConfig, PlotArea } from '../types/options';
-import { DEFAULT_CHART_TEXT_SIZE, parseFontSizePx, measureTextWidth } from '../utils/chartText';
+import { DEFAULT_CHART_TEXT_SIZE, ROTATED_AXIS_LABEL_MAX_EXTENT, parseFontSizePx, measureTextWidth } from '../utils/chartText';
 import { NO_AXES_TYPES } from '../core/chartTypes';
 
 export interface LayoutResult {
@@ -94,10 +94,41 @@ export class LayoutEngine {
     const yAxisLeftWidth = isNonCartesian ? 0 : this.estimateAxisWidth(layoutConfig, true, chartHeight, chartWidth);
     const yAxisRightWidth = isNonCartesian ? 0 : this.estimateAxisWidth(layoutConfig, false, chartHeight, chartWidth);
     const xAxisBottomHeight = isNonCartesian ? 0 : this.estimateAxisHeight(layoutConfig, chartWidth);
+    /**
+     * An `opposite` horizontal axis renders above the plot (between the
+     * subtitle and the plot top), so its label band is carved out of `top`
+     * instead of the bottom.
+     */
+    const xAxisTopHeight = isNonCartesian ? 0 : this.estimateAxisHeight(layoutConfig, chartWidth, true);
+    top += xAxisTopHeight;
 
     let colorAxisRightWidth = 0;
     if (hasHeatmap && config.colorAxis?.length > 0 && config.legend?.layout === 'vertical') {
       colorAxisRightWidth = 55;
+    }
+
+    /**
+     * Percent stacking pins the value axis to exactly 0–100, so every column
+     * fills to the plot top and its top-of-stack data label is drawn just above
+     * the bar — i.e. above the plot, where it collides with the title/subtitle.
+     * Reserve a band for that label so the plot shifts down and it lands clear.
+     * Other cases don't need this: side-placed labels (inverted/horizontal bars)
+     * never reach the top, and non-percent stacks keep axis headroom that already
+     * absorbs the label.
+     */
+    const topPercentLabelSeries = inv ? undefined : config.series.find(s => {
+      const dl = (s as any).dataLabels;
+      return s._internalType === 'column'
+        && (s as any).stacking === 'percent'
+        && dl?.enabled === true
+        && dl?.inside !== true;
+    });
+    if (topPercentLabelSeries) {
+      const outsideLabelOffset = 10;
+      const labelFontPx = parseFontSizePx(
+        ((topPercentLabelSeries as any).dataLabels?.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE
+      );
+      top += outsideLabelOffset + labelFontPx;
     }
 
     const plotX = left + yAxisLeftWidth + leftLegendWidth;
@@ -114,9 +145,14 @@ export class LayoutEngine {
         width: chartWidth - spacing.left - spacing.right,
         height: titleTextHeight + titleMargin,
       },
+      /**
+       * The subtitle sits directly under the title (same 3px gap the `top`
+       * reservation uses); `titleMargin` is the gap between the whole
+       * title+subtitle block and the plot, not between the two lines of text.
+       */
       subtitleArea: {
         x: spacing.left,
-        y: spacing.top + titleTextHeight + titleMargin,
+        y: spacing.top + (titleTextHeight > 0 ? titleTextHeight + 3 : 0),
         width: chartWidth - spacing.left - spacing.right,
         height: subtitleTextHeight,
       },
@@ -129,7 +165,7 @@ export class LayoutEngine {
           }
         : {
             x: 0,
-            y: legendPosition === 'top' ? top - legendHeight : chartHeight - bottom,
+            y: legendPosition === 'top' ? top - xAxisTopHeight - legendHeight : chartHeight - bottom,
             width: chartWidth,
             height: legendHeight,
           },
@@ -383,14 +419,15 @@ export class LayoutEngine {
         if (w > maxWidth) maxWidth = w;
       }
       /**
-       * measureTextWidth uses a generic 'sans-serif' metric; the host page's font is often wider,
-       * so the longest category label can overflow past the chart's left edge and get clipped.
-       * Reserve a generous margin, but cap it at ~30% of the chart width so a single very long label
-       * can't claim a huge slice of the canvas — the axis renderer truncates labels to match (with the
-       * full text available on hover). Falls back to a fixed cap when the chart width isn't known.
+       * Reserve just past the measured longest label (a small margin absorbs
+       * sub-pixel/bold variance). Measurement now uses the page's real font, so a
+       * tight reserve no longer risks clipping — and the labels sit flush against
+       * the edge instead of leaving a wide empty gap. Capped at ~33% of the chart
+       * width so one very long label can't swallow the canvas; the axis renderer
+       * truncates anything past the cap (full text on hover).
        */
-      const cap = chartWidth ? Math.max(120, chartWidth * 0.30) : 460;
-      return Math.max(25, Math.min(maxWidth * 1.3 + 16, cap));
+      const cap = chartWidth ? Math.max(120, chartWidth * 0.33) : 460;
+      return Math.max(25, Math.min(maxWidth * 1.05 + 8, cap));
     }
     const min = axis.min ?? null;
     const max = axis.max ?? null;
@@ -402,8 +439,8 @@ export class LayoutEngine {
     return 25;
   }
 
-  private estimateAxisHeight(config: InternalConfig, chartWidth = 600): number {
-    const axes = config.xAxis.filter(a => !a.opposite);
+  private estimateAxisHeight(config: InternalConfig, chartWidth = 600, opposite = false): number {
+    const axes = config.xAxis.filter(a => !!a.opposite === opposite);
     if (axes.length === 0) return 0;
 
     let height = 0;
@@ -422,7 +459,7 @@ export class LayoutEngine {
           }
           const fontSize = parseFontSizePx(axis.labels?.style?.fontSize as string || DEFAULT_CHART_TEXT_SIZE);
           const angleRad = Math.abs(axis.labels!.rotation!) * (Math.PI / 180);
-          const rotatedHeight = Math.min(maxLen * fontSize * 0.62 * Math.sin(angleRad), 150);
+          const rotatedHeight = Math.min(maxLen * fontSize * 0.7 * Math.sin(angleRad), ROTATED_AXIS_LABEL_MAX_EXTENT);
           labelHeight = Math.max(30, rotatedHeight);
         } else if (hasExplicitRotation) {
           labelHeight = 45;
@@ -442,7 +479,7 @@ export class LayoutEngine {
           const willOverlap = maxLen * fontSize * 0.6 + 4 > perCategoryWidth;
           if (autoRotates && willOverlap) {
             const angleRad = Math.abs((axis.labels!.autoRotation as number[])[0] || 45) * (Math.PI / 180);
-            labelHeight = Math.max(30, Math.min(maxLen * fontSize * 0.62 * Math.sin(angleRad), 150));
+            labelHeight = Math.max(30, Math.min(maxLen * fontSize * 0.7 * Math.sin(angleRad), ROTATED_AXIS_LABEL_MAX_EXTENT));
           } else {
             labelHeight = Math.max(fontSize + 8, 20);
           }
@@ -454,6 +491,11 @@ export class LayoutEngine {
       const tickSpace = hasLabels ? (axis.tickLength || 10) : 5;
       height += labelHeight + (hasTitle ? 25 : 0) + tickSpace;
     }
-    return height || 40;
+    /**
+     * The bottom band keeps its historical floor; the opposite (top) band must
+     * report an honest 0 so charts without visible opposite labels don't gain
+     * a phantom strip under the subtitle.
+     */
+    return opposite ? height : (height || 40);
   }
 }

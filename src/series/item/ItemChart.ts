@@ -1,10 +1,10 @@
-import { select } from 'd3-selection';
+import { select, type Selection } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries, staggerDelay } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions, DataLabelOptions, PlotArea } from '../../types/options';
 import { resolvePercent } from '../../utils/geometry';
 import { templateFormat, stripHtmlTags } from '../../utils/format';
-import { DEFAULT_CHART_TEXT_SIZE, readableTextColor } from '../../utils/chartText';
+import { DEFAULT_CHART_TEXT_SIZE, DEFAULT_CHART_TEXT_COLOR, readableTextColor } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   ENTRY_DELAY_BASE,
@@ -34,6 +34,8 @@ interface ItemLayout {
   seats: Seat[];
   radius: number;
   centroids: { x: number; y: number }[];
+  /** Present for the hemicycle layout; lets labels sit outside the arc with leaders. */
+  arc?: { cx: number; cy: number; outerRadius: number };
 }
 
 /**
@@ -179,13 +181,15 @@ export class ItemChart extends BaseSeries {
 
     const minDim = Math.min(plotArea.width, plotArea.height);
     /**
-     * Without an explicit `size`, scale the arc to the largest radius that keeps
-     * it inside the plot for its center and angular span — so it fills the card
-     * on desktop yet never clips on narrow/mobile viewports. An explicit `size`
-     * is honored verbatim (it may intentionally overflow).
+     * Without an explicit `size`, scale the arc to the largest radius that keeps it
+     * fully inside the plot for its center and angular span. An explicit `size` is
+     * honored, but still capped by the HORIZONTAL fit: a wide hemicycle sized off
+     * `min(width, height)` (e.g. 170%) would otherwise run off both edges on a
+     * portrait/mobile viewport and vanish. The cap is horizontal-only so a
+     * near-bottom center can still intentionally overflow the foot of the plot.
      */
     const outerRadius = this.config.size !== undefined
-      ? resolvePercent(this.config.size, minDim) / 2
+      ? Math.min(resolvePercent(this.config.size, minDim) / 2, this.fitRadiusHorizontal(cx, plotArea.width, startAngle, endAngle))
       : this.fitRadius(cx, cy, plotArea.width, plotArea.height, startAngle, endAngle) * 0.96;
     const innerRadius = resolvePercent(this.config.innerSize ?? '40%', outerRadius * 2) / 2;
 
@@ -226,7 +230,9 @@ export class ItemChart extends BaseSeries {
     }
     seats.sort((a, b) => a.angle - b.angle || a.ring - b.ring);
 
-    return this.assignSeats(seats, cats, seatRadius, { x: cx, y: cy });
+    const layout = this.assignSeats(seats, cats, seatRadius, { x: cx, y: cy });
+    layout.arc = { cx, cy, outerRadius };
+    return layout;
   }
 
   /**
@@ -287,6 +293,24 @@ export class ItemChart extends BaseSeries {
    * center) stays within the plot bounds. Samples the angular span for its
    * sin/cos extremes, then solves each plot edge for the limiting radius.
    */
+  /**
+   * Largest radius keeping the arc within the left/right plot edges, for its center and
+   * angular span. Used to bound an explicit `size` so a wide hemicycle never runs off the
+   * sides on a narrow viewport, while leaving vertical overflow to the caller's intent.
+   */
+  private fitRadiusHorizontal(cx: number, w: number, startAngle: number, endAngle: number): number {
+    let sMin = Infinity, sMax = -Infinity;
+    const steps = 180;
+    for (let i = 0; i <= steps; i++) {
+      const s = Math.sin(startAngle + (endAngle - startAngle) * (i / steps));
+      if (s < sMin) sMin = s; if (s > sMax) sMax = s;
+    }
+    const bounds: number[] = [];
+    if (sMax > 1e-6) bounds.push((w - cx) / sMax);
+    if (sMin < -1e-6) bounds.push(cx / -sMin);
+    return bounds.length ? Math.max(0, Math.min(...bounds)) : w / 2;
+  }
+
   private fitRadius(cx: number, cy: number, w: number, h: number, startAngle: number, endAngle: number): number {
     let sMin = Infinity, sMax = -Infinity, cMin = Infinity, cMax = -Infinity;
     const steps = 180;
@@ -382,7 +406,10 @@ export class ItemChart extends BaseSeries {
   }
 
   /**
-   * One label per category, centred on that category's mean seat position.
+   * One label per category. In the hemicycle layout the label sits just outside
+   * the arc on the group's radial, connected to its outermost seat by a short
+   * leader (the conventional parliament look) so it never covers the seats. The
+   * rectangular grid keeps the label centred on the group's mean seat position.
    * Honours `format`/`formatter`; defaults to the point's label, name or value.
    */
   private renderItemLabels(cats: Category[], layout: ItemLayout): void {
@@ -392,19 +419,21 @@ export class ItemChart extends BaseSeries {
     const g = this.group.append('g').attr('class', 'katucharts-item-labels');
     const fontSize = (dl.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
 
+    const labelText = (d: any): string => {
+      if (dl.formatter) return dl.formatter.call({ point: d, series: { name: this.config.name }, x: d.x, y: d.y });
+      if (dl.format) return stripHtmlTags(templateFormat(dl.format, { point: d, series: { name: this.config.name }, x: d.x, y: d.y }));
+      return d.label || d.name || String(d.y);
+    };
+
+    if (layout.arc) {
+      this.renderHemicycleLabels(cats, layout, layout.arc, g, fontSize, dl, labelText);
+      return;
+    }
+
     cats.forEach((cat, i) => {
       const c = layout.centroids[i];
       if (!c) return;
-      const d = cat.point;
-
-      let text: string;
-      if (dl.formatter) {
-        text = dl.formatter.call({ point: d, series: { name: this.config.name }, x: d.x, y: d.y });
-      } else if (dl.format) {
-        text = stripHtmlTags(templateFormat(dl.format, { point: d, series: { name: this.config.name }, x: d.x, y: d.y }));
-      } else {
-        text = (d as any).label || d.name || String(d.y);
-      }
+      const text = labelText(cat.point);
 
       const fill = (dl.color as string) || (dl.style?.color as string) || readableTextColor(cat.color);
       const label = g.append('text')
@@ -425,6 +454,74 @@ export class ItemChart extends BaseSeries {
           .attr('paint-order', 'stroke')
           .style('stroke-linejoin', 'round');
       }
+    });
+  }
+
+  /**
+   * Places each category's label outside the hemicycle on the radial through its
+   * centroid, just beyond the group's outermost seat, with a short colored leader
+   * connecting the two. The text is anchored away from the arc (start/end on the
+   * sides, middle near the apex) so it reads outward and never overlaps the seats.
+   */
+  private renderHemicycleLabels(
+    cats: Category[], layout: ItemLayout, arc: { cx: number; cy: number; outerRadius: number },
+    g: Selection<SVGGElement, unknown, null, undefined>, fontSize: string,
+    dl: DataLabelOptions, labelText: (d: any) => string
+  ): void {
+    const { cx, cy } = arc;
+    const seatRadius = layout.radius;
+    const textFill = (dl.color as string) || (dl.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
+
+    cats.forEach((cat, i) => {
+      const c = layout.centroids[i];
+      if (!c) return;
+
+      const meanAngle = Math.atan2(c.x - cx, cy - c.y);
+      let maxR = 0;
+      for (const s of layout.seats) {
+        if (s.catIndex !== i) continue;
+        const r = Math.hypot(s.x - cx, s.y - cy);
+        if (r > maxR) maxR = r;
+      }
+      if (maxR <= 0) maxR = Math.hypot(c.x - cx, cy - c.y);
+
+      const sin = Math.sin(meanAngle), cos = Math.cos(meanAngle);
+      const startR = maxR + seatRadius;
+      /**
+       * `distance` offsets the label from the outermost seat: positive sits it
+       * outside the arc with a leader (the desktop default), negative tucks it
+       * onto the seats. Mobile passes a negative distance so labels never spill
+       * past the chart edges or over the subtitle on a narrow viewport.
+       */
+      const distance = typeof (dl as { distance?: number }).distance === 'number'
+        ? (dl as { distance?: number }).distance as number
+        : 12;
+      const labelR = startR + distance;
+      const inside = distance <= 1;
+      const sx = cx + startR * sin, sy = cy - startR * cos;
+      const lx = cx + labelR * sin + (dl.x ?? 0);
+      const ly = cy - labelR * cos + (dl.y ?? 0);
+
+      const anchor = inside ? 'middle' : sin < -0.25 ? 'end' : sin > 0.25 ? 'start' : 'middle';
+
+      if (!inside) {
+        g.append('line')
+          .attr('x1', sx).attr('y1', sy)
+          .attr('x2', lx).attr('y2', ly)
+          .attr('stroke', cat.color)
+          .attr('stroke-width', 1.5)
+          .style('pointer-events', 'none');
+      }
+
+      g.append('text')
+        .attr('x', lx).attr('y', ly)
+        .attr('text-anchor', anchor)
+        .attr('dominant-baseline', 'central')
+        .attr('font-size', fontSize)
+        .attr('font-weight', (dl.style?.fontWeight as string) || 'bold')
+        .attr('fill', textFill)
+        .style('pointer-events', 'none')
+        .text(labelText(cat.point));
     });
   }
 

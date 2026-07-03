@@ -607,6 +607,14 @@ export abstract class BaseSeries {
     const labelsGroup = this.group.append('g').attr('class', 'katucharts-data-labels');
     const color = this.getColor();
 
+    /**
+     * Boxes of labels already drawn. By default a label that would collide with a
+     * kept one is dropped (the conventional `allowOverlap: false`), so crowded
+     * charts (e.g. a horizontal bar with dozens of categories squeezed into a
+     * short plot) thin their labels instead of piling values on top of each other.
+     */
+    const placedBoxes: { x1: number; y1: number; x2: number; y2: number }[] = [];
+
     data.forEach((d, i) => {
       if (d.y === null || d.y === undefined) return;
 
@@ -659,20 +667,45 @@ export abstract class BaseSeries {
       const px = getX(d, i) + (merged.x ?? 0);
       const py = getY(d, i) + (merged.y ?? defaultDy);
 
+      const style = merged.style || {};
+      const fontPx = parseFontSizePx((style.fontSize as string) || DEFAULT_CHART_TEXT_SIZE);
+
+      /**
+       * Resolve the final x and anchor up front — including any width-aware
+       * placement (e.g. a horizontal bar's value label that sits outside the bar
+       * end but flips inside when it would overflow). The estimated width drives
+       * both the placement decision and the overlap box; getComputedTextLength is
+       * avoided because it reads 0 before the SVG lays out.
+       */
+      const textWidth = measureTextWidth(text, fontPx);
+      let anchor: 'start' | 'middle' | 'end' =
+        merged.align === 'left' ? 'start' :
+        merged.align === 'right' ? 'end' : 'middle';
+      let finalX = px;
+      if (getPlacement) {
+        const placed = getPlacement(d, i, textWidth);
+        if (placed) { finalX = placed.x; anchor = placed.anchor; }
+      }
+
+      if (merged.allowOverlap !== true && !merged.rotation) {
+        const halfH = fontPx * 0.6;
+        const x1 = anchor === 'start' ? finalX : anchor === 'end' ? finalX - textWidth : finalX - textWidth / 2;
+        const box = { x1, y1: py - halfH, x2: x1 + textWidth, y2: py + halfH };
+        const clash = placedBoxes.some(b => box.x1 < b.x2 && box.x2 > b.x1 && box.y1 < b.y2 && box.y2 > b.y1);
+        if (clash) return;
+        placedBoxes.push(box);
+      }
+
       const label = labelsGroup.append('text')
-        .attr('x', px)
+        .attr('x', finalX)
         .attr('y', py)
-        .attr('text-anchor',
-          merged.align === 'left' ? 'start' :
-          merged.align === 'right' ? 'end' : 'middle'
-        )
+        .attr('text-anchor', anchor)
         .attr('dominant-baseline',
           merged.verticalAlign === 'top' ? 'text-before-edge' :
           merged.verticalAlign === 'bottom' ? 'text-after-edge' : 'central'
         )
         .text(text);
 
-      const style = merged.style || {};
       label
         .style('font-size', style.fontSize ?? DEFAULT_CHART_TEXT_SIZE)
         .style('font-weight', style.fontWeight ?? 'bold')
@@ -682,24 +715,8 @@ export abstract class BaseSeries {
         label.style('text-shadow', style.textOutline as string);
       }
 
-      /**
-       * Width-aware placement (e.g. a horizontal bar's value label that sits
-       * outside the bar end, but flips inside when it would overflow the plot).
-       * Runs after styling so the measured width reflects the final font.
-       */
-      if (getPlacement) {
-        /**
-         * Estimate the width rather than read getComputedTextLength: the latter
-         * returns 0 (or a pre-font value) when the label is measured before the
-         * SVG has laid out, which made the outside/inside decision flip wrongly.
-         */
-        const textWidth = measureTextWidth(text, parseFontSizePx((style.fontSize as string) || DEFAULT_CHART_TEXT_SIZE));
-        const placed = getPlacement(d, i, textWidth);
-        if (placed) label.attr('x', placed.x).attr('text-anchor', placed.anchor);
-      }
-
       if (merged.rotation) {
-        label.attr('transform', `rotate(${merged.rotation},${px},${py})`);
+        label.attr('transform', `rotate(${merged.rotation},${finalX},${py})`);
       }
 
       if (merged.backgroundColor || merged.borderWidth) {

@@ -24,6 +24,7 @@ import { ResponsiveEngine } from '../responsive/ResponsiveEngine';
 import 'd3-transition';
 import type { ExportingOptions } from '../types/options';
 import { resolveContainer, getElementDimensions } from '../utils/dom';
+import { setMeasureFontFamily } from '../utils/chartText';
 import { debounce } from '../utils/throttle';
 import { deepMerge, deepClone } from '../utils/deepMerge';
 import { templateFormat, stripHtmlTags, numberFormat, setUseUTC } from '../utils/format';
@@ -85,6 +86,15 @@ export class Chart {
   constructor(containerOrId: string | HTMLElement, options: KatuChartsOptions) {
     this.container = resolveContainer(containerOrId);
     this.container.style.position = 'relative';
+
+    /**
+     * Measure text against the host page's actual font so axis-label reservations
+     * and wrapping match what the browser renders — avoids the wide safety margin
+     * (and the resulting empty gap beside the labels) a generic-font metric needs.
+     */
+    if (typeof getComputedStyle !== 'undefined') {
+      setMeasureFontFamily(getComputedStyle(this.container).fontFamily);
+    }
 
     const parser = new OptionsParser();
     this.options = parser.parse(options);
@@ -319,13 +329,46 @@ export class Chart {
     const PROBE = 4000;
     const probe = this.layoutEngine.compute(this.options, this.chartWidth, PROBE);
     const overhead = PROBE - probe.plotArea.height;
+    const domePlot = this.itemHemicyclePlotHeight(probe.plotArea.width);
     const minPlot = Math.max(
       Chart.MIN_AUTO_PLOT_HEIGHT,
       this.verticalCategoryCount() * Chart.MIN_CATEGORY_ROW_HEIGHT,
+      domePlot,
     );
     const required = Math.ceil(overhead + minPlot);
     if (required <= baseHeight) return baseHeight;
-    return Math.min(required, Math.max(baseHeight, Chart.MAX_AUTO_HEIGHT));
+    /**
+     * A parliament/dome needs height proportional to its width, so it grows past
+     * the generic auto-height cap (which exists to keep a long category list
+     * compact, not to squash a chart that fills its width into a sliver).
+     */
+    const cap = domePlot > 0 ? required : Chart.MAX_AUTO_HEIGHT;
+    return Math.min(required, Math.max(baseHeight, cap));
+  }
+
+  /**
+   * Plot height a hemicycle item series ("parliament") needs to fill the plot
+   * width without being squashed: the dome that spans the width has a radius of
+   * ~half the width, and its arc — offset by the configured center — must clear
+   * the top and bottom edges. Returns 0 for non-hemicycle item layouts.
+   */
+  private itemHemicyclePlotHeight(plotWidth: number): number {
+    const s = this.options.series?.[0] as { _internalType?: string; startAngle?: number; endAngle?: number; center?: (string | number)[] } | undefined;
+    if (!s || s._internalType !== 'item' || s.startAngle == null || s.endAngle == null || plotWidth <= 0) return 0;
+    const start = s.startAngle * (Math.PI / 180), end = s.endAngle * (Math.PI / 180);
+    let sMax = 0, cMax = -Infinity, cMin = Infinity;
+    for (let i = 0; i <= 180; i++) {
+      const a = start + (end - start) * (i / 180);
+      sMax = Math.max(sMax, Math.abs(Math.sin(a)));
+      cMax = Math.max(cMax, Math.cos(a));
+      cMin = Math.min(cMin, Math.cos(a));
+    }
+    const cyRaw = Array.isArray(s.center) ? s.center[1] : '50%';
+    const cyPct = typeof cyRaw === 'string' && cyRaw.endsWith('%') ? parseFloat(cyRaw) / 100 : 0.5;
+    const radius = (plotWidth / 2) / (sMax || 1);
+    const topNeed = cMax > 0 ? (cMax * radius) / Math.max(cyPct, 0.05) : 0;
+    const botNeed = cMin < 0 ? (-cMin * radius) / Math.max(1 - cyPct, 0.05) : 0;
+    return Math.min(Math.ceil(Math.max(topNeed, botNeed)), Chart.MAX_AUTO_HEIGHT);
   }
 
   /**
@@ -478,7 +521,15 @@ export class Chart {
       if (cy && !yCrosshair) yCrosshair = (typeof cy === 'object' ? cy : true) as any;
     }
     if (xCrosshair || yCrosshair) {
-      this.crosshair = new Crosshair(xCrosshair, yCrosshair, this.plotGroup as any, this.layout.plotArea, this.events);
+      /**
+       * Match the crosshair's hide grace to the tooltip's so they appear and
+       * vanish together — without it the crosshair flickers off in the gap
+       * between point markers while the (delayed) tooltip stays visible.
+       */
+      const crosshairHideDelay = this.options.tooltip?.enabled === false
+        ? 0
+        : ((this.options.tooltip as any)?.hideDelay ?? 500);
+      this.crosshair = new Crosshair(xCrosshair, yCrosshair, this.plotGroup as any, this.layout.plotArea, this.events, crosshairHideDelay);
     }
   }
 
@@ -948,12 +999,34 @@ export class Chart {
       const rules = this.responsiveEngine.getRules();
       let effective = deepClone(this.originalUserOptions) as any;
       for (const idx of result.matchingIndices) {
-        effective = deepMerge(effective, rules[idx].chartOptions as any);
+        effective = this.mergeResponsiveChartOptions(effective, rules[idx].chartOptions as any);
       }
       const parser = new OptionsParser();
       this.options = parser.parse(effective);
       this.state.updateConfig(this.options);
     }
+  }
+
+  /**
+   * Applies a responsive rule's chartOptions over the current options. Plain `deepMerge`
+   * replaces arrays wholesale, so a rule that tweaks one entry of `series`/`xAxis`/`yAxis`
+   * (e.g. a mobile `size`) would drop the rest of that entry — including a series' `data`,
+   * blanking the chart. Re-merge those config arrays by index so partial overrides layer
+   * onto the base entry, matching the conventional responsive-rule semantics.
+   */
+  private mergeResponsiveChartOptions(base: any, rule: any): any {
+    const merged = deepMerge(base, rule);
+    for (const key of ['series', 'xAxis', 'yAxis', 'colorAxis']) {
+      const baseArr = base?.[key];
+      const ruleArr = rule?.[key];
+      if (Array.isArray(baseArr) && Array.isArray(ruleArr)) {
+        merged[key] = baseArr.map((entry: any, i: number) =>
+          ruleArr[i] != null ? deepMerge(entry, ruleArr[i]) : entry
+        );
+        for (let i = baseArr.length; i < ruleArr.length; i++) merged[key].push(ruleArr[i]);
+      }
+    }
+    return merged;
   }
 
   addSeries(options: SeriesOptions, redraw = true): BaseSeries {
@@ -1181,7 +1254,7 @@ export class Chart {
         const rules = this.responsiveEngine.getRules();
         let effective = deepClone(this.originalUserOptions) as any;
         for (const idx of result.matchingIndices) {
-          effective = deepMerge(effective, rules[idx].chartOptions as any);
+          effective = this.mergeResponsiveChartOptions(effective, rules[idx].chartOptions as any);
         }
         this.isResponsiveUpdate = true;
         this.update(effective, false);
