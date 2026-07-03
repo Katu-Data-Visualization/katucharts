@@ -711,8 +711,29 @@ export abstract class BaseSeries {
         .style('font-weight', style.fontWeight ?? 'bold')
         .style('fill', merged.color || htmlColor || style.color || this.autoLabelColor());
 
-      if (style.textOutline) {
-        label.style('text-shadow', style.textOutline as string);
+      /**
+       * Data labels carry a contrasting outline by default so the value stays
+       * legible over any fill. `textOutline: false`/`'none'` turns it off; an
+       * explicit `<width>px <color>` string overrides thickness and/or colour,
+       * with the `contrast` keyword resolving to whatever reads against the
+       * label's own fill.
+       */
+      const outline = style.textOutline as string | false | undefined;
+      if (outline !== false && outline !== 'none' && outline !== 'transparent') {
+        const fill = String(merged.color || htmlColor || style.color || this.autoLabelColor());
+        let strokeWidth = '1px';
+        let strokeColor = readableTextColor(fill);
+        if (typeof outline === 'string') {
+          const widthMatch = outline.match(/-?\d*\.?\d+\s*px/);
+          if (widthMatch) strokeWidth = widthMatch[0].replace(/\s+/g, '');
+          const colorPart = outline.replace(/-?\d*\.?\d+\s*px/, '').trim();
+          if (colorPart && colorPart !== 'contrast') strokeColor = colorPart;
+        }
+        label
+          .style('paint-order', 'stroke')
+          .style('stroke', strokeColor)
+          .style('stroke-width', strokeWidth)
+          .style('stroke-linejoin', 'round');
       }
 
       if (merged.rotation) {

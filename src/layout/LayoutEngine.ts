@@ -93,7 +93,13 @@ export class LayoutEngine {
       : config;
     const yAxisLeftWidth = isNonCartesian ? 0 : this.estimateAxisWidth(layoutConfig, true, chartHeight, chartWidth);
     const yAxisRightWidth = isNonCartesian ? 0 : this.estimateAxisWidth(layoutConfig, false, chartHeight, chartWidth);
-    const xAxisBottomHeight = isNonCartesian ? 0 : this.estimateAxisHeight(layoutConfig, chartWidth);
+    /**
+     * The horizontal space the category axis actually spans (chart minus side
+     * margins and any value axes). Passing it lets the label-band estimate size
+     * each category slot the way the renderer does, instead of a flat fraction.
+     */
+    const xAxisPlotWidth = Math.max(0, chartWidth - left - right - yAxisLeftWidth - yAxisRightWidth - leftLegendWidth - rightLegendWidth);
+    const xAxisBottomHeight = isNonCartesian ? 0 : this.estimateAxisHeight(layoutConfig, chartWidth, false, xAxisPlotWidth);
     /**
      * An `opposite` horizontal axis renders above the plot (between the
      * subtitle and the plot top), so its label band is carved out of `top`
@@ -439,7 +445,7 @@ export class LayoutEngine {
     return 25;
   }
 
-  private estimateAxisHeight(config: InternalConfig, chartWidth = 600, opposite = false): number {
+  private estimateAxisHeight(config: InternalConfig, chartWidth = 600, opposite = false, plotWidthHint?: number): number {
     const axes = config.xAxis.filter(a => !!a.opposite === opposite);
     if (axes.length === 0) return 0;
 
@@ -449,37 +455,43 @@ export class LayoutEngine {
       const hasLabels = axis.labels?.enabled !== false;
       const hasTitle = axis.title?.text;
       const hasExplicitRotation = !!(axis.labels?.rotation);
+      const fontSize = parseFontSizePx(axis.labels?.style?.fontSize as string || DEFAULT_CHART_TEXT_SIZE);
+      const fontWeight = String(axis.labels?.style?.fontWeight ?? 'normal');
+      const cats = axis.categories;
+
+      /**
+       * Widest category label in pixels, measured with the same canvas metric the
+       * renderer uses. Reserving from an accurate width — rather than a coarse
+       * char count — keeps the rotate/keep-horizontal prediction in step with the
+       * axis renderer's own overlap test.
+       */
+      const maxLabelPx = (cats && cats.length > 0)
+        ? cats.reduce((m, c) => Math.max(m, measureTextWidth(String(c), fontSize, fontWeight)), 0)
+        : 0;
 
       let labelHeight = 30;
       if (hasLabels) {
-        if (hasExplicitRotation && axis.categories && axis.categories.length > 0) {
-          let maxLen = 0;
-          for (const cat of axis.categories) {
-            if (cat.length > maxLen) maxLen = cat.length;
-          }
-          const fontSize = parseFontSizePx(axis.labels?.style?.fontSize as string || DEFAULT_CHART_TEXT_SIZE);
+        if (hasExplicitRotation && cats && cats.length > 0) {
           const angleRad = Math.abs(axis.labels!.rotation!) * (Math.PI / 180);
-          const rotatedHeight = Math.min(maxLen * fontSize * 0.7 * Math.sin(angleRad), ROTATED_AXIS_LABEL_MAX_EXTENT);
+          const rotatedHeight = Math.min(maxLabelPx * Math.sin(angleRad), ROTATED_AXIS_LABEL_MAX_EXTENT);
           labelHeight = Math.max(30, rotatedHeight);
         } else if (hasExplicitRotation) {
           labelHeight = 45;
-        } else if (axis.categories && axis.categories.length > 0) {
+        } else if (cats && cats.length > 0) {
           /**
-           * Category labels render horizontally when they fit. When they would
-           * collide and auto-rotation is enabled, the renderer rotates them
-           * (keeping all labels) — so reserve the rotated height in that case,
-           * estimated from the longest label. Otherwise a single text line is
-           * enough vertical room.
+           * Category labels render horizontally when they fit. Auto-rotation only
+           * kicks in when a label is wider than its slot (mirroring the renderer's
+           * overlap check), so the rotated band is reserved solely in that case
+           * and a single text line otherwise. Reserving the rotated height on a
+           * mere char-count guess left a large empty strip below charts whose
+           * labels ended up horizontal.
            */
-          const fontSize = parseFontSizePx(axis.labels?.style?.fontSize as string || DEFAULT_CHART_TEXT_SIZE);
           const autoRotates = Array.isArray(axis.labels?.autoRotation) && axis.labels!.autoRotation!.length > 0;
-          let maxLen = 0;
-          for (const cat of axis.categories) if (cat.length > maxLen) maxLen = cat.length;
-          const perCategoryWidth = (chartWidth * 0.85) / axis.categories.length;
-          const willOverlap = maxLen * fontSize * 0.6 + 4 > perCategoryWidth;
+          const perCategoryWidth = (plotWidthHint ?? chartWidth * 0.85) / cats.length;
+          const willOverlap = maxLabelPx + 4 > perCategoryWidth;
           if (autoRotates && willOverlap) {
             const angleRad = Math.abs((axis.labels!.autoRotation as number[])[0] || 45) * (Math.PI / 180);
-            labelHeight = Math.max(30, Math.min(maxLen * fontSize * 0.7 * Math.sin(angleRad), ROTATED_AXIS_LABEL_MAX_EXTENT));
+            labelHeight = Math.max(30, Math.min(maxLabelPx * Math.sin(angleRad), ROTATED_AXIS_LABEL_MAX_EXTENT));
           } else {
             labelHeight = Math.max(fontSize + 8, 20);
           }

@@ -123,8 +123,6 @@ export class ColumnChart extends BaseSeries {
         if (totals) {
           (d as any).total = totals.get(xKey) || 0;
           (d as any).stackTotal = totals.get(xKey) || 0;
-        }
-        if (isPercent && totals) {
           const t = totals.get(xKey) || 1;
           (d as any).percentage = ((d.y ?? 0) / t) * 100;
         }
@@ -141,8 +139,8 @@ export class ColumnChart extends BaseSeries {
         .data(data)
         .join('path')
         .attr('class', 'katucharts-column')
-        .attr('stroke', (d: any) => d.borderColor || this.config.borderColor || 'none')
-        .attr('stroke-width', (d: any) => d.borderWidth ?? this.config.borderWidth ?? 0);
+        .attr('stroke', (d: any) => d.borderColor || this.config.borderColor || this.autoBorderColor())
+        .attr('stroke-width', (d: any) => d.borderWidth ?? this.config.borderWidth ?? 1);
       this.renderStackedBars(bars, data, barWidth, barOffset, getStackedY, getStackedBase, color, minPointLength, crisp, !!animate, borderRadius);
       this.attachHoverEffects(bars, data);
       this.renderColumnDataLabels(data, barWidth, barOffset, baseline, getStackedY, getStackedBase);
@@ -456,8 +454,6 @@ export class ColumnChart extends BaseSeries {
         if (totals) {
           (d as any).total = totals.get(xKey) || 0;
           (d as any).stackTotal = totals.get(xKey) || 0;
-        }
-        if (isPercent && totals) {
           const t = totals.get(xKey) || 1;
           (d as any).percentage = ((d.y ?? 0) / t) * 100;
         }
@@ -494,8 +490,8 @@ export class ColumnChart extends BaseSeries {
 
     bars.enter().append('path')
       .attr('class', 'katucharts-column')
-      .attr('stroke', (d: any) => d.borderColor || this.config.borderColor || 'none')
-      .attr('stroke-width', (d: any) => d.borderWidth ?? this.config.borderWidth ?? 0)
+      .attr('stroke', (d: any) => d.borderColor || this.config.borderColor || this.autoBorderColor())
+      .attr('stroke-width', (d: any) => d.borderWidth ?? this.config.borderWidth ?? 1)
       .attr('fill', (d: PointOptions, i: number) => this.getPointColor(d, i, color))
       .each((d: PointOptions, i: number, nodes: ArrayLike<SVGPathElement>) => {
         const endP = this.computeStackedRectParams(d, data, barWidth, barOffset, getStackedY, getStackedBase, crisp, minPointLength);
@@ -620,11 +616,18 @@ export class ColumnChart extends BaseSeries {
     if (!dlConfig?.enabled) return;
 
     const { xAxis, yAxis } = this.context;
-    const inside = dlConfig.inside ?? false;
+    const stacked = !!getStackedY;
+    /**
+     * Stacked columns place their value inside each segment (centred) by default,
+     * matching the conventional behaviour; unstacked columns label above the bar.
+     */
+    const inside = dlConfig.inside ?? stacked;
 
     const plotW = this.context.plotArea.width;
-    const barEndX = (d: PointOptions): number =>
+    const segEnd = (d: PointOptions): number =>
       getStackedY ? yAxis.getPixelForValue(getStackedY(d)) : yAxis.getPixelForValue(d.y ?? 0);
+    const segStart = (d: PointOptions): number =>
+      getStackedBase ? yAxis.getPixelForValue(getStackedBase(d)) : baseline;
 
     /**
      * Horizontal-bar value labels sit just outside the bar's end, and flip to
@@ -633,7 +636,7 @@ export class ColumnChart extends BaseSeries {
      */
     const horizontalPlacement = (this.isHorizontal && !inside)
       ? (d: PointOptions, _i: number, textWidth: number) => {
-          const end = barEndX(d);
+          const end = segEnd(d);
           const outsidePad = 6;
           const insidePad = 10;
           if (end + outsidePad + textWidth <= plotW) {
@@ -648,8 +651,7 @@ export class ColumnChart extends BaseSeries {
       data,
       (d) => {
         if (this.isHorizontal) {
-          const py = barEndX(d);
-          return inside ? (py + baseline) / 2 : py - 5;
+          return inside ? (segEnd(d) + segStart(d)) / 2 : segEnd(d) - 5;
         }
         return xAxis.getPixelForValue(d.x ?? 0) + barOffset + barWidth / 2;
       },
@@ -657,13 +659,10 @@ export class ColumnChart extends BaseSeries {
         if (this.isHorizontal) {
           return xAxis.getPixelForValue(d.x ?? 0) + barOffset + barWidth / 2;
         }
-        const py = getStackedY
-          ? yAxis.getPixelForValue(getStackedY(d))
-          : yAxis.getPixelForValue(d.y ?? 0);
-        return inside ? (py + baseline) / 2 : py;
+        return inside ? (segEnd(d) + segStart(d)) / 2 : segEnd(d);
       },
       horizontalPlacement,
-      this.isHorizontal ? 0 : -10
+      (this.isHorizontal || inside) ? 0 : -10
     );
   }
 
