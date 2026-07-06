@@ -807,11 +807,16 @@ export class Chart {
     for (let i = 0; i < this.options.series.length; i++) {
       const cfg = this.options.series[i];
       if (cfg.stacking) {
+        const s = this.seriesInstances[i];
+        s.processData();
+        // A hidden series contributes nothing to the stack: excluding it lets the
+        // remaining series re-stack to close the gap and, for percent stacking,
+        // renormalise to 100%. Mirrors the animated-redraw path so a full render
+        // and a legend toggle agree.
+        if (!s.visible) continue;
         const sk = buildStackKey(cfg);
         stackSeriesCount.set(sk, (stackSeriesCount.get(sk) || 0) + 1);
         if (!stackTotalsPos.has(sk)) { stackTotalsPos.set(sk, new Map()); stackTotalsNeg.set(sk, new Map()); }
-        const s = this.seriesInstances[i];
-        s.processData();
         accumulateSignedStackTotals(s.data, stackTotalsPos.get(sk)!, stackTotalsNeg.get(sk)!);
       }
     }
@@ -827,6 +832,9 @@ export class Chart {
       if (!fwdPos.has(sk)) { fwdPos.set(sk, new Map()); fwdNeg.set(sk, new Map()); }
       precomputedOffsetsPos.set(i, new Map(fwdPos.get(sk)!));
       precomputedOffsetsNeg.set(i, new Map(fwdNeg.get(sk)!));
+      // Skip hidden series so they don't advance the running offset — otherwise a
+      // series stacked above a hidden one floats above an empty gap.
+      if (!this.seriesInstances[i].visible) continue;
       accumulateSignedStackTotals(this.seriesInstances[i].data, fwdPos.get(sk)!, fwdNeg.get(sk)!);
     }
 

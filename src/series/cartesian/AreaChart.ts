@@ -302,19 +302,37 @@ export class AreaChart extends BaseSeries {
     const { xAxis, yAxis } = this.context;
     const baseline = yAxis.getPixelForValue(this.config.threshold ?? 0);
     const curveFactory = this.getCurve();
-    const stackOffsets = this.context.stackOffsets;
+    const stackOffsetsPos = this.context.stackOffsetsPos;
+    const stackOffsetsNeg = this.context.stackOffsetsNeg;
     const stacking = this.config.stacking;
+    const isPercent = stacking === 'percent';
+    const percentTotals = isPercent ? this.context.stackTotals : undefined;
     const connectNulls = this.config.connectNulls;
 
+    const offsetFor = (d: PointOptions): number =>
+      (((d.y ?? 0) < 0 ? stackOffsetsNeg?.get(d.x ?? 0) : stackOffsetsPos?.get(d.x ?? 0)) || 0);
+
     const getStackedY = (d: PointOptions): number => {
-      if (!stacking || !stackOffsets) return d.y ?? 0;
-      const offset = stackOffsets.get(d.x ?? 0) || 0;
-      return offset + (d.y ?? 0);
+      if (!stacking) return d.y ?? 0;
+      const offset = offsetFor(d);
+      const val = d.y ?? 0;
+      // Percent stacking scales each point to its share of the column total so
+      // the band tops land on the 0–100 axis instead of raw cumulative values.
+      if (isPercent && percentTotals) {
+        const total = percentTotals.get(d.x ?? 0) || 1;
+        return ((offset + val) / total) * 100;
+      }
+      return offset + val;
     };
 
     const getStackedBase = (d: PointOptions): number => {
-      if (!stacking || !stackOffsets) return this.config.threshold ?? 0;
-      return stackOffsets.get(d.x ?? 0) || 0;
+      if (!stacking) return this.config.threshold ?? 0;
+      const offset = offsetFor(d);
+      if (isPercent && percentTotals) {
+        const total = percentTotals.get(d.x ?? 0) || 1;
+        return (offset / total) * 100;
+      }
+      return offset;
     };
 
     const areaGen = area<PointOptions>()
