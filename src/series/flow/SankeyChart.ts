@@ -1067,9 +1067,10 @@ export class SankeyChart extends BaseSeries {
     for (const d of this.data) {
       const from = (d as any).from;
       const to = (d as any).to;
-      const weight = d.y ?? (d as any).weight ?? 1;
+      const rawWeight = d.y ?? (d as any).weight ?? 1;
+      const weight = Math.max(0, rawWeight);
 
-      if (from && to) {
+      if (from && to && from !== to && weight > 0) {
         if (!nodeMap.has(from)) nodeMap.set(from, { id: from, name: from });
         if (!nodeMap.has(to)) nodeMap.set(to, { id: to, name: to });
         links.push({ source: from, target: to, value: weight });

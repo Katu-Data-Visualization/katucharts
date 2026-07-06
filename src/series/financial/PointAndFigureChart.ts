@@ -36,7 +36,7 @@ export class PointAndFigureChart extends BaseSeries {
   processData(): void {
     super.processData();
 
-    const boxSize = (this.config as any).boxSize ?? 1;
+    const boxSize = Math.max(1, (this.config as any).boxSize ?? 1);
     const reversalBoxes = (this.config as any).reversalAmount ?? 3;
     const reversalAmount = reversalBoxes * boxSize;
 

@@ -356,6 +356,20 @@ export class Legend {
         this.truncateLabel(textEl, label, maxTextW, fontPx, weight);
       }
 
+      /**
+       * For the first item in horizontal (non-grid) layout, prevent overflow
+       * by truncating if the item is wider than the available space. This
+       * ensures the first legend item doesn't render outside bounds.
+       */
+      if (!useGrid && layout === 'horizontal' && i === 0 && !this.config.rtl) {
+        const maxTextW = availWidth - padding - (symbolWidth + symbolPadding) - 6;
+        if (maxTextW > 0 && this.estimateTextWidth(label, effectiveFontSize) > maxTextW) {
+          const fontPx = parseFontSizePx(effectiveFontSize);
+          const weight = (itemStyle.fontWeight as string) || 'normal';
+          this.truncateLabel(textEl, label, maxTextW, fontPx, weight);
+        }
+      }
+
       if (this.config.rtl) {
         textEl.attr('text-anchor', 'end')
           .attr('x', -(symbolPadding));

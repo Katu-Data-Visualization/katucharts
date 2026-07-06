@@ -96,16 +96,24 @@ function getOrCreateRegistry(svg: SVGSVGElement, plotArea: PlotArea): HoverManag
   return managers;
 }
 
+function removeFromRegistry(svg: SVGSVGElement, manager: HoverManager): void {
+  const managers = registry.get(svg);
+  if (!managers) return;
+  const idx = managers.indexOf(manager);
+  if (idx >= 0) managers.splice(idx, 1);
+}
+
 export class HoverManager {
   private hoverGroup: Selection<SVGGElement, unknown, null, undefined>;
   private halo: Selection<SVGCircleElement, unknown, null, undefined>;
   private hoverMarker: Selection<SVGCircleElement, unknown, null, undefined>;
   private xPositions: Float64Array;
   private validData: PointOptions[];
+  private svgNode: SVGSVGElement | null = null;
   currentIdx: number = -1;
 
   constructor(private config: HoverManagerConfig) {
-    const { group, data, xAxis, plotArea } = config;
+    const { group, data, xAxis, plotArea, series } = config;
 
     this.validData = data.filter(d => d.y !== null && d.y !== undefined);
     this.xPositions = new Float64Array(this.validData.length);
@@ -129,7 +137,15 @@ export class HoverManager {
 
     const svgNode = group.node()?.ownerSVGElement;
     if (svgNode) {
+      this.svgNode = svgNode;
       const managers = getOrCreateRegistry(svgNode, plotArea);
+
+      const oldIdx = managers.findIndex(m => m.config.series === series);
+      if (oldIdx >= 0) {
+        managers[oldIdx].destroy();
+        managers.splice(oldIdx, 1);
+      }
+
       managers.push(this);
     }
   }
@@ -261,5 +277,13 @@ export class HoverManager {
     if (Math.abs(arr[lo] - targetX) > 30) return -1;
 
     return lo;
+  }
+
+  destroy(): void {
+    if (this.svgNode) {
+      removeFromRegistry(this.svgNode, this);
+    }
+    this.hoverGroup.remove();
+    this.currentIdx = -1;
   }
 }

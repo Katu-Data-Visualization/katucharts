@@ -36,7 +36,7 @@ export class ExportModule {
         const computed = window.getComputedStyle(orig);
         for (const prop of ExportModule.INLINE_PROPS) {
           const val = computed.getPropertyValue(prop);
-          if (val && val !== '' && val !== 'none' && val !== 'normal' && val !== '0') {
+          if (val && val !== '' && val !== 'normal') {
             el.style.setProperty(prop, val);
           }
         }

@@ -131,15 +131,24 @@ export class Zoom {
     cfg: ZoomConfig,
     events: EventBus
   ): void {
+    const screenToSVG = (clientX: number, clientY: number): { x: number; y: number } => {
+      const ctm = (plotGroup.node() as SVGGElement).getScreenCTM();
+      if (!ctm) return { x: 0, y: 0 };
+      const svg = (plotGroup.node() as SVGGElement).ownerSVGElement;
+      if (!svg) return { x: 0, y: 0 };
+      const pt = svg.createSVGPoint();
+      pt.x = clientX;
+      pt.y = clientY;
+      const svgPt = pt.matrixTransform(ctm.inverse());
+      return { x: svgPt.x, y: svgPt.y };
+    };
+
     plotGroup.on('mousedown.selection', (event: MouseEvent) => {
       if (this.zoomKey && !this.isKeyPressed(event, this.zoomKey)) return;
       if (this.panKey && this.isKeyPressed(event, this.panKey)) return;
 
-      const rect = (plotGroup.node() as SVGGElement).getBoundingClientRect();
-      this.selectionStart = {
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top,
-      };
+      const svgCoords = screenToSVG(event.clientX, event.clientY);
+      this.selectionStart = { x: svgCoords.x, y: svgCoords.y };
 
       const selFill = cfg.selectionMarkerFill || 'rgba(51,92,173,0.25)';
       this.selectionRect = plotGroup.append('rect')
@@ -156,15 +165,15 @@ export class Zoom {
     plotGroup.on('mousemove.selection', (event: MouseEvent) => {
       if (!this.selectionStart || !this.selectionRect) return;
 
-      const rect = (plotGroup.node() as SVGGElement).getBoundingClientRect();
-      const currentX = event.clientX - rect.left;
+      const svgCoords = screenToSVG(event.clientX, event.clientY);
+      const currentX = svgCoords.x;
       const x = Math.min(this.selectionStart.x, currentX);
       const w = Math.abs(currentX - this.selectionStart.x);
 
       this.selectionRect.attr('x', x).attr('width', w);
 
       if (cfg.type === 'xy' || cfg.type === 'y') {
-        const currentY = event.clientY - rect.top;
+        const currentY = svgCoords.y;
         const y = Math.min(this.selectionStart.y, currentY);
         const h = Math.abs(currentY - this.selectionStart.y);
         this.selectionRect.attr('y', y).attr('height', h);
@@ -174,9 +183,9 @@ export class Zoom {
     plotGroup.on('mouseup.selection', (event: MouseEvent) => {
       if (!this.selectionStart || !this.selectionRect) return;
 
-      const rect = (plotGroup.node() as SVGGElement).getBoundingClientRect();
-      const endX = event.clientX - rect.left;
-      const endY = event.clientY - rect.top;
+      const svgCoords = screenToSVG(event.clientX, event.clientY);
+      const endX = svgCoords.x;
+      const endY = svgCoords.y;
 
       this.selectionRect.remove();
       this.selectionRect = null;

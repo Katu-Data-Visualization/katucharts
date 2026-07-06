@@ -112,6 +112,8 @@ export class WaterfallChart extends BaseSeries {
       .attr('height', 0);
 
     enter.merge(bars)
+      .attr('stroke', this.config.borderColor || 'none')
+      .attr('stroke-width', this.config.borderWidth ?? 0)
       .transition().duration(duration)
       .attr('x', d => xAxis.getPixelForValue(d.x ?? 0) + barOffset)
       .attr('width', barWidth)
@@ -221,7 +223,7 @@ export class WaterfallChart extends BaseSeries {
       .attr('x1', (d: ProcessedWaterfallPoint) => xAxis.getPixelForValue(d.x ?? 0) + barOffset + barWidth)
       .attr('x2', (d: ProcessedWaterfallPoint, i: number) => xAxis.getPixelForValue(this.processed[i + 1].x ?? 0) + barOffset)
       .attr('y1', (d: ProcessedWaterfallPoint) => yAxis.getPixelForValue(d._end))
-      .attr('y2', (d: ProcessedWaterfallPoint) => yAxis.getPixelForValue(d._end))
+      .attr('y2', (d: ProcessedWaterfallPoint, i: number) => yAxis.getPixelForValue(this.processed[i + 1]._start))
       .attr('stroke', connectorColor)
       .attr('stroke-width', connectorWidth)
       .attr('stroke-dasharray', connectorDash);

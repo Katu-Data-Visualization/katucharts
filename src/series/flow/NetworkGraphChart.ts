@@ -105,7 +105,7 @@ export class NetworkGraphChart extends BaseSeries {
      * nodes near an edge don't get their circle or caption clipped.
      */
     nodes.forEach((n: any) => {
-      const r = n.marker?.radius || 10;
+      const r = n.marker?.radius ?? 10;
       n.x = Math.max(r + 30, Math.min(plotArea.width - r - 30, n.x ?? 0));
       n.y = Math.max(r + 18, Math.min(plotArea.height - r - 6, n.y ?? 0));
     });
@@ -148,7 +148,7 @@ export class NetworkGraphChart extends BaseSeries {
         .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
         .attr('r', (d: any) => d.marker?.radius || 10);
     } else {
-      nodeCircles.attr('r', (d: any) => d.marker?.radius || 10);
+      nodeCircles.attr('r', (d: any) => d.marker?.radius ?? 10);
     }
 
     if (draggable) {
@@ -291,12 +291,21 @@ export class NetworkGraphChart extends BaseSeries {
     }
 
     for (const d of this.data) {
-      const from = (d as any)[0] || (d as any).from;
-      const to = (d as any)[1] || (d as any).to;
-      if (from && to) {
+      const p = d as any;
+      const from = p[0] ?? p.from;
+      const to = p[1] ?? p.to;
+      if (from !== undefined && to !== undefined) {
         if (!nodeMap.has(from)) nodeMap.set(from, { id: from, name: from });
         if (!nodeMap.has(to)) nodeMap.set(to, { id: to, name: to });
-        links.push({ source: from, target: to, value: d.y ?? 1 });
+        links.push({
+          source: from,
+          target: to,
+          value: p.y ?? p.value ?? p[2] ?? 1,
+          color: p.color,
+          width: p.width,
+          dashStyle: p.dashStyle,
+          options: p,
+        });
       }
     }
 

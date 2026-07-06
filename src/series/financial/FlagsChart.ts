@@ -127,7 +127,8 @@ export class FlagsChart extends BaseSeries {
     let closestDist = Infinity;
 
     for (const tp of targetData) {
-      const tx = tp.x ?? 0;
+      if (tp.x === undefined || tp.x === null) continue;
+      const tx = tp.x;
       const dist = Math.abs(tx - x);
       if (dist < closestDist) {
         closestDist = dist;

@@ -59,7 +59,9 @@ export function resolveFeatures(mapData: any, objectName?: string): any[] {
     const geo = topojsonFeature(mapData, mapData.objects[objName]) as any;
     return geo.features || [geo];
   }
-  return mapData.features || mapData;
+  if (!mapData) return [];
+  const result = mapData.features || mapData;
+  return Array.isArray(result) ? result : [];
 }
 
 /** True when the projection should be rendered as an interactive 3D globe. */
@@ -128,9 +130,9 @@ export function applyGlobeProjection(projection: GeoProjection, plotArea: PlotAr
  */
 export function pointLonLat(p: any): [number, number] | null {
   if (!p) return null;
-  if (Array.isArray(p) && p.length >= 2 && typeof p[0] === 'number') return [p[0], p[1]];
-  if (p.lon != null && p.lat != null) return [p.lon, p.lat];
-  if (p.geometry?.coordinates && Array.isArray(p.geometry.coordinates)) {
+  if (Array.isArray(p) && p.length >= 2 && typeof p[0] === 'number' && typeof p[1] === 'number') return [p[0], p[1]];
+  if (typeof p.lon === 'number' && typeof p.lat === 'number') return [p.lon, p.lat];
+  if (p.geometry?.coordinates && Array.isArray(p.geometry.coordinates) && p.geometry.coordinates.length >= 2 && typeof p.geometry.coordinates[0] === 'number' && typeof p.geometry.coordinates[1] === 'number') {
     return [p.geometry.coordinates[0], p.geometry.coordinates[1]];
   }
   if (typeof p.x === 'number' && typeof p.y === 'number') return [p.x, p.y];

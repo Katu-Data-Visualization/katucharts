@@ -10,6 +10,8 @@ interface ZoneConfig {
   fillOpacity: number;
 }
 
+let baselineIdCounter = 0;
+
 export class BaselineChart extends BaseSeries {
   constructor(config: InternalSeriesConfig) {
     super(config);
@@ -43,8 +45,8 @@ export class BaselineChart extends BaseSeries {
     const xVal = (d: any, i: number) => xAxis.getPixelForValue(d.x ?? i);
     const yVal = (d: any) => yAxis.getPixelForValue(d.y ?? 0);
 
-    const clipTopId = `katucharts-baseline-top-${this.config.index}-${Date.now()}`;
-    const clipBottomId = `katucharts-baseline-bottom-${this.config.index}-${Date.now()}`;
+    const clipTopId = `katucharts-baseline-top-${this.config.index}-${++baselineIdCounter}`;
+    const clipBottomId = `katucharts-baseline-bottom-${this.config.index}-${baselineIdCounter}`;
 
     const svg = this.group.select(function () {
       return (this as unknown as SVGElement).ownerSVGElement;

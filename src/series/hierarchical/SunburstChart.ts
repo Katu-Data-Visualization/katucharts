@@ -303,7 +303,7 @@ export class SunburstChart extends BaseSeries {
         ...d,
         id: (d as any).id || d.name || String(data.indexOf(d)),
         parentId: (d as any).parent || null,
-        value: d.y ?? (d as any).value ?? undefined,
+        value: d.y ?? (d as any).value ?? 1,
       }));
 
       const hasRoot = flatData.some(d => !d.parentId || d.parentId === '');
@@ -332,6 +332,22 @@ export class SunburstChart extends BaseSeries {
     }
 
     partition().size([angleRange, 1])(root);
+
+    if (root.value === 0 && isNaN(root.x0)) {
+      const fixZeroValueAngles = (node: any, x0: number, x1: number) => {
+        node.x0 = x0;
+        node.x1 = x1;
+        if (node.children && node.children.length > 0) {
+          const range = x1 - x0;
+          node.children.forEach((child: any, i: number) => {
+            const childX0 = x0 + (i * range) / node.children.length;
+            const childX1 = x0 + ((i + 1) * range) / node.children.length;
+            fixZeroValueAngles(child, childX0, childX1);
+          });
+        }
+      };
+      fixZeroValueAngles(root, startAngle, startAngle + angleRange);
+    }
 
     if (startAngle !== 0) {
       root.each((d: any) => {

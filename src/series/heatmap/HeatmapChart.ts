@@ -346,22 +346,29 @@ export class HeatmapChart extends BaseSeries {
     const fontColor = (labelStyle.color as string) || this.autoLabelColor();
 
     const range = maxVal - minVal;
-    const rawStep = range / 6;
-    const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
-    const nice = [1, 2, 2.5, 5, 10].find(n => n * mag >= rawStep)! * mag;
-    const tickStart = Math.ceil(minVal / nice) * nice;
-    const ticks: number[] = [];
-    for (let v = tickStart; v <= maxVal + nice * 0.01; v += nice) {
-      ticks.push(Math.round(v * 1e6) / 1e6);
+    let ticks: number[] = [];
+    let precision: number;
+
+    if (range === 0) {
+      ticks = [minVal];
+      precision = 0;
+    } else {
+      const rawStep = range / 6;
+      const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+      const nice = [1, 2, 2.5, 5, 10].find(n => n * mag >= rawStep)! * mag;
+      const tickStart = Math.ceil(minVal / nice) * nice;
+      for (let v = tickStart; v <= maxVal + nice * 0.01; v += nice) {
+        ticks.push(Math.round(v * 1e6) / 1e6);
+      }
+      /**
+       * Only pin the exact min/max endpoints when they are not already represented
+       * by a neighbouring nice tick — otherwise the endpoint label collides with the
+       * adjacent tick label (e.g. a "60" tick sitting under a forced "63" maximum).
+       */
+      if (ticks.length === 0 || ticks[0] - minVal > nice * 0.5) ticks.unshift(minVal);
+      if (maxVal - ticks[ticks.length - 1] > nice * 0.5) ticks.push(maxVal);
+      precision = nice >= 1 ? 0 : nice >= 0.1 ? 1 : 2;
     }
-    /**
-     * Only pin the exact min/max endpoints when they are not already represented
-     * by a neighbouring nice tick — otherwise the endpoint label collides with the
-     * adjacent tick label (e.g. a "60" tick sitting under a forced "63" maximum).
-     */
-    if (ticks.length === 0 || ticks[0] - minVal > nice * 0.5) ticks.unshift(minVal);
-    if (maxVal - ticks[ticks.length - 1] > nice * 0.5) ticks.push(maxVal);
-    const precision = nice >= 1 ? 0 : nice >= 0.1 ? 1 : 2;
 
     if (colorAxisCfg.dataClasses && colorAxisCfg.dataClasses.length > 0) {
       const classes = colorAxisCfg.dataClasses;
@@ -424,7 +431,8 @@ export class HeatmapChart extends BaseSeries {
         .attr('rx', 2);
 
       for (let i = 0; i < ticks.length; i++) {
-        const ty = y + barLength - (ticks[i] - minVal) / range * barLength;
+        const positionFraction = range === 0 ? 0.5 : (ticks[i] - minVal) / range;
+        const ty = y + barLength - positionFraction * barLength;
         axisGroup.append('line')
           .attr('x1', x + barWidth).attr('y1', ty)
           .attr('x2', x + barWidth + 4).attr('y2', ty)
@@ -468,7 +476,8 @@ export class HeatmapChart extends BaseSeries {
         .attr('rx', 2);
 
       for (let i = 0; i < ticks.length; i++) {
-        const tx = x + (ticks[i] - minVal) / range * barWidth;
+        const positionFraction = range === 0 ? 0.5 : (ticks[i] - minVal) / range;
+        const tx = x + positionFraction * barWidth;
         axisGroup.append('line')
           .attr('x1', tx).attr('y1', y + barHeight + 8)
           .attr('x2', tx).attr('y2', y + barHeight + 16)

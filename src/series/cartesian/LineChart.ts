@@ -34,6 +34,20 @@ export class LineChart extends BaseSeries {
     super(config);
   }
 
+  /**
+   * Plot-x for a point, swapping to the y-axis on inverted charts and falling
+   * back to the point index (not 0) so category axes with implicit x stay
+   * aligned with the line and markers.
+   */
+  protected plotX = (d: PointOptions, i: number): number => this.context.inverted
+    ? this.context.yAxis.getPixelForValue(d.y ?? 0)
+    : this.context.xAxis.getPixelForValue(d.x ?? i);
+
+  /** Plot-y for a point, mirrored for inverted charts. */
+  protected plotY = (d: PointOptions, i: number): number => this.context.inverted
+    ? this.context.xAxis.getPixelForValue(d.x ?? i)
+    : this.context.yAxis.getPixelForValue(d.y ?? 0);
+
   render(): void {
     const color = this.getColor();
     const filteredData = this.getFilteredData();
@@ -51,8 +65,8 @@ export class LineChart extends BaseSeries {
     this.renderHoverTargets(filteredData, color);
     this.renderDataLabels(
       filteredData.filter(d => d.y !== null && d.y !== undefined),
-      (d, i) => this.context.xAxis.getPixelForValue(d.x ?? i),
-      (d) => this.context.yAxis.getPixelForValue(d.y ?? 0)
+      this.plotX,
+      this.plotY
     );
 
     if (animate) {
@@ -206,6 +220,21 @@ export class LineChart extends BaseSeries {
   }
 
   animateUpdate(duration: number): void {
+    /**
+     * Zones and negativeColor draw several segment paths rather than the single
+     * `pathSelection`, so morphing one path would drop them. Rebuild from
+     * render() (without replaying the entry animation) to keep them on updates.
+     */
+    if (this.config.zones?.length || (this.config.negativeColor && this.config.threshold !== null)) {
+      const prevAnimate = this.context.animate;
+      this.context.animate = false;
+      this.group.selectAll('*').remove();
+      this.pathSelection = null;
+      this.render();
+      this.context.animate = prevAnimate;
+      return;
+    }
+
     const filteredData = this.getFilteredData();
     const lineGen = this.buildLineGenerator();
     const color = this.getColor();
@@ -228,8 +257,8 @@ export class LineChart extends BaseSeries {
     this.renderHoverTargets(filteredData, color);
     this.renderDataLabels(
       filteredData.filter(d => d.y !== null && d.y !== undefined),
-      (d, i) => this.context.xAxis.getPixelForValue(d.x ?? i),
-      (d) => this.context.yAxis.getPixelForValue(d.y ?? 0)
+      this.plotX,
+      this.plotY
     );
   }
 
@@ -316,8 +345,8 @@ export class LineChart extends BaseSeries {
       const circles = markersGroup.selectAll('circle')
         .data(validData)
         .join('circle')
-        .attr('cx', d => xAxis.getPixelForValue(d.x ?? 0))
-        .attr('cy', d => yAxis.getPixelForValue(d.y ?? 0))
+        .attr('cx', (d, i) => this.plotX(d, i))
+        .attr('cy', (d, i) => this.plotY(d, i))
         .attr('fill', (d, i) => this.getMarkerFill(d, i, markerConfig, color))
         .attr('stroke', markerConfig?.lineColor || this.autoBorderColor())
         .attr('stroke-width', markerConfig?.lineWidth ?? 1)
@@ -340,8 +369,8 @@ export class LineChart extends BaseSeries {
       const paths = markersGroup.selectAll('path')
         .data(validData)
         .join('path')
-        .attr('transform', d =>
-          `translate(${xAxis.getPixelForValue(d.x ?? 0)},${yAxis.getPixelForValue(d.y ?? 0)})`
+        .attr('transform', (d, i) =>
+          `translate(${this.plotX(d, i)},${this.plotY(d, i)})`
         )
         .attr('fill', (d, i) => this.getMarkerFill(d, i, markerConfig, color))
         .attr('stroke', markerConfig?.lineColor || this.autoBorderColor())

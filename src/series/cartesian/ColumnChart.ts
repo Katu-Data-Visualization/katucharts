@@ -308,7 +308,7 @@ export class ColumnChart extends BaseSeries {
   ): RectParams {
     const { xAxis, yAxis } = this.context;
     if (this.isHorizontal) {
-      const y = this.crispCoord(xAxis.getPixelForValue(d.x ?? data.indexOf(d)) + barOffset, crisp);
+      const y = this.crispCoord(xAxis.getPixelForValue(d.x ?? 0) + barOffset, crisp);
       const h = crisp ? Math.round(barWidth) : barWidth;
       const xPos = Math.min(yAxis.getPixelForValue(getStackedY(d)), yAxis.getPixelForValue(getStackedBase(d)));
       const w = Math.max(Math.abs(yAxis.getPixelForValue(getStackedY(d)) - yAxis.getPixelForValue(getStackedBase(d))), minPointLength);
@@ -330,7 +330,7 @@ export class ColumnChart extends BaseSeries {
   ): RectParams {
     const { xAxis, yAxis } = this.context;
     if (this.isHorizontal) {
-      const y = this.crispCoord(xAxis.getPixelForValue(d.x ?? data.indexOf(d)) + barOffset, crisp);
+      const y = this.crispCoord(xAxis.getPixelForValue(d.x ?? 0) + barOffset, crisp);
       const h = crisp ? Math.round(barWidth) : barWidth;
       const xBase = yAxis.getPixelForValue(getStackedBase(d));
       return { x: xBase, y, w: 0.1, h };
@@ -525,9 +525,18 @@ export class ColumnChart extends BaseSeries {
       );
     } else {
       const data = this.data;
-      groupWidth = data.length > 1
-        ? Math.abs(xAxis.getPixelForValue((data[1]?.x ?? 1)) - xAxis.getPixelForValue((data[0]?.x ?? 0))) * (1 - groupPadding * 2)
-        : plotArea.width / Math.max(data.length, 1) * (1 - groupPadding * 2);
+      const evenFallback = plotArea.width / Math.max(data.length, 1) * (1 - groupPadding * 2);
+      if (data.length > 1) {
+        /**
+         * Derive the band from the gap between the first two x values, but fall
+         * back to an even split when that gap is ~0 — otherwise identical or
+         * duplicate leading x values collapse every bar to zero width.
+         */
+        const step = Math.abs(xAxis.getPixelForValue(data[1]?.x ?? 1) - xAxis.getPixelForValue(data[0]?.x ?? 0)) * (1 - groupPadding * 2);
+        groupWidth = step > 0.5 ? step : evenFallback;
+      } else {
+        groupWidth = evenFallback;
+      }
     }
 
     const effectiveGroupPadding = stacked ? 0 : groupPadding;

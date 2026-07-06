@@ -3,7 +3,7 @@ import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions } from '../../types/options';
 import { templateFormat, stripHtmlTags } from '../../utils/format';
-import { DEFAULT_CHART_TEXT_SIZE, parseFontSizePx } from '../../utils/chartText';
+import { DEFAULT_CHART_TEXT_SIZE, parseFontSizePx, measureTextWidth } from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   ENTRY_STAGGER_PER_ITEM,
@@ -443,21 +443,49 @@ export class GanttChart extends BaseSeries {
 
     data.forEach((d, i) => {
       const start = (d as any).start ?? d.x ?? 0;
-      const end = (d as any).end ?? (start + 1);
+      let end = (d as any).end;
+      if (end == null) {
+        if (typeof start === 'string') {
+          const startTime = new Date(start).getTime();
+          end = new Date(startTime + 86400000);
+        } else {
+          end = start + 1;
+        }
+      }
       const x1 = xAxis.getPixelForValue(start);
       const x2 = xAxis.getPixelForValue(end);
       const y = i * rowHeight + (rowHeight - barHeight) / 2;
       const color = d.color || colors[i % colors.length];
+      const barWidth = x2 - x1;
+      const finalWidth = x2 === x1 ? 0 : Math.max(1, barWidth);
 
       const el = this.group.append('rect')
         .attr('class', 'katucharts-gantt-bar')
         .attr('x', x1)
         .attr('y', y)
-        .attr('width', Math.max(1, x2 - x1))
+        .attr('width', finalWidth)
         .attr('height', barHeight)
         .attr('rx', 3)
         .attr('fill', color)
         .attr('stroke', 'none');
+
+      const taskName = d.name || '';
+      const maxTextWidth = Math.max(0, barWidth - 8);
+      const fontSize = 10;
+      let truncatedName = taskName;
+
+      if (maxTextWidth > 0 && measureTextWidth(taskName, fontSize) > maxTextWidth) {
+        for (let i = taskName.length; i > 0; i--) {
+          const candidate = taskName.substring(0, i) + '…';
+          if (measureTextWidth(candidate, fontSize) <= maxTextWidth) {
+            truncatedName = candidate;
+            break;
+          }
+        }
+        if (measureTextWidth(truncatedName, fontSize) > maxTextWidth) {
+          truncatedName = '…';
+        }
+      }
 
       this.group.append('text')
         .attr('x', x1 + 4)
@@ -465,7 +493,7 @@ export class GanttChart extends BaseSeries {
         .attr('dy', '0.35em')
         .attr('font-size', '10px')
         .attr('fill', '#fff')
-        .text(d.name || '');
+        .text(truncatedName);
 
       el.style('cursor', 'pointer');
       el.on('mouseover', (event: MouseEvent) => {
@@ -495,9 +523,19 @@ export class GanttChart extends BaseSeries {
     let xMin = Infinity, xMax = -Infinity;
     for (const d of this.data) {
       const start = (d as any).start ?? d.x ?? 0;
-      const end = (d as any).end ?? (start + 1);
-      xMin = Math.min(xMin, start);
-      xMax = Math.max(xMax, end);
+      let end = (d as any).end;
+      if (end == null) {
+        if (typeof start === 'string') {
+          const startTime = new Date(start).getTime();
+          end = new Date(startTime + 86400000);
+        } else {
+          end = start + 1;
+        }
+      }
+      const startVal = typeof start === 'string' ? new Date(start).getTime() : start;
+      const endVal = end instanceof Date ? end.getTime() : typeof end === 'string' ? new Date(end).getTime() : end;
+      xMin = Math.min(xMin, startVal);
+      xMax = Math.max(xMax, endVal);
     }
     return { xMin, xMax, yMin: 0, yMax: 0 };
   }

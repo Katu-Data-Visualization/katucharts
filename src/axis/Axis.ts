@@ -1068,6 +1068,9 @@ export class LogarithmicAxis extends BaseAxis implements AxisInstance {
     let { min, max } = data;
     min = Math.max(min, 0.001);
     if (this.config.min !== undefined && this.config.min !== null) {
+      if (this.config.min < 0.001) {
+        console.warn(`LogarithmicAxis: explicit min ${this.config.min} is below 0.001 and will be clamped to 0.001`);
+      }
       min = Math.max(this.config.min, 0.001);
     }
     if (this.config.max !== undefined && this.config.max !== null) {
@@ -1174,7 +1177,8 @@ export class LogarithmicAxis extends BaseAxis implements AxisInstance {
   }
 
   getPixelForValue(value: number): number {
-    return this.scale(Math.max(value, 0.001));
+    const domainFloor = this.scale.domain()[0];
+    return this.scale(Math.max(value, domainFloor));
   }
 
   getValueForPixel(pixel: number): number {

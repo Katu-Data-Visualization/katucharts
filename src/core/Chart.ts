@@ -1072,9 +1072,10 @@ export class Chart {
   private syncSeriesInstances(newConfig: InternalConfig): void {
     for (let i = 0; i < this.seriesInstances.length; i++) {
       const series = this.seriesInstances[i];
+      const hasExplicitVisible = 'visible' in newConfig.series[i];
       const nextConfig = {
         ...newConfig.series[i],
-        visible: series.visible,
+        visible: hasExplicitVisible ? newConfig.series[i].visible : series.visible,
       };
 
       this.options.series[i] = nextConfig;
@@ -1092,7 +1093,13 @@ export class Chart {
       );
     }
     const parser = new OptionsParser();
-    const merged = deepMerge(this.optionsToExternal(), options) as KatuChartsOptions;
+    const external = this.optionsToExternal();
+    const merged = deepMerge(external, options) as KatuChartsOptions;
+    if (Array.isArray(options.series) && Array.isArray(merged.series) && Array.isArray(external.series)) {
+      for (let i = 0; i < options.series.length && i < external.series.length; i++) {
+        merged.series[i] = deepMerge(external.series[i], options.series[i]);
+      }
+    }
     if (options.chart?.type && Array.isArray(merged.series)) {
       merged.series.forEach((s, i) => {
         const updatedType = Array.isArray(options.series) ? (options.series[i] as { type?: string })?.type : undefined;
@@ -1106,12 +1113,15 @@ export class Chart {
     this.state.updateConfig(newConfig);
     this.options = this.state.getConfig();
 
+    if (canReuseSeries) {
+      this.buildAxes();
+      this.syncSeriesInstances(newConfig);
+    }
+
     if (redraw) {
       if (!canReuseSeries) {
         this.redraw();
       } else {
-        this.buildAxes();
-        this.syncSeriesInstances(newConfig);
         try {
           this.animatedRedraw(300);
         } catch {

@@ -408,23 +408,25 @@ export class VennChart extends BaseSeries {
       renderWrappedLabel(nodes[i], d.name, d.labelX);
     });
 
-    if (showIntersectionLabels) {
-      const groupNode = this.group;
-      interLabels.each(function(d: RegionDatum) {
-        const textEl = this as SVGGraphicsElement;
-        const regionGroup = groupNode.select(`[data-venn-sets="${d.sets.join('_')}"]`).node() as Element | null;
-        const pathEl = regionGroup?.querySelector('path') as SVGGraphicsElement | null;
-        if (!pathEl) return;
-        try {
-          const labelBBox = textEl.getBBox();
-          const regionBBox = pathEl.getBBox();
-          const fits = labelBBox.width <= regionBBox.width * 0.95
-            && labelBBox.height <= regionBBox.height * 0.95;
-          textEl.setAttribute('opacity', fits ? '1' : '0');
-          (textEl as any).__autoHidden = !fits;
-        } catch (e) {}
-      });
-    }
+    const groupNode = this.group;
+    interLabels.each(function(d: RegionDatum) {
+      const textEl = this as SVGGraphicsElement;
+      if (!showIntersectionLabels) {
+        (textEl as any).__autoHidden = true;
+        return;
+      }
+      const regionGroup = groupNode.select(`[data-venn-sets="${d.sets.join('_')}"]`).node() as Element | null;
+      const pathEl = regionGroup?.querySelector('path') as SVGGraphicsElement | null;
+      if (!pathEl) return;
+      try {
+        const labelBBox = textEl.getBBox();
+        const regionBBox = pathEl.getBBox();
+        const fits = labelBBox.width <= regionBBox.width * 0.95
+          && labelBBox.height <= regionBBox.height * 0.95;
+        textEl.setAttribute('opacity', fits ? '1' : '0');
+        (textEl as any).__autoHidden = !fits;
+      } catch (e) {}
+    });
   }
 
   private layoutSets(
@@ -633,7 +635,7 @@ export class VennChart extends BaseSeries {
     }
 
     const a = (c1.r * c1.r - c2.r * c2.r + d * d) / (2 * d);
-    const h = Math.sqrt(c1.r * c1.r - a * a);
+    const h = Math.sqrt(Math.max(0, c1.r * c1.r - a * a));
 
     const mx = c1.cx + a * dx / d;
     const my = c1.cy + a * dy / d;

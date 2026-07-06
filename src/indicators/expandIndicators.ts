@@ -17,7 +17,7 @@ const INDICATOR_ALIASES: Record<string, string> = {
   sma: 'sma', ema: 'ema', wma: 'wma',
   rsi: 'rsi', macd: 'macd', stochastic: 'stochastic', stoch: 'stochastic',
   bb: 'bollingerbands', bollinger: 'bollingerbands', bollingerbands: 'bollingerbands',
-  atr: 'atr', vwap: 'vwap', obv: 'obv', vbp: 'vbp',
+  atr: 'atr', vwap: 'vwap', obv: 'obv',
   ichimoku: 'ichimoku', ikh: 'ichimoku',
   cci: 'cci', roc: 'roc', momentum: 'momentum', mom: 'momentum',
   dema: 'dema', tema: 'tema', adx: 'adx', psar: 'psar',

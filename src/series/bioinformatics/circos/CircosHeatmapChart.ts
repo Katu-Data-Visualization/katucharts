@@ -68,8 +68,15 @@ export class CircosHeatmapChart extends BaseSeries {
     const interpolator = getColorInterpolator(colorScaleName);
 
     const allValues = rows.flatMap(r => r.values);
-    const domainMin = cfg.min ?? Math.min(...allValues);
-    const domainMax = cfg.max ?? Math.max(...allValues);
+    let domainMin = cfg.min;
+    let domainMax = cfg.max;
+    if (allValues.length > 0) {
+      domainMin ??= Math.min(...allValues);
+      domainMax ??= Math.max(...allValues);
+    } else {
+      domainMin ??= 0;
+      domainMax ??= 1;
+    }
     const valueScale = scaleLinear()
       .domain([domainMin, domainMax])
       .range([0, 1])
@@ -126,7 +133,7 @@ export class CircosHeatmapChart extends BaseSeries {
         }
 
         if (this.config.enableMouseTracking !== false) {
-          this.attachCellEvents(cell, row, ri, ci, columns[ci], val, cx, cy);
+          this.attachCellEvents(cell, row, ri, ci, columns[ci], val, cx, cy, nCols);
         }
       }
     }
@@ -208,7 +215,9 @@ export class CircosHeatmapChart extends BaseSeries {
     value: number,
     cx: number,
     cy: number,
+    nCols: number,
   ): void {
+    const cellIndex = rowIdx * nCols + colIdx;
     element
       .on('mouseover', (event: MouseEvent) => {
         const target = select(event.currentTarget as SVGPathElement);
@@ -218,7 +227,7 @@ export class CircosHeatmapChart extends BaseSeries {
         target.style('filter', 'drop-shadow(0 0 3px rgba(0,0,0,0.3))');
         this.context.events.emit('point:mouseover', {
           point: { name: colName, row: row.id, y: value, rowIndex: rowIdx, colIndex: colIdx },
-          index: rowIdx * colIdx,
+          index: cellIndex,
           series: this, event,
           plotX: cx, plotY: cy,
         });
@@ -231,14 +240,14 @@ export class CircosHeatmapChart extends BaseSeries {
         target.style('filter', '');
         this.context.events.emit('point:mouseout', {
           point: { name: colName, row: row.id, y: value, rowIndex: rowIdx, colIndex: colIdx },
-          index: rowIdx * colIdx,
+          index: cellIndex,
           series: this, event,
         });
       })
       .on('click', (event: MouseEvent) => {
         this.context.events.emit('point:click', {
           point: { name: colName, row: row.id, y: value, rowIndex: rowIdx, colIndex: colIdx },
-          index: rowIdx * colIdx,
+          index: cellIndex,
           series: this, event,
         });
         this.config.events?.click?.call(this, event);

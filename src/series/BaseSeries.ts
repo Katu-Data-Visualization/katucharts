@@ -516,7 +516,7 @@ export abstract class BaseSeries {
     const shadow = this.config.shadow;
     if (!shadow) return;
 
-    const filterId = `katucharts-shadow-${this.config.index}-${Date.now()}`;
+    const filterId = `katucharts-shadow-${this.config.index}`;
     const svg = this.group.select(function() { return (this as unknown as SVGElement).ownerSVGElement; }) as any;
     if (!svg.empty()) {
       let defs = svg.select('defs');
@@ -527,6 +527,8 @@ export abstract class BaseSeries {
       const offsetY = shadowOpts.offsetY ?? 1;
       const blurWidth = shadowOpts.width ?? 3;
       const shadowOpacity = shadowOpts.opacity ?? 0.15;
+
+      defs.selectAll(`filter#${filterId}`).remove();
 
       const filter = defs.append('filter').attr('id', filterId);
       filter.append('feDropShadow')

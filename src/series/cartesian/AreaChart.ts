@@ -118,33 +118,40 @@ export class AreaChart extends BaseSeries {
     const posFill = resolveFillPaint(this.config.fillColor, this.group, color);
     const lineColor = this.config.lineColor || color;
 
-    const posData = data.filter(d => d.y !== null && d.y !== undefined && (d.y ?? 0) >= threshold);
-    const negData = data.filter(d => d.y !== null && d.y !== undefined && (d.y ?? 0) < threshold);
+    const hasPos = data.some(d => d.y !== null && d.y !== undefined && (d.y as number) >= threshold);
+    const hasNeg = data.some(d => d.y !== null && d.y !== undefined && (d.y as number) < threshold);
 
-    if (posData.length > 0) {
+    /**
+     * Drive both fills from the full data with a `defined` predicate rather than
+     * a pre-filtered subset: this breaks each fill at null gaps (matching the
+     * line, which also breaks) instead of letting the area bridge across a null.
+     */
+    if (hasPos) {
       const posArea = area<PointOptions>()
+        .defined(d => d.y !== null && d.y !== undefined && (d.y as number) >= threshold)
         .x(d => xAxis.getPixelForValue(d.x ?? 0))
         .y0(baseline)
         .y1(d => yAxis.getPixelForValue(d.y ?? 0))
         .curve(curveFactory);
 
       this.areaPath = this.group.append('path')
-        .datum(posData)
+        .datum(data)
         .attr('d', posArea as any)
         .attr('fill', posFill)
         .attr('fill-opacity', fillOpacity)
         .attr('class', 'katucharts-area katucharts-area-positive');
     }
 
-    if (negData.length > 0) {
+    if (hasNeg) {
       const negArea = area<PointOptions>()
+        .defined(d => d.y !== null && d.y !== undefined && (d.y as number) < threshold)
         .x(d => xAxis.getPixelForValue(d.x ?? 0))
         .y0(baseline)
         .y1(d => yAxis.getPixelForValue(d.y ?? 0))
         .curve(curveFactory);
 
       this.negAreaPath = this.group.append('path')
-        .datum(negData)
+        .datum(data)
         .attr('d', negArea as any)
         .attr('fill', negFill)
         .attr('fill-opacity', fillOpacity)
@@ -330,6 +337,24 @@ export class AreaChart extends BaseSeries {
   }
 
   animateUpdate(duration: number): void {
+    /**
+     * Zones and negative-fill split the series into several paths (and a
+     * separate negAreaPath) that a single area+line transition can't represent,
+     * so morphing here would strand the negative fill and orphan the zone paths.
+     * Rebuild from render() instead (without replaying the entry animation).
+     */
+    if (this.config.zones?.length || this.config.negativeFillColor || this.config.negativeColor) {
+      const prevAnimate = this.context.animate;
+      this.context.animate = false;
+      this.group.selectAll('*').remove();
+      this.areaPath = null;
+      this.linePath = null;
+      this.negAreaPath = null;
+      this.render();
+      this.context.animate = prevAnimate;
+      return;
+    }
+
     const data = this.getFilteredData();
     const { areaGen, lineGen } = this.buildGenerators();
     const color = this.getColor();

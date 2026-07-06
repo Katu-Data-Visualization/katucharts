@@ -91,7 +91,7 @@ export class PolarChart extends BaseSeries {
     const cx = plotArea.width / 2;
     const cy = plotArea.height / 2;
 
-    const rawMax = Math.max(...data.map(d => d.y ?? 0), 1);
+    const rawMax = Math.max(...data.map(d => Math.max(d.y ?? 0, 0)), 1);
     const { ticks, gridMax } = computePolarNiceTicks(rawMax);
     const rScale = scaleLinear().domain([0, gridMax]).range([0, radius]);
     const markerRadius = this.config.marker?.radius ?? 4;
@@ -120,9 +120,9 @@ export class PolarChart extends BaseSeries {
     const effectiveData = data;
 
     const lineGen = lineRadial<PointOptions>()
-      .angle((_, i) => i * angleStep + placementOffset)
-      .radius(d => rScale(d.y ?? 0))
-      .defined(d => d.y !== null && d.y !== undefined)
+      .angle((_, i) => i * angleStep - Math.PI / 2 + placementOffset)
+      .radius(d => rScale(Math.max(d.y ?? 0, 0)))
+      .defined(d => d.y !== null && d.y !== undefined && d.y >= 0)
       .curve(curveType);
 
     const zeroData = data.map(d => ({ ...d, y: 0 }));
@@ -135,10 +135,10 @@ export class PolarChart extends BaseSeries {
 
     if (subType === 'area') {
       const areaGen = areaRadial<PointOptions>()
-        .angle((_, i) => i * angleStep + placementOffset)
+        .angle((_, i) => i * angleStep - Math.PI / 2 + placementOffset)
         .innerRadius(0)
-        .outerRadius(d => rScale(d.y ?? 0))
-        .defined(d => d.y !== null && d.y !== undefined)
+        .outerRadius(d => rScale(Math.max(d.y ?? 0, 0)))
+        .defined(d => d.y !== null && d.y !== undefined && d.y >= 0)
         .curve(curveType);
 
       const areaPath = g.append('path')
@@ -170,8 +170,8 @@ export class PolarChart extends BaseSeries {
         .data(data)
         .join('circle')
         .attr('class', 'katucharts-polar-point')
-        .attr('cx', (d, i) => rScale(d.y ?? 0) * Math.cos(i * angleStep - Math.PI / 2 + placementOffset))
-        .attr('cy', (d, i) => rScale(d.y ?? 0) * Math.sin(i * angleStep - Math.PI / 2 + placementOffset))
+        .attr('cx', (d, i) => rScale(Math.max(d.y ?? 0, 0)) * Math.cos(i * angleStep - Math.PI / 2 + placementOffset))
+        .attr('cy', (d, i) => rScale(Math.max(d.y ?? 0, 0)) * Math.sin(i * angleStep - Math.PI / 2 + placementOffset))
         .attr('fill', this.config.marker?.fillColor || color)
         .attr('stroke', this.config.marker?.lineColor || this.autoBorderColor())
         .attr('stroke-width', this.config.marker?.lineWidth ?? 1)
@@ -199,8 +199,8 @@ export class PolarChart extends BaseSeries {
             target.style('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))');
 
             const i = data.indexOf(d);
-            const px = rScale(d.y ?? 0) * Math.cos(i * angleStep - Math.PI / 2 + placementOffset);
-            const py = rScale(d.y ?? 0) * Math.sin(i * angleStep - Math.PI / 2 + placementOffset);
+            const px = rScale(Math.max(d.y ?? 0, 0)) * Math.cos(i * angleStep - Math.PI / 2 + placementOffset);
+            const py = rScale(Math.max(d.y ?? 0, 0)) * Math.sin(i * angleStep - Math.PI / 2 + placementOffset);
             this.context.events.emit('point:mouseover', {
               point: d, index: i, series: this, event,
               plotX: cx + px, plotY: cy + py,
@@ -236,7 +236,7 @@ export class PolarChart extends BaseSeries {
     const cx = plotArea.width / 2;
     const cy = plotArea.height / 2;
 
-    const rawMax = Math.max(...data.map(d => d.y ?? 0), 1);
+    const rawMax = Math.max(...data.map(d => Math.max(d.y ?? 0, 0)), 1);
     const { ticks, gridMax } = computePolarNiceTicks(rawMax);
     const rScale = scaleLinear().domain([0, gridMax]).range([0, radius]);
     const angleStep = (2 * Math.PI) / data.length;
@@ -281,8 +281,9 @@ export class PolarChart extends BaseSeries {
         const el = select(this);
         const startA = i * angleStep - Math.PI / 2 + placementOffset + padding;
         const endA = (i + 1) * angleStep - Math.PI / 2 + placementOffset - padding;
-        const baseR = (stacking && stackOffsets) ? rScale(stackOffsets.get(i) ?? 0) : 0;
-        const targetR = baseR + rScale(d.y ?? 0);
+        const baseR = (stacking && stackOffsets) ? rScale(Math.max(stackOffsets.get(i) ?? 0, 0)) : 0;
+        const clampedY = Math.max(d.y ?? 0, 0);
+        const targetR = Math.max(baseR, baseR + rScale(clampedY));
 
         el.attr('d', arcGen({ innerRadius: baseR, outerRadius: baseR, startAngle: startA + Math.PI / 2, endAngle: endA + Math.PI / 2 } as any) || '')
           .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY).delay(i * ENTRY_STAGGER_PER_ITEM)
@@ -296,18 +297,19 @@ export class PolarChart extends BaseSeries {
           });
 
         if (stacking && stackOffsets) {
-          stackOffsets.set(i, (stackOffsets.get(i) ?? 0) + (d.y ?? 0));
+          stackOffsets.set(i, (stackOffsets.get(i) ?? 0) + clampedY);
         }
       });
     } else {
       bars.attr('d', (d: PointOptions, i: number) => {
         const startA = i * angleStep - Math.PI / 2 + placementOffset + padding;
         const endA = (i + 1) * angleStep - Math.PI / 2 + placementOffset - padding;
-        const baseR = (stacking && stackOffsets) ? rScale(stackOffsets.get(i) ?? 0) : 0;
-        const targetR = baseR + rScale(d.y ?? 0);
+        const baseR = (stacking && stackOffsets) ? rScale(Math.max(stackOffsets.get(i) ?? 0, 0)) : 0;
+        const clampedY = Math.max(d.y ?? 0, 0);
+        const targetR = Math.max(baseR, baseR + rScale(clampedY));
 
         if (stacking && stackOffsets) {
-          stackOffsets.set(i, (stackOffsets.get(i) ?? 0) + (d.y ?? 0));
+          stackOffsets.set(i, (stackOffsets.get(i) ?? 0) + clampedY);
         }
 
         return arcGen({
@@ -329,8 +331,8 @@ export class PolarChart extends BaseSeries {
           bars.filter((o: any) => o !== d).transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', inactiveOpacity);
 
           const i = data.indexOf(d);
-          const midAngle = i * angleStep + angleStep / 2 - Math.PI / 2 + placementOffset;
-          const r = rScale(d.y ?? 0) / 2;
+          const midAngle = i * angleStep + angleStep / 2 + placementOffset;
+          const r = rScale(Math.max(d.y ?? 0, 0)) / 2;
           this.context.events.emit('point:mouseover', {
             point: d, index: i, series: this, event,
             plotX: cx + r * Math.cos(midAngle), plotY: cy + r * Math.sin(midAngle),
@@ -383,7 +385,7 @@ export class PolarChart extends BaseSeries {
 
     for (const { d, i } of toRender) {
       const angle = i * angleStep - Math.PI / 2 + placementOffset;
-      const r = rScale(d.y ?? 0);
+      const r = rScale(Math.max(d.y ?? 0, 0));
       const markerX = r * Math.cos(angle);
       const markerY = r * Math.sin(angle);
       const hcDeg = ((angle + Math.PI / 2) * 180 / Math.PI + 360) % 360;

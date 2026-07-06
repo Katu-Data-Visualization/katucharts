@@ -191,7 +191,10 @@ export class ItemChart extends BaseSeries {
     const outerRadius = this.config.size !== undefined
       ? Math.min(resolvePercent(this.config.size, minDim) / 2, this.fitRadiusHorizontal(cx, plotArea.width, startAngle, endAngle))
       : this.fitRadius(cx, cy, plotArea.width, plotArea.height, startAngle, endAngle) * 0.96;
-    const innerRadius = resolvePercent(this.config.innerSize ?? '40%', outerRadius * 2) / 2;
+    const innerRadius = Math.min(
+      resolvePercent(this.config.innerSize ?? '40%', outerRadius * 2) / 2,
+      outerRadius
+    );
 
     let rows = this.config.rows;
     if (!rows || rows < 1) {
@@ -335,7 +338,7 @@ export class ItemChart extends BaseSeries {
   private estimateRows(total: number, inner: number, outer: number, angleSpan: number): number {
     const denom = Math.abs(angleSpan) * (inner + outer);
     if (denom <= 0) return 1;
-    const r = Math.round(Math.sqrt((total * 2 * (outer - inner)) / denom));
+    const r = Math.round(Math.sqrt(Math.abs((total * 2 * (outer - inner)) / denom)));
     return Math.max(1, r);
   }
 

@@ -25,6 +25,16 @@ export class PieChart extends BaseSeries {
   }
 
   /**
+   * Selection is tracked by slice index; a data replacement re-indexes the
+   * slices, so drop the selection to avoid a stale index highlighting the wrong
+   * (or a removed) slice after an update.
+   */
+  setData(data: PointOptions[], redraw = true, animation = true): void {
+    this.selectedIndices.clear();
+    super.setData(data, redraw, animation);
+  }
+
+  /**
    * Value-bearing points eligible for the legend — one entry per slice, in data
    * order. Mirrors the renderer's filter so palette colours line up with slices.
    */
@@ -95,6 +105,13 @@ export class PieChart extends BaseSeries {
     const { plotArea } = this.context;
     const ignoreHidden = this.config.ignoreHiddenPoint !== false;
     const rawData = this.data.filter(d => d.y !== null && d.y !== undefined && (d.y ?? 0) > 0);
+    /**
+     * Tag each value-bearing slice with its stable index in the full list so
+     * palette colours stay pinned to a slice even when a preceding slice is
+     * hidden — otherwise the visible-list index shifts and the legend (which
+     * indexes the full list) and the pie disagree on colours.
+     */
+    rawData.forEach((d, i) => { (d as any)._paletteIndex = i; });
     const data = ignoreHidden
       ? rawData.filter(d => d.visible !== false)
       : rawData;
@@ -123,8 +140,9 @@ export class PieChart extends BaseSeries {
     const pieData = pieGen(data);
 
     const totalAngleSpan = endAngle - startAngle;
+    const angleDenom = totalAngleSpan !== 0 ? totalAngleSpan : 2 * Math.PI;
     for (const d of pieData) {
-      (d.data as any).percentage = ((d.endAngle - d.startAngle) / totalAngleSpan) * 100;
+      (d.data as any).percentage = ((d.endAngle - d.startAngle) / angleDenom) * 100;
       (d.data as any).total = totalValue;
     }
 
@@ -341,9 +359,10 @@ export class PieChart extends BaseSeries {
    */
   private resolveSliceColor(point: any, index: number): string {
     if (point.color) return point.color;
-    if (this.config.colors) return this.config.colors[index % this.config.colors.length];
+    const i = point._paletteIndex ?? index;
+    if (this.config.colors) return this.config.colors[i % this.config.colors.length];
     const ctxColors = this.context.colors;
-    return ctxColors[index % ctxColors.length];
+    return ctxColors[i % ctxColors.length];
   }
 
   /**
@@ -860,8 +879,10 @@ export class FunnelChart extends BaseSeries {
     const segments: any[] = [];
 
     data.forEach((d, i) => {
-      const fraction = (d.y ?? 0) / maxValue;
-      const nextFraction = i < data.length - 1 ? (data[i + 1].y ?? 0) / maxValue : fraction * 0.5;
+      // Clamp to >= 0 so a negative value can't produce a negative width (which
+      // would invert the trapezoid path and render a crossed segment).
+      const fraction = Math.max(0, (d.y ?? 0) / maxValue);
+      const nextFraction = i < data.length - 1 ? Math.max(0, (data[i + 1].y ?? 0) / maxValue) : fraction * 0.5;
       const topWidth = minWidth + (maxWidth - minWidth) * fraction;
       const bottomWidth = minWidth + (maxWidth - minWidth) * nextFraction;
       const y = startY + i * segmentHeight;
@@ -965,5 +986,13 @@ export class PyramidChart extends FunnelChart {
   constructor(config: InternalSeriesConfig) {
     super(config);
     this.data = [...(config._processedData || [])].reverse();
+  }
+
+  /**
+   * A pyramid is a funnel drawn widest-last, so keep the reversal when data is
+   * replaced — otherwise setData() would leave the segments in funnel order.
+   */
+  setData(data: PointOptions[], redraw = true, animation = true): void {
+    super.setData([...data].reverse(), redraw, animation);
   }
 }

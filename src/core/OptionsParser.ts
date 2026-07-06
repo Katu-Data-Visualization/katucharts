@@ -344,9 +344,15 @@ export class OptionsParser {
   private static readonly RANGE_TYPES = new Set(['arearange', 'areasplinerange', 'columnrange']);
 
   /**
-   * Array shorthand keys for OHLC and range series. The
-   * leading x value is optional, so the variant is chosen by the array length:
-   * `[o,h,l,c]`/`[x,o,h,l,c]` for OHLC, `[low,high]`/`[x,low,high]` for ranges.
+   * Graph/flow series whose numeric-array shorthand maps onto from/to/value fields.
+   */
+  private static readonly FLOW_TYPES = new Set(['sankey', 'dependencywheel', 'networkgraph']);
+
+  /**
+   * Array shorthand keys for OHLC, range, and flow series. The variant is chosen by the array length:
+   * OHLC: `[o,h,l,c]`/`[x,o,h,l,c]`
+   * Range: `[low,high]`/`[x,low,high]`
+   * Flow: `[from,to]`/`[from,to,value]`
    */
   private defaultArrayKeys(type: SeriesType | undefined, len: number): string[] | null {
     if (!type) return null;
@@ -355,6 +361,9 @@ export class OptionsParser {
     }
     if (OptionsParser.RANGE_TYPES.has(type)) {
       return len >= 3 ? ['x', 'low', 'high'] : ['low', 'high'];
+    }
+    if (OptionsParser.FLOW_TYPES.has(type)) {
+      return len >= 3 ? ['from', 'to', 'value'] : ['from', 'to'];
     }
     return null;
   }
@@ -372,15 +381,18 @@ export class OptionsParser {
       return { x: (series.pointStart ?? 0) + index * (series.pointInterval ?? 1), y: d };
     }
 
-    if (Array.isArray(d) && (d as any[]).length === 5 && series.type === 'boxplot') {
+    if (Array.isArray(d) && (d as any[]).length >= 5 && series.type === 'boxplot') {
       const arr = d as any as number[];
+      const len = arr.length;
+      const isXIncluded = len >= 6;
+      const offset = isXIncluded ? 1 : 0;
       return {
-        x: (series.pointStart ?? 0) + index * (series.pointInterval ?? 1),
-        low: arr[0], q1: arr[1], median: arr[2], q3: arr[3], high: arr[4],
+        x: isXIncluded ? arr[0] : (series.pointStart ?? 0) + index * (series.pointInterval ?? 1),
+        low: arr[offset], q1: arr[offset + 1], median: arr[offset + 2], q3: arr[offset + 3], high: arr[offset + 4],
       };
     }
 
-    if (Array.isArray(d) && series.type === 'flowmap') {
+    if (Array.isArray(d) && series.type === 'flowmap' && (d as any[]).length >= 2) {
       return { from: d[0], to: d[1], weight: d[2] } as PointOptions;
     }
 
@@ -390,7 +402,7 @@ export class OptionsParser {
         for (let k = 0; k < series.keys.length && k < d.length; k++) {
           (point as any)[series.keys[k]] = d[k];
         }
-        if (point.x === undefined && (!NO_AXES_TYPES.has(series.type as string) || !point.name)) {
+        if (point.x === undefined && !NO_AXES_TYPES.has(series.type as string)) {
           point.x = (series.pointStart ?? 0) + index * (series.pointInterval ?? 1);
         }
         return point;
@@ -437,7 +449,7 @@ export class OptionsParser {
        * the sole key.
        */
       const cartesian = !NO_AXES_TYPES.has(series.type as string);
-      if (!isMapFamily && point.x === undefined && (cartesian || !point.name)) {
+      if (!isMapFamily && point.x === undefined && cartesian) {
         point.x = (series.pointStart ?? 0) + index * (series.pointInterval ?? 1);
       }
       return point;
@@ -461,17 +473,26 @@ export class OptionsParser {
         result[i] = { x: start + i * interval, y: data[i] as number };
       }
     } else {
-      const ohlcKeys = Array.isArray(first) ? this.defaultArrayKeys(series.type, first.length) : null;
-      if (ohlcKeys) {
+      const firstOhlcKeys = Array.isArray(first) ? this.defaultArrayKeys(series.type, first.length) : null;
+      if (firstOhlcKeys) {
         for (let i = 0; i < len; i++) {
           const d = data[i] as number[];
+          const ohlcKeys = this.defaultArrayKeys(series.type, d.length);
           const point: PointOptions = {};
-          for (let k = 0; k < ohlcKeys.length && k < d.length; k++) {
-            (point as any)[ohlcKeys[k]] = d[k];
-          }
-          if (point.x === undefined) point.x = start + i * interval;
-          if ((point as any).close !== undefined && point.y === undefined) {
-            point.y = (point as any).close;
+          if (ohlcKeys) {
+            for (let k = 0; k < ohlcKeys.length && k < d.length; k++) {
+              (point as any)[ohlcKeys[k]] = d[k];
+            }
+            if (point.x === undefined) point.x = start + i * interval;
+            if ((point as any).close !== undefined && point.y === undefined) {
+              point.y = (point as any).close;
+            }
+          } else {
+            if (d.length >= 3) {
+              Object.assign(point, { x: d[0], y: d[1], z: d[2] });
+            } else {
+              Object.assign(point, { x: d[0], y: d[1] });
+            }
           }
           result[i] = point;
         }
