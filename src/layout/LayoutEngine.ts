@@ -5,6 +5,7 @@
 import type { InternalConfig, PlotArea } from '../types/options';
 import { DEFAULT_CHART_TEXT_SIZE, ROTATED_AXIS_LABEL_MAX_EXTENT, parseFontSizePx, measureTextWidth } from '../utils/chartText';
 import { NO_AXES_TYPES } from '../core/chartTypes';
+import { Legend, LEGEND_MAX_GRID_ROWS } from '../components/Legend';
 
 export interface LayoutResult {
   plotArea: PlotArea;
@@ -347,24 +348,19 @@ export class LayoutEngine {
       const useGrid = numSeries > 8 && naturalFlowWidth > availWidth;
 
       if (useGrid) {
-        let maxTextWidth = 0;
-        for (const label of labels) {
-          const w = measureTextWidth(label, fontPx);
-          if (w > maxTextWidth) maxTextWidth = w;
-        }
+        const { columns } = Legend.computeGridLayout(numSeries, labels, availWidth, {
+          symbolWidth, symbolPadding, fontSize: effectiveFontSize,
+          itemDistance, padding, itemWidth: config.legend.itemWidth,
+          fontWeight: itemStyle.fontWeight as string,
+        });
 
-        let gridItemWidth: number;
-        let columns: number;
-        if (config.legend.itemWidth) {
-          gridItemWidth = config.legend.itemWidth;
-          columns = Math.max(2, Math.floor(availWidth / gridItemWidth));
-        } else {
-          const computed = symbolWidth + symbolPadding + maxTextWidth + 8;
-          columns = Math.max(1, Math.floor(availWidth / computed));
-          gridItemWidth = availWidth / columns;
-        }
-
-        const rows = Math.ceil(numSeries / columns);
+        /**
+         * Reserve only the visible page of rows, matching the legend's own
+         * pagination cap. Extra series then scroll behind the nav arrows instead
+         * of the reserved legend height growing without bound and collapsing the
+         * plot area on charts with many series.
+         */
+        const rows = Math.min(Math.ceil(numSeries / columns), LEGEND_MAX_GRID_ROWS);
         const height = rows * rowStep + padding * 2;
         const maxHeight = config.legend.maxHeight;
         return (maxHeight ? Math.min(height, maxHeight) : height) + margin;

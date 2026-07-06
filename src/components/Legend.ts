@@ -5,6 +5,13 @@ import { templateFormat, stripHtmlTags } from '../utils/format';
 import type { BaseSeries } from '../series/BaseSeries';
 import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE, parseFontSizePx, readableTextColor, measureTextWidth } from '../utils/chartText';
 
+/**
+ * Rows shown per page when a wide series list is laid out as a paged grid.
+ * The layout engine reserves height for at most this many rows so extra series
+ * scroll behind the nav arrows instead of shrinking the plot area.
+ */
+export const LEGEND_MAX_GRID_ROWS = 6;
+
 export class Legend {
   private config: LegendOptions;
   private group!: Selection<SVGGElement, unknown, null, undefined>;
@@ -220,7 +227,7 @@ export class Legend {
       && naturalFlowWidth > availWidth;
     let gridColumns = 0;
     let gridItemWidth = 0;
-    const maxGridRows = 6;
+    const maxGridRows = LEGEND_MAX_GRID_ROWS;
     let gridPage = 0;
     let totalGridRows = 0;
 
