@@ -902,7 +902,77 @@ export class Chart {
       }
     }
 
+    this.declutterColumnDataLabels();
     this.reorderSeriesByZIndex();
+  }
+
+  /**
+   * After the columns draw their value labels, spread the ones that pile up
+   * inside a single bar. Labels are grouped by the bar they sit on (same centre
+   * on the category axis) and, where two would overlap, the later one is nudged
+   * along the bar to the nearest free slot — staying inside the plot — so a tall
+   * bar's thin segments relocate their numbers into open space instead of
+   * printing them on top of each other. Vertical columns spread along y,
+   * horizontal bars along x. Runs after every draw so the layout survives a
+   * legend toggle.
+   */
+  private declutterColumnDataLabels(): void {
+    const isBar = (t: string) => t === 'column' || t === 'bar';
+    const active = this.options.series.some(
+      (cfg, i) => this.seriesInstances[i]?.visible && cfg.dataLabels?.enabled && isBar(cfg._internalType)
+    );
+    if (!active) return;
+
+    const inverted = !!this.options.chart.inverted;
+    const plotSize = inverted ? this.layout.plotArea.width : this.layout.plotArea.height;
+    if (!(plotSize > 0)) return;
+
+    type L = { el: SVGTextElement; main: number; cross: number; thick: number };
+    const labels: L[] = [];
+    for (let i = 0; i < this.seriesInstances.length; i++) {
+      const s = this.seriesInstances[i];
+      const cfg = this.options.series[i];
+      if (!s.visible || !cfg.dataLabels?.enabled || !isBar(cfg._internalType)) continue;
+      const group = (s as any).group;
+      if (!group) continue;
+      group.selectAll('.katucharts-data-labels text').each(function (this: SVGTextElement) {
+        const x = parseFloat(this.getAttribute('x') || '0');
+        const y = parseFloat(this.getAttribute('y') || '0');
+        let w = 8, h = 12;
+        try { const b = this.getBBox(); w = b.width; h = b.height; } catch { /* not laid out yet */ }
+        // `main` is the axis we spread along; `cross` groups labels onto one bar.
+        labels.push(inverted
+          ? { el: this, main: x, cross: Math.round(y), thick: w }
+          : { el: this, main: y, cross: Math.round(x), thick: h });
+      });
+    }
+    if (labels.length < 2) return;
+
+    const bars = new Map<number, L[]>();
+    for (const l of labels) {
+      const arr = bars.get(l.cross);
+      if (arr) arr.push(l); else bars.set(l.cross, [l]);
+    }
+
+    const gap = 1;
+    for (const arr of bars.values()) {
+      if (arr.length < 2) continue;
+      arr.sort((a, b) => a.main - b.main);
+      let moved = false;
+      for (let i = 1; i < arr.length; i++) {
+        const need = arr[i - 1].main + arr[i - 1].thick / 2 + gap + arr[i].thick / 2;
+        if (arr[i].main < need - 0.5) { arr[i].main = need; moved = true; }
+      }
+      if (!moved) continue;
+      // Slide the whole run back inside the plot if it pushed off either end.
+      const last = arr[arr.length - 1];
+      const over = (last.main + last.thick / 2) - plotSize;
+      if (over > 0) arr.forEach(l => { l.main -= over; });
+      const first = arr[0];
+      const under = (first.thick / 2) - first.main;
+      if (under > 0) arr.forEach(l => { l.main += under; });
+      for (const l of arr) l.el.setAttribute(inverted ? 'x' : 'y', String(l.main));
+    }
   }
 
   /**
@@ -1218,6 +1288,7 @@ export class Chart {
       }
     }
 
+    this.declutterColumnDataLabels();
     this.renderStackLabels();
     this.renderTitles();
     this.renderLegend();

@@ -165,68 +165,86 @@ class BaseAxis {
       .attr('stroke', cfg.lineColor || '#ccd6eb')
       .attr('stroke-width', cfg.lineWidth ?? 1);
 
-    if (cfg.labels?.enabled === false) {
-      axisGroup.selectAll('.tick text').remove();
-    } else {
-      const style = cfg.labels?.style || {};
-      axisGroup.selectAll('.tick text')
-        .attr('fill', style.color as string || this.autoText())
-        .style('font-size', style.fontSize as string || DEFAULT_CHART_TEXT_SIZE)
-        .style('font-weight', ((style.fontWeight as string) || null) as any)
-        .style('font-family', ((style.fontFamily as string) || null) as any)
-        .style('font-style', ((style.fontStyle as string) || null) as any);
-
-      if (cfg.labels?.x !== undefined || cfg.labels?.y !== undefined) {
-        const dx = cfg.labels?.x ?? 0;
-        const dy = cfg.labels?.y ?? 0;
-        axisGroup.selectAll('.tick text')
-          .attr('dx', dx)
-          .attr('dy', (parseFloat(axisGroup.select('.tick text').attr('dy') || '0') + dy));
-      }
-
-      if (cfg.labels?.step && cfg.labels.step > 1) {
-        axisGroup.selectAll('.tick text').each(function(_d: any, i: number) {
-          if (i % cfg.labels!.step! !== 0) {
-            select(this).remove();
-          }
-        });
-      }
-
-      if (cfg.showFirstLabel === false) {
-        const texts = axisGroup.selectAll('.tick text').nodes();
-        if (texts.length > 0) select(texts[0]).remove();
-      }
-      if (cfg.showLastLabel === false) {
-        const texts = axisGroup.selectAll('.tick text').nodes();
-        if (texts.length > 0) select(texts[texts.length - 1]).remove();
-      }
-
-      if (cfg.labels?.rotation) {
-        axisGroup.selectAll('.tick text')
-          .attr('transform', `rotate(${cfg.labels.rotation})`)
-          .style('text-anchor', cfg.labels.rotation < 0 ? 'end' : 'start');
-        if (Math.abs(Math.sin(cfg.labels.rotation * (Math.PI / 180))) > 0.01) {
-          this.truncateRotatedLabels(axisGroup, plotArea, cfg.labels.rotation);
-        }
-      } else if ((cfg.isX ? !cfg._inverted : !!cfg._inverted) && cfg.labels?.autoRotation) {
-        this.applyAutoRotation(axisGroup, cfg.labels.autoRotation, plotArea);
-      } else if (
-        (cfg.isX ? !!cfg._inverted : !cfg._inverted) && !cfg.opposite &&
-        Array.isArray(cfg.categories) && cfg.categories.length > 0
-      ) {
-        /**
-         * Category labels sitting to the LEFT of the plot (the category axis of an inverted bar chart, or
-         * a left category y-axis). The layout caps this margin at ~30% of the chart width, so an over-long
-         * label must be truncated to fit — otherwise it would spill into the plot. Numeric value axes are
-         * excluded (they self-size to short numbers). Full text stays available on hover via a <title>.
-         */
-        const tickLen = cfg.tickLength ?? 10;
-        this.truncateLabels(axisGroup, plotArea.x - tickLen - 4);
-      }
-    }
+    this.decorateAxisLabels(axisGroup, plotArea);
 
     if (cfg.visible === false) {
       axisGroup.style('display', 'none');
+    }
+  }
+
+  /**
+   * Styles the tick labels and applies the anti-overflow decorations — step
+   * thinning, first/last hiding, rotation, and truncation of over-long labels
+   * (rotated bottom labels and left-of-plot category labels are ellipsised to
+   * their reserved band). Shared by the initial render and the animated redraw so
+   * a legend toggle keeps the labels truncated instead of expanding them back to
+   * full length and spilling past the chart edge.
+   */
+  protected decorateAxisLabels(
+    axisGroup: Selection<SVGGElement, unknown, null, undefined>,
+    plotArea: PlotArea
+  ): void {
+    const cfg = this.config;
+    if (cfg.labels?.enabled === false) {
+      axisGroup.selectAll('.tick text').remove();
+      return;
+    }
+
+    const style = cfg.labels?.style || {};
+    axisGroup.selectAll('.tick text')
+      .attr('fill', style.color as string || this.autoText())
+      .style('font-size', style.fontSize as string || DEFAULT_CHART_TEXT_SIZE)
+      .style('font-weight', ((style.fontWeight as string) || null) as any)
+      .style('font-family', ((style.fontFamily as string) || null) as any)
+      .style('font-style', ((style.fontStyle as string) || null) as any);
+
+    if (cfg.labels?.x !== undefined || cfg.labels?.y !== undefined) {
+      const dx = cfg.labels?.x ?? 0;
+      const dy = cfg.labels?.y ?? 0;
+      axisGroup.selectAll('.tick text')
+        .attr('dx', dx)
+        .attr('dy', (parseFloat(axisGroup.select('.tick text').attr('dy') || '0') + dy));
+    }
+
+    if (cfg.labels?.step && cfg.labels.step > 1) {
+      axisGroup.selectAll('.tick text').each(function(_d: any, i: number) {
+        if (i % cfg.labels!.step! !== 0) {
+          select(this).remove();
+        }
+      });
+    }
+
+    if (cfg.showFirstLabel === false) {
+      const texts = axisGroup.selectAll('.tick text').nodes();
+      if (texts.length > 0) select(texts[0]).remove();
+    }
+    if (cfg.showLastLabel === false) {
+      const texts = axisGroup.selectAll('.tick text').nodes();
+      if (texts.length > 0) select(texts[texts.length - 1]).remove();
+    }
+
+    if (cfg.labels?.rotation) {
+      axisGroup.selectAll('.tick text')
+        .attr('transform', `rotate(${cfg.labels.rotation})`)
+        .style('text-anchor', cfg.labels.rotation < 0 ? 'end' : 'start');
+      if (Math.abs(Math.sin(cfg.labels.rotation * (Math.PI / 180))) > 0.01) {
+        this.truncateRotatedLabels(axisGroup, plotArea, cfg.labels.rotation);
+        this.thinRotatedLabels(axisGroup, cfg.labels.rotation);
+      }
+    } else if ((cfg.isX ? !cfg._inverted : !!cfg._inverted) && cfg.labels?.autoRotation) {
+      this.applyAutoRotation(axisGroup, cfg.labels.autoRotation, plotArea);
+    } else if (
+      (cfg.isX ? !!cfg._inverted : !cfg._inverted) && !cfg.opposite &&
+      Array.isArray(cfg.categories) && cfg.categories.length > 0
+    ) {
+      /**
+       * Category labels sitting to the LEFT of the plot (the category axis of an inverted bar chart, or
+       * a left category y-axis). The layout caps this margin at ~30% of the chart width, so an over-long
+       * label must be truncated to fit — otherwise it would spill into the plot. Numeric value axes are
+       * excluded (they self-size to short numbers). Full text stays available on hover via a <title>.
+       */
+      const tickLen = cfg.tickLength ?? 10;
+      this.truncateLabels(axisGroup, plotArea.x - tickLen - 4);
     }
   }
 
@@ -320,27 +338,49 @@ class BaseAxis {
      * where the leftmost labels are shortest and inner ones run full length.
      */
     this.truncateRotatedLabels(axisGroup, plotArea, rotation);
+    this.thinRotatedLabels(axisGroup, rotation);
+  }
 
-    /**
-     * Thin to every Nth label only when the rotated strips would truly collide —
-     * their clearance is the along-axis step projected onto the label normal
-     * (step·sinθ) versus the strip's own thickness (~a font cap-height), not the
-     * upright bounding boxes. Two regimes: short codes (dates, periods) read as a
-     * scale, so they keep a full line-height of breathing room and drop
-     * intermediate ticks when crowded; long names label individual bars, so every
-     * one is kept and we step only if even their thin strips can't fit.
-     */
+  /**
+   * Thins rotated tick labels to every Nth only when the rotated strips would
+   * truly collide — their clearance is the along-axis step projected onto the
+   * label normal (step·sinθ) versus the strip's own thickness (~a font
+   * cap-height), not the upright bounding boxes. Two regimes: short codes (dates,
+   * periods) read as a scale, so they keep a full line-height of breathing room
+   * and drop intermediate ticks when crowded; long names label individual bars,
+   * so every one is kept and we step only if even their thin strips can't fit.
+   * Applied for both the fixed `labels.rotation` and the auto-rotation paths so a
+   * crowded category axis declutters the same way on the initial render and after
+   * a legend toggle. Idempotent: labels already hidden by a smaller stride stay
+   * hidden, and a non-colliding axis (stride 1) is left fully labelled.
+   */
+  protected thinRotatedLabels(
+    axisGroup: Selection<SVGGElement, unknown, null, undefined>,
+    rotationDeg: number
+  ): void {
+    const ticks = axisGroup.selectAll('.tick text').nodes() as SVGTextElement[];
+    if (ticks.length < 2) return;
+    // Un-hide first so metrics reflect real text (a display:none label reports 0) —
+    // keeps the stride stable when this re-runs on an already-thinned axis.
+    ticks.forEach(t => { (t.style as any).display = ''; });
+    const sin = Math.abs(Math.sin(rotationDeg * (Math.PI / 180))) || 1;
     const range = this.getRange() as [number, number];
     const step = Math.abs(range[1] - range[0]) / Math.max(1, ticks.length - 1);
-    const fontPx = parseFontSizePx(this.config.labels?.style?.fontSize as string || DEFAULT_CHART_TEXT_SIZE);
-    let maxLabelWidth = 0;
-    ticks.forEach(t => { maxLabelWidth = Math.max(maxLabelWidth, t.getComputedTextLength()); });
-    const longLabels = maxLabelWidth > fontPx * 7;
-    const minGap = longLabels ? fontPx * 0.7 : fontPx * 1.1;
-    const stride = Math.max(1, Math.ceil(minGap / Math.max(step * sin, 0.5)));
-    if (stride > 1) {
-      ticks.forEach((t, i) => { (t.style as any).display = i % stride === 0 ? '' : 'none'; });
+    /**
+     * Clearance needed between adjacent rotated labels is the perpendicular gap
+     * their centres get (step·sinθ) versus the label strip's own thickness — its
+     * rendered line-box height. Measuring the real height (rather than a fixed
+     * fraction of the font size) keeps small dense category labels from touching,
+     * which the width-based heuristic let slip through when the tick pitch landed
+     * a hair above the threshold.
+     */
+    let thickness = 0;
+    ticks.forEach(t => { try { thickness = Math.max(thickness, t.getBBox().height); } catch { /* not laid out */ } });
+    if (thickness <= 0) {
+      thickness = parseFontSizePx(this.config.labels?.style?.fontSize as string || DEFAULT_CHART_TEXT_SIZE) * 1.2;
     }
+    const stride = Math.max(1, Math.ceil(thickness / Math.max(step * sin, 0.5)));
+    ticks.forEach((t, i) => { (t.style as any).display = i % stride === 0 ? '' : 'none'; });
   }
 
   /**
@@ -775,7 +815,16 @@ class BaseAxis {
     const existing = group.select<SVGGElement>(`.${className}`);
 
     if (!existing.empty()) {
-      (existing.transition().duration(duration) as any).call(axisGen as any);
+      /**
+       * Apply the axis synchronously (rather than through a transition) so the tick
+       * labels get their final text immediately and can be re-decorated — a
+       * transition re-sets each label to its full formatted text on start, which
+       * would undo the rotation/truncation and let long category labels spill past
+       * the chart edge after a legend toggle. Gridlines already redraw in place, so
+       * snapping the ticks keeps them consistent.
+       */
+      existing.call(axisGen as any);
+      this.decorateAxisLabels(existing, plotArea);
       this.animateGridLines(group, scale, plotArea, duration);
     }
   }
