@@ -64,7 +64,13 @@ class BaseAxis {
     if (this.config.isX) {
       if (inv) {
         const size = this.plotArea.height;
-        return this.config.reversed ? [size, 0] : [0, size];
+        /**
+         * On an inverted (horizontal-bar) chart the category axis is implicitly
+         * reversed by convention, so the first category sits at the top. That
+         * default holds when `reversed` is unset or `true`; an explicit
+         * `reversed: false` opts out and runs the categories bottom-up.
+         */
+        return this.config.reversed === false ? [size, 0] : [0, size];
       }
       const size = this.plotArea.width;
       return this.config.reversed ? [size, 0] : [0, size];
@@ -1002,7 +1008,7 @@ export class LinearAxis extends BaseAxis implements AxisInstance {
     }
 
     const axisGroup = group.append('g')
-      .attr('class', `katucharts-axis katucharts-axis-${this.config.isX ? 'x' : 'y'}`)
+      .attr('class', `katucharts-axis katucharts-axis-${this.config.isX ? 'x' : 'y'} katucharts-axis-labels`)
       .attr('transform', this.getTransform(plotArea));
 
     this.renderGridLines(group, this.scale, plotArea);
@@ -1216,7 +1222,7 @@ export class LogarithmicAxis extends BaseAxis implements AxisInstance {
     }
 
     const axisGroup = group.append('g')
-      .attr('class', `katucharts-axis katucharts-axis-${this.config.isX ? 'x' : 'y'}`)
+      .attr('class', `katucharts-axis katucharts-axis-${this.config.isX ? 'x' : 'y'} katucharts-axis-labels`)
       .attr('transform', this.getTransform(plotArea));
 
     this.renderGridLines(group, this.scale, plotArea, ticks);
@@ -1258,7 +1264,7 @@ export class DateTimeAxis extends BaseAxis implements AxisInstance {
     this.applyTickFormat(axisGen);
 
     const axisGroup = group.append('g')
-      .attr('class', `katucharts-axis katucharts-axis-${this.config.isX ? 'x' : 'y'}`)
+      .attr('class', `katucharts-axis katucharts-axis-${this.config.isX ? 'x' : 'y'} katucharts-axis-labels`)
       .attr('transform', this.getTransform(plotArea));
 
     this.renderGridLines(group, this.scale, plotArea);
@@ -1364,7 +1370,7 @@ export class CategoryAxis extends BaseAxis implements AxisInstance {
     this.applyTickFormat(axisGen);
 
     const axisGroup = group.append('g')
-      .attr('class', `katucharts-axis katucharts-axis-${this.config.isX ? 'x' : 'y'}`)
+      .attr('class', `katucharts-axis katucharts-axis-${this.config.isX ? 'x' : 'y'} katucharts-axis-labels`)
       .attr('transform', this.getTransform(plotArea));
 
     this.renderGridLines(group, this.scale, plotArea);

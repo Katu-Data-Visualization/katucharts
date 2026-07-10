@@ -107,7 +107,7 @@ export class ExportButton {
     this.btnCenterY = y + btnHeight / 2;
 
     this.group = svg.append('g')
-      .attr('class', 'katucharts-export-button-group')
+      .attr('class', 'katucharts-export-button-group katucharts-exporting-group')
       .attr('transform', `translate(${x},${y})`)
       .style('cursor', 'pointer');
 

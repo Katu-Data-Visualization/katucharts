@@ -20,6 +20,34 @@ registerGeneralSeriesTypes();
 registerFinancialSeriesTypes();
 registerFlowSeriesTypes();
 
+/**
+ * Array test re-exported so chart code can import it from the library
+ * instead of reaching for the global.
+ */
+export const isArray = Array.isArray;
+
+/**
+ * Legacy extension points. Chart snippets written against other charting
+ * APIs patch prototypes such as `Fx`, `SVGElement` and `Series` to customize
+ * rendering; nothing in this library reads these objects, so such patches
+ * become harmless no-ops while the snippet itself keeps working unchanged.
+ */
+export const Fx: any = { prototype: {} };
+export const SVGElement: any = { prototype: {} };
+export const Series: any = { prototype: {} };
+
+/**
+ * Replaces `obj[method]` with `wrapper`, passing the original implementation
+ * (bound to the receiver, or a no-op when absent) as the first argument —
+ * the conventional signature used by chart extension snippets.
+ */
+export function wrap(obj: any, method: string, wrapper: (...args: any[]) => any): void {
+  const original = typeof obj?.[method] === 'function' ? obj[method] : function () {};
+  obj[method] = function (this: any, ...args: any[]) {
+    return wrapper.call(this, original.bind(this), ...args);
+  };
+}
+
 export const KatuCharts = {
   chart(containerOrId: string | HTMLElement, options: KatuChartsOptions): Chart {
     return new Chart(containerOrId, options);
@@ -37,6 +65,12 @@ export const KatuCharts = {
   numberFormat,
   templateFormat,
   stripHtmlTags,
+
+  isArray,
+  wrap,
+  Fx,
+  SVGElement,
+  Series,
 
   color(input: string) {
     return parseColor(input);
@@ -82,6 +116,18 @@ export const KatuCharts = {
 };
 
 export default KatuCharts;
+
+/**
+ * Namespace methods mirrored as named exports so namespace-style imports
+ * (`import * as KatuCharts from 'katucharts'`) expose the same API surface
+ * as the default export.
+ */
+export const chart = KatuCharts.chart;
+export const setOptions = KatuCharts.setOptions;
+export const getOptions = KatuCharts.getOptions;
+export const color = KatuCharts.color;
+export { getPalette, getTheme, PALETTES as palettes, THEMES as themes } from './utils/color';
+export { dateFormat, numberFormat, templateFormat, stripHtmlTags } from './utils/format';
 
 export { Chart } from './core/Chart';
 export { EventBus } from './core/EventBus';

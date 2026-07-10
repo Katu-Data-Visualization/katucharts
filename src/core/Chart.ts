@@ -1200,8 +1200,17 @@ export class Chart {
       if (!canReuseSeries) {
         this.redraw();
       } else {
+        /**
+         * Update transitions run at the chart-level animation duration when one
+         * is configured (`chart.animation.duration`), matching the conventional
+         * contract that update animation is governed by the chart, not the series.
+         */
+        const chartAnim = this.options.chart?.animation as boolean | { duration?: number } | undefined;
+        const duration = chartAnim === false
+          ? 0
+          : (typeof chartAnim === 'object' ? chartAnim?.duration ?? 300 : 300);
         try {
-          this.animatedRedraw(300);
+          this.animatedRedraw(duration);
         } catch {
           this.redraw();
         }

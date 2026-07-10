@@ -19,8 +19,14 @@ export function setGlobalOptions(options: Partial<KatuChartsOptions>): void {
   globalOptions = deepMerge(globalOptions as any, options as any);
 }
 
+/**
+ * Returns the effective global options: built-in defaults overlaid with
+ * everything set through `setOptions`. The result is a fresh merged copy, so
+ * callers can read `.colors` (and any other default) without having set it,
+ * and mutations to the returned object don't leak back into the defaults.
+ */
 export function getGlobalOptions(): Partial<KatuChartsOptions> {
-  return globalOptions;
+  return deepMerge(deepMerge({} as any, defaultOptions), globalOptions as any);
 }
 
 export class OptionsParser {
@@ -322,7 +328,7 @@ export class OptionsParser {
         }
         if (typeof first === 'number' || (Array.isArray(first) && typeof first[0] === 'number')) {
           result.data = this.normalizeDataBulk(result.data as (number | [number, number] | [number, number, number])[], result);
-          return result;
+          return this.applyDataSorting(result);
         }
       }
       result.data = result.data.map((d, i) => this.normalizeDataPoint(d, i, result));
@@ -330,7 +336,29 @@ export class OptionsParser {
       result.data = [];
     }
 
-    return result;
+    return this.applyDataSorting(result);
+  }
+
+  /**
+   * Ranked ordering (`dataSorting.enabled`): sorts the normalized points by
+   * value descending and re-indexes x by rank, so the category axis (which
+   * takes its names from point order) and every renderer see the ranked order.
+   * Point identity across updates is carried by the name, which lets keyed
+   * renderers animate rank moves instead of redrawing in place.
+   */
+  private applyDataSorting(series: SeriesOptions): SeriesOptions {
+    const sorting = series.dataSorting;
+    if (!sorting?.enabled || !Array.isArray(series.data)) return series;
+
+    const sortKey = sorting.sortKey ?? 'y';
+    const sorted = [...(series.data as PointOptions[])].sort((a, b) => {
+      const av = Number((a as any)?.[sortKey]);
+      const bv = Number((b as any)?.[sortKey]);
+      return (Number.isFinite(bv) ? bv : -Infinity) - (Number.isFinite(av) ? av : -Infinity);
+    });
+    sorted.forEach((p, i) => { p.x = i; });
+    series.data = sorted;
+    return series;
   }
 
   /**

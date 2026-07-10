@@ -83,7 +83,7 @@ export class ColumnChart extends BaseSeries {
     const { xAxis, yAxis, plotArea } = this.context;
     const color = this.getColor();
     const data = this.data;
-    const animate = this.context.animate;
+    const animate = this.context.animate && this.config.animation !== false;
 
     const { barWidth, barOffset, baseline } = this.computeBarGeometry();
     const stacking = this.config.stacking;
@@ -364,8 +364,20 @@ export class ColumnChart extends BaseSeries {
     const threshold = this.config.threshold ?? 0;
     const negColor = this.config.negativeColor;
 
-    const bars = this.group.selectAll<SVGRectElement, PointOptions>('.katucharts-column')
-      .data(data);
+    /**
+     * Ranked updates (dataSorting.matchByName) key the join by point name so a
+     * bar keeps its element across rank changes and visibly slides to its new
+     * slot; otherwise the join stays positional (by index), the conventional
+     * update behaviour.
+     */
+    const sorting = this.config.dataSorting;
+    const keyFn = sorting?.enabled && sorting.matchByName
+      ? (d: PointOptions, i: number) => String(d.name ?? i)
+      : undefined;
+
+    const bars = keyFn
+      ? this.group.selectAll<SVGRectElement, PointOptions>('.katucharts-column').data(data, keyFn)
+      : this.group.selectAll<SVGRectElement, PointOptions>('.katucharts-column').data(data);
 
     const enter = bars.enter().append('rect')
       .attr('class', 'katucharts-column')
@@ -381,6 +393,12 @@ export class ColumnChart extends BaseSeries {
         .attr('width', crisp ? Math.round(barWidth) : barWidth)
         .attr('y', baseline)
         .attr('height', 0);
+    } else {
+      enter
+        .attr('y', d => this.crispCoord(xAxis.getPixelForValue(d.x ?? 0) + barOffset, crisp))
+        .attr('height', crisp ? Math.round(barWidth) : barWidth)
+        .attr('x', baseline)
+        .attr('width', 0);
     }
 
     const merged = enter.merge(bars);
@@ -404,9 +422,111 @@ export class ColumnChart extends BaseSeries {
 
     bars.exit().transition().duration(duration).attr('opacity', 0).remove();
 
-    this.group.selectAll('.katucharts-data-labels').remove();
     this.attachHoverEffects(this.group.selectAll('.katucharts-column'), data);
-    this.renderColumnDataLabels(data, barWidth, barOffset, baseline);
+    if (sorting?.enabled) {
+      this.animateSortedDataLabels(data, barWidth, barOffset, duration);
+    } else {
+      this.group.selectAll('.katucharts-data-labels').remove();
+      this.renderColumnDataLabels(data, barWidth, barOffset, baseline);
+    }
+  }
+
+  /**
+   * Animated data-label pass for ranked (dataSorting) updates. Labels are
+   * keyed by point name so each one slides with its bar to its new rank, and
+   * plain numeric labels tween through intermediate values while moving — the
+   * classic bar-race treatment. Labels produced by a formatter/format string
+   * still slide but swap their text at once, since arbitrary formatters can't
+   * be interpolated safely.
+   */
+  private animateSortedDataLabels(
+    data: PointOptions[], barWidth: number, barOffset: number, duration: number
+  ): void {
+    const dlConfig = this.config.dataLabels;
+    if (!dlConfig?.enabled) {
+      this.group.selectAll('.katucharts-data-labels').remove();
+      return;
+    }
+
+    const { xAxis, yAxis, plotArea } = this.context;
+    const horizontal = this.isHorizontal;
+    const plotW = plotArea.width;
+    const hasFormatter = !!(dlConfig.formatter || dlConfig.format);
+
+    let labelsGroup = this.group.selectAll<SVGGElement, unknown>('.katucharts-data-labels');
+    if (labelsGroup.empty()) {
+      labelsGroup = this.group.append('g').attr('class', 'katucharts-data-labels katucharts-data-label') as any;
+    }
+
+    /**
+     * Labels drawn by the static pass (initial render) carry no bound data, so
+     * they can't participate in a keyed join — the key accessor would read
+     * `undefined`. They are cleared once here; from this update on, every label
+     * is data-bound and animates with its bar.
+     */
+    labelsGroup.selectAll<SVGTextElement, PointOptions>('text')
+      .filter(function () { return (this as any).__data__ === undefined; })
+      .remove();
+
+    const visible = data.filter(d => d.y != null);
+    const labelX = (d: PointOptions): number => {
+      if (horizontal) {
+        const end = yAxis.getPixelForValue(d.y ?? 0);
+        return Math.min(end + 6, plotW - 4) + (dlConfig.x ?? 0);
+      }
+      return xAxis.getPixelForValue(d.x ?? 0) + barOffset + barWidth / 2 + (dlConfig.x ?? 0);
+    };
+    const labelY = (d: PointOptions): number => {
+      if (horizontal) {
+        return xAxis.getPixelForValue(d.x ?? 0) + barOffset + barWidth / 2 + (dlConfig.y ?? 0);
+      }
+      return yAxis.getPixelForValue(d.y ?? 0) + (dlConfig.y ?? -10);
+    };
+
+    const labels = labelsGroup
+      .selectAll<SVGTextElement, PointOptions>('text')
+      .data(visible, ((d: PointOptions | undefined, i: number) => String(d?.name ?? i)) as any);
+
+    const self = this;
+    const entering = labels.enter().append('text')
+      .attr('x', d => labelX(d))
+      .attr('y', d => labelY(d))
+      .attr('text-anchor', horizontal ? 'start' : 'middle')
+      .attr('dominant-baseline', 'central')
+      .attr('opacity', 0)
+      .each(function (d, i) {
+        const { text, htmlColor } = self.resolveDataLabelText(d, i, dlConfig);
+        const node = select(this);
+        node.text(text).attr('data-value', d.y ?? 0);
+        self.applyDataLabelStyle(node as any, dlConfig, htmlColor);
+      });
+
+    entering.transition().duration(duration).attr('opacity', 1);
+
+    labels.transition().duration(duration)
+      .attr('x', d => labelX(d))
+      .attr('y', d => labelY(d))
+      .attr('opacity', 1)
+      .tween('text', function (d) {
+        const node = this;
+        const i = visible.indexOf(d);
+        if (hasFormatter) {
+          const { text } = self.resolveDataLabelText(d, i, dlConfig);
+          node.textContent = text;
+          node.setAttribute('data-value', String(d.y ?? 0));
+          return () => undefined;
+        }
+        const prev = parseFloat(node.getAttribute('data-value') || '0');
+        const next = d.y ?? 0;
+        const decimals = (String(next).split('.')[1] || '').length;
+        return (t: number) => {
+          const current = prev + (next - prev) * t;
+          node.textContent = current.toFixed(decimals);
+          node.setAttribute('data-value', String(t === 1 ? next : current));
+        };
+      });
+
+    labels.exit().transition().duration(duration).attr('opacity', 0).remove();
   }
 
   private updateStackedBars(duration: number): void {
