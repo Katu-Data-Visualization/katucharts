@@ -3,8 +3,14 @@ import { select } from 'd3-selection';
 import { drag as d3Drag } from 'd3-drag';
 import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
+import { clamp } from '../../utils/math';
 import type { InternalSeriesConfig } from '../../types/options';
-import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE } from '../../utils/chartText';
+import {
+  DEFAULT_CHART_TEXT_COLOR,
+  DEFAULT_CHART_TEXT_SIZE,
+  measureTextWidth,
+  parseFontSizePx,
+} from '../../utils/chartText';
 import {
   ENTRY_DURATION,
   HOVER_DURATION,
@@ -81,11 +87,81 @@ export class NetworkGraphChart extends BaseSeries {
       chargeForce.strength(gravitationalConstant);
     }
 
+    /**
+     * Footprint of a node including the caption drawn above it: half-width
+     * covers whichever is wider (circle or centered label text), and the
+     * vertical span reaches from the caption top down to the circle bottom.
+     * Nodes without a visible label fall back to the circle alone.
+     */
+    const dataLabelsCfg = (cfg.dataLabels || {}) as any;
+    const labelsVisible = dataLabelsCfg.enabled !== false;
+    // Labels render at the standard chart text size, so measure against that.
+    const labelFontPx = parseFontSizePx(DEFAULT_CHART_TEXT_SIZE) || 12;
+    const labelAscent = labelsVisible ? 14 + labelFontPx : 0;
+    nodes.forEach((n: any) => {
+      n.labelWidth = labelsVisible
+        ? measureTextWidth(String(n.name ?? n.id ?? ''), labelFontPx)
+        : 0;
+    });
+
+    /**
+     * One rectangle-repulsion sweep over the node/caption footprints so a node
+     * tends to rest outside its neighbours' label areas. Overlapping pairs
+     * separate along the axis needing the least correction, letting nodes
+     * settle a little above, below, or beside each other instead of covering
+     * one another's captions. Displacements are accumulated from a single
+     * snapshot and applied together (Jacobi-style) so the sweep converges to a
+     * stable rest instead of oscillating. With `direct` the positions move
+     * immediately (to relax the static initial layout); otherwise velocities
+     * get a gentle nudge so the live simulation keeps honouring the preference.
+     */
+    const pad = 3;
+    const footprint = (n: any) => {
+      const r = n.marker?.radius ?? 10;
+      return { hw: Math.max(n.labelWidth / 2, r) + pad, hh: (r + labelAscent) / 2 + pad, cy: n.y + (r - labelAscent) / 2 };
+    };
+    const declutterPass = (strength: number, direct: boolean): boolean => {
+      const dxs = new Array(nodes.length).fill(0);
+      const dys = new Array(nodes.length).fill(0);
+      let moved = false;
+      for (let i = 0; i < nodes.length; i++) {
+        const a: any = nodes[i];
+        const fa = footprint(a);
+        for (let j = i + 1; j < nodes.length; j++) {
+          const b: any = nodes[j];
+          const fb = footprint(b);
+          const dx = b.x - a.x;
+          const dy = fb.cy - fa.cy;
+          const overlapX = fa.hw + fb.hw - Math.abs(dx);
+          const overlapY = fa.hh + fb.hh - Math.abs(dy);
+          if (overlapX <= 0 || overlapY <= 0) continue;
+          moved = true;
+          if (overlapX < overlapY) {
+            const s = (overlapX * strength * (dx >= 0 ? 1 : -1)) / 2;
+            dxs[i] -= s; dxs[j] += s;
+          } else {
+            const s = (overlapY * strength * (dy >= 0 ? 1 : -1)) / 2;
+            dys[i] -= s; dys[j] += s;
+          }
+        }
+      }
+      if (moved) {
+        for (let i = 0; i < nodes.length; i++) {
+          const n: any = nodes[i];
+          if (direct) { n.x += dxs[i]; n.y += dys[i]; }
+          else { n.vx = (n.vx || 0) + dxs[i]; n.vy = (n.vy || 0) + dys[i]; }
+        }
+      }
+      return moved;
+    };
+    const labelDeclutter = (alpha: number) => { declutterPass(0.35 * alpha, false); };
+
     this.simulation = forceSimulation(nodes)
       .force('link', linkForce)
       .force('charge', chargeForce)
       .force('center', forceCenter(plotArea.width / 2, plotArea.height / 2))
-      .force('collide', forceCollide(20))
+      .force('collide', forceCollide().radius((d: any) => (d.marker?.radius ?? 10) + 4))
+      .force('declutter', labelsVisible ? labelDeclutter : null)
       .velocityDecay(1 - friction)
       .alphaDecay(1 - Math.pow(0.001, 1 / maxIterations))
       .stop();
@@ -97,18 +173,28 @@ export class NetworkGraphChart extends BaseSeries {
         const vy = Math.abs(n.vy || 0);
         if (vx > maxSpeed) n.vx = Math.sign(n.vx!) * maxSpeed;
         if (vy > maxSpeed) n.vy = Math.sign(n.vy!) * maxSpeed;
+        this.clampToPlot(n);
       });
+    }
+
+    /**
+     * Relax residual caption overlaps the cooled simulation could not resolve
+     * on its own, so the initial layout comes to rest decluttered. Clamping
+     * each sweep keeps nodes pushed against an edge spreading along it (rather
+     * than re-stacking at the boundary); damped so long labels that cannot
+     * fully separate settle instead of jittering.
+     */
+    if (labelsVisible) {
+      for (let i = 0; i < 60 && declutterPass(0.6, true); i++) {
+        nodes.forEach((n: any) => this.clampToPlot(n));
+      }
     }
 
     /**
      * Keep every node — and the label drawn above it — inside the plot area, so
      * nodes near an edge don't get their circle or caption clipped.
      */
-    nodes.forEach((n: any) => {
-      const r = n.marker?.radius || 10;
-      n.x = Math.max(r + 30, Math.min(plotArea.width - r - 30, n.x ?? 0));
-      n.y = Math.max(r + 18, Math.min(plotArea.height - r - 6, n.y ?? 0));
-    });
+    nodes.forEach((n: any) => this.clampToPlot(n));
 
     const dashArray = this.getDashArray(linkDashStyle);
 
@@ -148,28 +234,40 @@ export class NetworkGraphChart extends BaseSeries {
         .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
         .attr('r', (d: any) => d.marker?.radius || 10);
     } else {
-      nodeCircles.attr('r', (d: any) => d.marker?.radius || 10);
+      nodeCircles.attr('r', (d: any) => d.marker?.radius ?? 10);
     }
 
     if (draggable) {
       const dragBehavior = d3Drag<SVGCircleElement, any>()
         .on('start', (event: any, d: any) => {
-          select(event.sourceEvent.target).style('cursor', 'grabbing');
+          const target = nodeCircles.filter((n: any) => n === d);
+          target.style('cursor', 'grabbing');
+          target.interrupt('size');
+          target.transition('grab').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('r', (d.marker?.radius ?? 10) + 4);
+          target.style('filter', 'drop-shadow(0 3px 8px rgba(0,0,0,0.35))');
           if (this.simulation) {
-            this.simulation.alphaTarget(0.3).restart();
+            this.simulation.alphaTarget(0.1).restart();
           }
           d.fx = d.x;
           d.fy = d.y;
         })
         .on('drag', (event: any, d: any) => {
-          d.fx = event.x;
-          d.fy = event.y;
-          d.x = event.x;
-          d.y = event.y;
+          const r = d.marker?.radius ?? 10;
+          const x = clamp(event.x, r + 30, plotArea.width - r - 30);
+          const y = clamp(event.y, r + 18, plotArea.height - r - 6);
+          d.fx = x;
+          d.fy = y;
+          d.x = x;
+          d.y = y;
           this.updatePositions(nodeCircles, linkLines, labels);
         })
         .on('end', (event: any, d: any) => {
-          select(event.sourceEvent.target).style('cursor', 'grab');
+          const target = nodeCircles.filter((n: any) => n === d);
+          target.style('cursor', 'grab');
+          target.transition('grab').duration(HOVER_DURATION).ease(EASE_HOVER)
+            .attr('r', d.marker?.radius ?? 10);
+          target.style('filter', '');
           if (this.simulation) {
             this.simulation.alphaTarget(0);
           }
@@ -254,6 +352,42 @@ export class NetworkGraphChart extends BaseSeries {
         .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
         .attr('opacity', 1);
     }
+
+    /**
+     * Live-phase renderer: the warm-up loop above ticks manually (which never
+     * dispatches this event), so this only fires while the simulation runs on
+     * its internal timer — i.e. during and after a drag. Capping speed and
+     * clamping here keeps every node inside the plot area at all times and
+     * lets the graph settle smoothly after the node is dropped.
+     */
+    this.simulation.on('tick', () => {
+      nodes.forEach((n: any) => {
+        const vx = Math.abs(n.vx || 0);
+        const vy = Math.abs(n.vy || 0);
+        if (vx > maxSpeed) n.vx = Math.sign(n.vx!) * maxSpeed;
+        if (vy > maxSpeed) n.vy = Math.sign(n.vy!) * maxSpeed;
+        this.clampToPlot(n);
+      });
+      this.updatePositions(nodeCircles, linkLines, labels);
+    });
+  }
+
+  /**
+   * Keep a node — and the label drawn above it — inside the plot area, so its
+   * circle and caption are never clipped. Also constrains a drag-pinned
+   * position (fx/fy) when one is set, without re-pinning released nodes.
+   */
+  private clampToPlot(node: any): void {
+    const { plotArea } = this.context;
+    const r = node.marker?.radius ?? 10;
+    const minX = r + 30;
+    const maxX = plotArea.width - r - 30;
+    const minY = r + 18;
+    const maxY = plotArea.height - r - 6;
+    node.x = clamp(node.x ?? 0, minX, maxX);
+    node.y = clamp(node.y ?? 0, minY, maxY);
+    if (node.fx != null) node.fx = clamp(node.fx, minX, maxX);
+    if (node.fy != null) node.fy = clamp(node.fy, minY, maxY);
   }
 
   private updatePositions(nodeCircles: any, linkLines: any, labels: any): void {
@@ -291,12 +425,21 @@ export class NetworkGraphChart extends BaseSeries {
     }
 
     for (const d of this.data) {
-      const from = (d as any)[0] || (d as any).from;
-      const to = (d as any)[1] || (d as any).to;
-      if (from && to) {
+      const p = d as any;
+      const from = p[0] ?? p.from;
+      const to = p[1] ?? p.to;
+      if (from !== undefined && to !== undefined) {
         if (!nodeMap.has(from)) nodeMap.set(from, { id: from, name: from });
         if (!nodeMap.has(to)) nodeMap.set(to, { id: to, name: to });
-        links.push({ source: from, target: to, value: d.y ?? 1 });
+        links.push({
+          source: from,
+          target: to,
+          value: p.y ?? p.value ?? p[2] ?? 1,
+          color: p.color,
+          width: p.width,
+          dashStyle: p.dashStyle,
+          options: p,
+        });
       }
     }
 

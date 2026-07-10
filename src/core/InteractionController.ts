@@ -247,11 +247,16 @@ export class InteractionController {
           const orig = this.origXDomains[i];
           if (!orig || typeof orig[0] !== 'number' || typeof orig[1] !== 'number') return;
           const range = orig[1] - orig[0];
-          const visMinPx = (0 - transform.x) / transform.k;
-          const visMaxPx = (pa.width - transform.x) / transform.k;
+
+          const isInvertedX = xAxis.config._inverted;
+          const xTransform = isInvertedX ? transform.y : transform.x;
+          const xSize = isInvertedX ? pa.height : pa.width;
+
+          const visMinPx = (0 - xTransform) / transform.k;
+          const visMaxPx = (xSize - xTransform) / transform.k;
           xAxis.updateDomain({
-            min: orig[0] + (visMinPx / pa.width) * range,
-            max: orig[0] + (visMaxPx / pa.width) * range,
+            min: orig[0] + (visMinPx / xSize) * range,
+            max: orig[0] + (visMaxPx / xSize) * range,
           });
         });
       }
@@ -261,17 +266,51 @@ export class InteractionController {
           const orig = this.origYDomains[i];
           if (!orig || typeof orig[0] !== 'number' || typeof orig[1] !== 'number') return;
           const range = orig[1] - orig[0];
-          const visTopPx = (0 - transform.y) / transform.k;
-          const visBotPx = (pa.height - transform.y) / transform.k;
+
+          const isInvertedY = yAxis.config._inverted;
+          const yTransform = isInvertedY ? transform.x : transform.y;
+          const ySize = isInvertedY ? pa.width : pa.height;
+
+          const visTopPx = (0 - yTransform) / transform.k;
+          const visBotPx = (ySize - yTransform) / transform.k;
           yAxis.updateDomain({
-            max: orig[1] - (visTopPx / pa.height) * range,
-            min: orig[1] - (visBotPx / pa.height) * range,
+            max: orig[1] - (visTopPx / ySize) * range,
+            min: orig[1] - (visBotPx / ySize) * range,
           });
         });
       }
 
       this.isBoxZoomed = true;
       this.zoom?.setResetButtonVisible(true);
+      this.host.renderAfterZoom();
+    });
+
+    events.on('zoom:panned', (data: any) => {
+      const { dx, dy, type } = data;
+      const pa = this.host.getLayout().plotArea;
+
+      if (type === 'x' || type === 'xy') {
+        this.host.getXAxes().forEach((xAxis) => {
+          const orig = xAxis.scale.domain() as [number, number];
+          const range = orig[1] - orig[0];
+          const isInvertedX = xAxis.config._inverted;
+          const panSize = isInvertedX ? pa.height : pa.width;
+          const shift = (dx / panSize) * range;
+          xAxis.updateDomain({ min: orig[0] - shift, max: orig[1] - shift });
+        });
+      }
+
+      if (type === 'y' || type === 'xy') {
+        this.host.getYAxes().forEach((yAxis) => {
+          const orig = yAxis.scale.domain() as [number, number];
+          const range = orig[1] - orig[0];
+          const isInvertedY = yAxis.config._inverted;
+          const panSize = isInvertedY ? pa.width : pa.height;
+          const shift = (dy / panSize) * range;
+          yAxis.updateDomain({ min: orig[0] + shift, max: orig[1] + shift });
+        });
+      }
+
       this.host.renderAfterZoom();
     });
   }

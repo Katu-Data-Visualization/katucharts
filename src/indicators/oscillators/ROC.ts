@@ -13,7 +13,7 @@ export class ROCIndicator extends Indicator {
     const values = data.map((d, i) => {
       if (i < period) return { x: d.x, y: null };
       const prev = data[i - period].close;
-      return { x: d.x, y: prev === 0 ? 0 : ((d.close - prev) / prev) * 100 };
+      return { x: d.x, y: prev === 0 ? null : ((d.close - prev) / prev) * 100 };
     });
     return { values };
   }

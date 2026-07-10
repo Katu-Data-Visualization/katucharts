@@ -241,6 +241,7 @@ export class CandlestickChart extends BaseSeries {
     const groupCfg = (this.config as any).dataGrouping;
     if (!groupCfg?.enabled || !groupCfg.units || data.length === 0) return data;
 
+    if (!this.context) return data;
     const groupSize = groupCfg.groupPixelWidth ?? 10;
     const { plotArea } = this.context;
     const pixelsPerPoint = plotArea.width / Math.max(1, data.length);
@@ -276,7 +277,9 @@ export class CandlestickChart extends BaseSeries {
   getDataExtents() {
     let xMin = Infinity, xMax = -Infinity;
     let yMin = Infinity, yMax = -Infinity;
-    for (const d of this.data) {
+    const data = this.applyDataGrouping(this.data);
+    for (const d of data) {
+      if (d.y === null && d.open === undefined) continue;
       const x = d.x ?? 0;
       xMin = Math.min(xMin, x);
       xMax = Math.max(xMax, x);
@@ -387,6 +390,7 @@ export class OHLCChart extends BaseSeries {
     let xMin = Infinity, xMax = -Infinity;
     let yMin = Infinity, yMax = -Infinity;
     for (const d of this.data) {
+      if (d.y === null && d.open === undefined) continue;
       const x = d.x ?? 0;
       xMin = Math.min(xMin, x);
       xMax = Math.max(xMax, x);

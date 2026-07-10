@@ -25,6 +25,16 @@ export class PieChart extends BaseSeries {
   }
 
   /**
+   * Selection is tracked by slice index; a data replacement re-indexes the
+   * slices, so drop the selection to avoid a stale index highlighting the wrong
+   * (or a removed) slice after an update.
+   */
+  setData(data: PointOptions[], redraw = true, animation = true): void {
+    this.selectedIndices.clear();
+    super.setData(data, redraw, animation);
+  }
+
+  /**
    * Value-bearing points eligible for the legend — one entry per slice, in data
    * order. Mirrors the renderer's filter so palette colours line up with slices.
    */
@@ -95,6 +105,13 @@ export class PieChart extends BaseSeries {
     const { plotArea } = this.context;
     const ignoreHidden = this.config.ignoreHiddenPoint !== false;
     const rawData = this.data.filter(d => d.y !== null && d.y !== undefined && (d.y ?? 0) > 0);
+    /**
+     * Tag each value-bearing slice with its stable index in the full list so
+     * palette colours stay pinned to a slice even when a preceding slice is
+     * hidden — otherwise the visible-list index shifts and the legend (which
+     * indexes the full list) and the pie disagree on colours.
+     */
+    rawData.forEach((d, i) => { (d as any)._paletteIndex = i; });
     const data = ignoreHidden
       ? rawData.filter(d => d.visible !== false)
       : rawData;
@@ -123,8 +140,9 @@ export class PieChart extends BaseSeries {
     const pieData = pieGen(data);
 
     const totalAngleSpan = endAngle - startAngle;
+    const angleDenom = totalAngleSpan !== 0 ? totalAngleSpan : 2 * Math.PI;
     for (const d of pieData) {
-      (d.data as any).percentage = ((d.endAngle - d.startAngle) / totalAngleSpan) * 100;
+      (d.data as any).percentage = ((d.endAngle - d.startAngle) / angleDenom) * 100;
       (d.data as any).total = totalValue;
     }
 
@@ -341,9 +359,10 @@ export class PieChart extends BaseSeries {
    */
   private resolveSliceColor(point: any, index: number): string {
     if (point.color) return point.color;
-    if (this.config.colors) return this.config.colors[index % this.config.colors.length];
+    const i = point._paletteIndex ?? index;
+    if (this.config.colors) return this.config.colors[i % this.config.colors.length];
     const ctxColors = this.context.colors;
-    return ctxColors[index % ctxColors.length];
+    return ctxColors[i % ctxColors.length];
   }
 
   /**
@@ -844,13 +863,28 @@ export class FunnelChart extends BaseSeries {
     super(config);
   }
 
+  /**
+   * Whether the series is drawn widest-last (pyramid) rather than widest-first
+   * (funnel). Both orientations share this render; only the draw order and the
+   * end that tapers to a point differ. Applying the reversal here — instead of
+   * mutating the stored data — keeps it immune to the data refresh that runs
+   * before every draw.
+   */
+  protected get isPyramid(): boolean {
+    return false;
+  }
+
   render(): void {
     const { plotArea, colors } = this.context;
-    const data = this.data.filter(d => d.y !== null && d.y !== undefined);
+    const points = this.data.filter(d => d.y !== null && d.y !== undefined);
+    // A pyramid is a funnel drawn bottom-up, so the smallest value forms the
+    // apex and the largest the base. srcIndex preserves the caller's original
+    // data order for event payloads regardless of draw direction.
+    const drawOrder = points.map((d, i) => ({ d, srcIndex: i }));
+    if (this.isPyramid) drawOrder.reverse();
     const animate = this.context.animate;
     const totalHeight = plotArea.height * 0.8;
-    const segmentHeight = totalHeight / data.length;
-    const maxValue = Math.max(...data.map(d => d.y ?? 0), 1);
+    const maxValue = Math.max(...points.map(d => d.y ?? 0), 1);
     const centerX = plotArea.width / 2;
     const maxWidth = plotArea.width * 0.7;
     const minWidth = maxWidth * 0.15;
@@ -859,18 +893,53 @@ export class FunnelChart extends BaseSeries {
 
     const segments: any[] = [];
 
-    data.forEach((d, i) => {
-      const fraction = (d.y ?? 0) / maxValue;
-      const nextFraction = i < data.length - 1 ? (data[i + 1].y ?? 0) / maxValue : fraction * 0.5;
-      const topWidth = minWidth + (maxWidth - minWidth) * fraction;
-      const bottomWidth = minWidth + (maxWidth - minWidth) * nextFraction;
-      const y = startY + i * segmentHeight;
+    // Clamp to >= 0 so a negative value can't produce a negative width, which
+    // would invert a band and render a crossed segment.
+    const values = drawOrder.map(({ d }) => Math.max(0, d.y ?? 0));
+
+    // Precompute each band's vertical span and top/bottom widths. A pyramid is a
+    // straight-sided triangle: the width grows linearly with depth from a
+    // zero-width apex to the full-width base, and each band's height encodes its
+    // value, so the horizontal cuts divide the triangle without bending its
+    // edges. A funnel keeps equal-height bands whose width tracks the value and
+    // tapers to a neck at the bottom.
+    const geometry: { y: number; height: number; topWidth: number; bottomWidth: number }[] = [];
+    if (this.isPyramid) {
+      const total = values.reduce((sum, v) => sum + v, 0) || 1;
+      const widthAtDepth = (depth: number) => maxWidth * (depth / totalHeight);
+      let depth = 0;
+      for (const v of values) {
+        const height = totalHeight * (v / total);
+        geometry.push({
+          y: startY + depth,
+          height,
+          topWidth: widthAtDepth(depth),
+          bottomWidth: widthAtDepth(depth + height),
+        });
+        depth += height;
+      }
+    } else {
+      const segmentHeight = totalHeight / (values.length || 1);
+      values.forEach((v, i) => {
+        const fraction = v / maxValue;
+        const nextFraction = i < values.length - 1 ? values[i + 1] / maxValue : fraction * 0.5;
+        geometry.push({
+          y: startY + i * segmentHeight,
+          height: segmentHeight,
+          topWidth: minWidth + (maxWidth - minWidth) * fraction,
+          bottomWidth: minWidth + (maxWidth - minWidth) * nextFraction,
+        });
+      });
+    }
+
+    drawOrder.forEach(({ d, srcIndex }, i) => {
+      const { y, height, topWidth, bottomWidth } = geometry[i];
 
       const path = [
         `M ${centerX - topWidth / 2} ${y}`,
         `L ${centerX + topWidth / 2} ${y}`,
-        `L ${centerX + bottomWidth / 2} ${y + segmentHeight}`,
-        `L ${centerX - bottomWidth / 2} ${y + segmentHeight}`,
+        `L ${centerX + bottomWidth / 2} ${y + height}`,
+        `L ${centerX - bottomWidth / 2} ${y + height}`,
         'Z',
       ].join(' ');
 
@@ -887,7 +956,7 @@ export class FunnelChart extends BaseSeries {
       if (animate) {
         el.attr('fill', color).attr('opacity', 0)
           .transition().duration(ENTRY_DURATION).ease(EASE_ENTRY)
-          .delay(staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, data.length))
+          .delay(staggerDelay(i, 0, ENTRY_STAGGER_PER_ITEM, drawOrder.length))
           .attr('opacity', 1);
       } else {
         el.attr('fill', color);
@@ -915,7 +984,7 @@ export class FunnelChart extends BaseSeries {
         this.group.append('text')
           .attr('class', 'katucharts-funnel-label')
           .attr('x', centerX + (dlCfg.x ?? 0))
-          .attr('y', y + segmentHeight / 2 + (dlCfg.y ?? 0))
+          .attr('y', y + height / 2 + (dlCfg.y ?? 0))
           .attr('text-anchor', 'middle')
           .attr('dominant-baseline', 'middle')
           .attr('font-size', fontSize)
@@ -935,8 +1004,8 @@ export class FunnelChart extends BaseSeries {
             if (j !== i) s.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', inactiveOpacity);
           });
           this.context.events.emit('point:mouseover', {
-            point: d, index: i, series: this, event,
-            plotX: centerX, plotY: y + segmentHeight / 2,
+            point: d, index: srcIndex, series: this, event,
+            plotX: centerX, plotY: y + height / 2,
           });
           d.events?.mouseOver?.call(d, event);
         }).on('mouseout', (event: MouseEvent) => {
@@ -945,10 +1014,10 @@ export class FunnelChart extends BaseSeries {
             .style('filter', '');
           segments.forEach(s => s.interrupt('highlight'));
           segments.forEach(s => s.transition('highlight').duration(HOVER_DURATION).ease(EASE_HOVER).attr('opacity', 1));
-          this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });
+          this.context.events.emit('point:mouseout', { point: d, index: srcIndex, series: this, event });
           d.events?.mouseOut?.call(d, event);
         }).on('click', (event: MouseEvent) => {
-          this.context.events.emit('point:click', { point: d, index: i, series: this, event });
+          this.context.events.emit('point:click', { point: d, index: srcIndex, series: this, event });
           d.events?.click?.call(d, event);
           this.config.events?.click?.call(this, event);
         });
@@ -962,8 +1031,7 @@ export class FunnelChart extends BaseSeries {
 }
 
 export class PyramidChart extends FunnelChart {
-  constructor(config: InternalSeriesConfig) {
-    super(config);
-    this.data = [...(config._processedData || [])].reverse();
+  protected get isPyramid(): boolean {
+    return true;
   }
 }

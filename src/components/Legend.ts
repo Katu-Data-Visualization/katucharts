@@ -5,6 +5,13 @@ import { templateFormat, stripHtmlTags } from '../utils/format';
 import type { BaseSeries } from '../series/BaseSeries';
 import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE, parseFontSizePx, readableTextColor, measureTextWidth } from '../utils/chartText';
 
+/**
+ * Rows shown per page when a wide series list is laid out as a paged grid.
+ * The layout engine reserves height for at most this many rows so extra series
+ * scroll behind the nav arrows instead of shrinking the plot area.
+ */
+export const LEGEND_MAX_GRID_ROWS = 6;
+
 export class Legend {
   private config: LegendOptions;
   private group!: Selection<SVGGElement, unknown, null, undefined>;
@@ -220,7 +227,7 @@ export class Legend {
       && naturalFlowWidth > availWidth;
     let gridColumns = 0;
     let gridItemWidth = 0;
-    const maxGridRows = 6;
+    const maxGridRows = LEGEND_MAX_GRID_ROWS;
     let gridPage = 0;
     let totalGridRows = 0;
 
@@ -354,6 +361,20 @@ export class Legend {
         const weight = (itemStyle.fontWeight as string) || 'normal';
         const maxTextW = gridItemWidth - (symbolWidth + symbolPadding) - 6;
         this.truncateLabel(textEl, label, maxTextW, fontPx, weight);
+      }
+
+      /**
+       * For the first item in horizontal (non-grid) layout, prevent overflow
+       * by truncating if the item is wider than the available space. This
+       * ensures the first legend item doesn't render outside bounds.
+       */
+      if (!useGrid && layout === 'horizontal' && i === 0 && !this.config.rtl) {
+        const maxTextW = availWidth - padding - (symbolWidth + symbolPadding) - 6;
+        if (maxTextW > 0 && this.estimateTextWidth(label, effectiveFontSize) > maxTextW) {
+          const fontPx = parseFontSizePx(effectiveFontSize);
+          const weight = (itemStyle.fontWeight as string) || 'normal';
+          this.truncateLabel(textEl, label, maxTextW, fontPx, weight);
+        }
       }
 
       if (this.config.rtl) {

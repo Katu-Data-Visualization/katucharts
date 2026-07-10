@@ -78,7 +78,8 @@ export class DependencyWheelChart extends BaseSeries {
     if (names.length === 0) return;
 
     const nodePadding = cfg.nodePadding ?? 2;
-    const padAngle = nodePadding / (outerRadius > 0 ? outerRadius : 1);
+    let padAngle = nodePadding / (outerRadius > 0 ? outerRadius : 1);
+    padAngle = Math.min(padAngle, Math.PI / Math.max(3, names.length));
     const chordGen = chord().padAngle(padAngle).sortSubgroups(null as any);
     const chords = chordGen(matrix);
     this.normalizeChordWidths(chords);
@@ -1073,7 +1074,6 @@ export class DependencyWheelChart extends BaseSeries {
       if (from !== undefined && to !== undefined) {
         const w = d.y ?? (d as any).weight ?? 1;
         matrix[from][to] += w;
-        matrix[to][from] += w;
       }
     }
 

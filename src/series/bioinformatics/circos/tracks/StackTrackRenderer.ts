@@ -22,6 +22,7 @@ export function renderStackTrack(
 ): void {
   const bins = new Map<string, CircosDataPoint[]>();
   for (const d of track.data) {
+    if (!engine.chrArcMap.has(d.chr)) continue;
     const key = `${d.chr}:${d.start}:${d.end ?? d.start}`;
     if (!bins.has(key)) bins.set(key, []);
     bins.get(key)!.push(d);
@@ -33,7 +34,10 @@ export function renderStackTrack(
 
   let maxStack = 0;
   for (const points of bins.values()) {
-    const total = points.reduce((s, d) => s + (d.value ?? 1), 0);
+    const total = points.reduce((s, d) => {
+      const val = d.value ?? 1;
+      return s + (val > 0 ? val : 0);
+    }, 0);
     if (total > maxStack) maxStack = total;
   }
   const safeMax = maxStack || 1;
@@ -46,8 +50,9 @@ export function renderStackTrack(
     let cumulative = 0;
     for (const d of points) {
       const val = d.value ?? 1;
-      const segInner = innerR + (outerR - innerR) * (cumulative / safeMax);
-      const segOuter = innerR + (outerR - innerR) * ((cumulative + val) / safeMax);
+      if (val <= 0) continue;
+      const segInner = Math.max(innerR, Math.min(outerR, innerR + (outerR - innerR) * (cumulative / safeMax)));
+      const segOuter = Math.max(innerR, Math.min(outerR, innerR + (outerR - innerR) * ((cumulative + val) / safeMax)));
       segments.push({
         startAngle, endAngle,
         innerR: segInner, outerR: segOuter,

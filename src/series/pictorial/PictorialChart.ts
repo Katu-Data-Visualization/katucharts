@@ -176,8 +176,131 @@ export class PictorialChart extends ColumnChart {
     );
   }
 
-  animateUpdate(): void {
-    this.render();
+  animateUpdate(duration: number): void {
+    this.group.selectAll('*').remove();
+
+    const paths = this.getPaths();
+    if (!paths.length) {
+      super.animateUpdate(duration);
+      return;
+    }
+
+    const { xAxis, yAxis } = this.context;
+    const data = this.data;
+    const color = this.getColor();
+
+    const stacking = this.config.stacking;
+    const isPercent = stacking === 'percent';
+    const stackOffsetsPos = this.context.stackOffsetsPos;
+    const stackOffsetsNeg = this.context.stackOffsetsNeg;
+    const offsetFor = (d: PointOptions): number =>
+      (((d.y ?? 0) < 0 ? stackOffsetsNeg?.get(d.x ?? 0) : stackOffsetsPos?.get(d.x ?? 0)) || 0);
+    const totals = this.context.stackTotals;
+    const percentTotals = isPercent ? totals : undefined;
+
+    if (stacking) {
+      for (const d of data) {
+        const xKey = d.x ?? 0;
+        if (totals) {
+          (d as any).total = totals.get(xKey) || 0;
+          (d as any).stackTotal = totals.get(xKey) || 0;
+        }
+        if (isPercent && totals) {
+          const t = totals.get(xKey) || 1;
+          (d as any).percentage = ((d.y ?? 0) / t) * 100;
+        }
+      }
+    }
+
+    const getStackedY = (d: PointOptions): number => {
+      const xKey = d.x ?? 0;
+      const offset = offsetFor(d);
+      const val = d.y ?? 0;
+      if (isPercent && percentTotals) {
+        const total = percentTotals.get(xKey) || 1;
+        return ((offset + val) / total) * 100;
+      }
+      return offset + val;
+    };
+
+    const getStackedBase = (d: PointOptions): number => {
+      const xKey = d.x ?? 0;
+      const offset = offsetFor(d);
+      if (isPercent && percentTotals) {
+        const total = percentTotals.get(xKey) || 1;
+        return (offset / total) * 100;
+      }
+      return offset;
+    };
+
+    const { barWidth, barOffset } = this.computeBarGeometry();
+
+    const topValue = this.getAxisTopValue(isPercent);
+    const bandBottom = yAxis.getPixelForValue(0);
+    const bandHeight = Math.abs(yAxis.getPixelForValue(topValue) - bandBottom);
+
+    const defs = this.group.append('defs');
+    const shadowEnabled = !!(yAxis as any).config?.stackShadow?.enabled;
+    const isBottomSeries = (this.context.indexInType ?? 0) === 0;
+
+    const segments = this.group.selectAll<SVGRectElement, PointOptions>('.katucharts-pictorial-segment')
+      .data(data)
+      .join('rect')
+      .attr('class', 'katucharts-pictorial-segment katucharts-column')
+      .attr('fill', (d: PointOptions, i: number) => this.getPointColor(d, i, color))
+      .attr('stroke', (d: any) => d.borderColor || this.config.borderColor || 'none')
+      .attr('stroke-width', (d: any) => d.borderWidth ?? this.config.borderWidth ?? 0)
+      .attr('display', (d: PointOptions) => (d.y == null ? 'none' : null));
+
+    segments.each((d: PointOptions, i: number, nodes: ArrayLike<SVGRectElement>) => {
+      const el = select(nodes[i]);
+      if (d.y == null) return;
+
+      const slotX = xAxis.getPixelForValue(d.x ?? i) + barOffset;
+      const def = paths[i % paths.length]?.definition;
+      if (!def) {
+        el.attr('display', 'none');
+        return;
+      }
+
+      const sil = this.computeSilhouette(def, slotX, barWidth, bandBottom, bandHeight, topValue);
+      const clipId = `katucharts-pictorial-${this.config.index}-${i}`;
+      defs.append('clipPath')
+        .attr('id', clipId)
+        .attr('clipPathUnits', 'userSpaceOnUse')
+        .append('path')
+        .attr('d', def)
+        .attr('transform', sil.transform);
+
+      if (shadowEnabled && isBottomSeries) {
+        this.group.insert('path', ':first-child')
+          .attr('class', 'katucharts-pictorial-shadow')
+          .attr('d', def)
+          .attr('transform', sil.transform)
+          .attr('fill', this.shadowFill())
+          .attr('pointer-events', 'none');
+      }
+
+      const yTop = sil.pixelFor(getStackedY(d));
+      const yBase = sil.pixelFor(getStackedBase(d));
+      const segTop = Math.min(yTop, yBase);
+      const segH = Math.abs(yTop - yBase);
+      const labelHalf = parseFontSizePx(
+        (this.config.dataLabels?.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE
+      ) * 0.75;
+      const bandTop = bandBottom - bandHeight;
+      (d as any)._labelX = sil.left + sil.width / 2;
+      (d as any)._labelY = Math.max(bandTop + labelHalf, Math.min(bandBottom - labelHalf, (yTop + yBase) / 2));
+
+      el.attr('x', sil.left)
+        .attr('width', sil.width)
+        .attr('clip-path', `url(#${clipId})`)
+        .attr('y', segTop)
+        .attr('height', segH);
+    });
+
+    this.attachHoverEffects(segments, data);
+    this.renderPictorialLabels(data);
   }
 
   private getPaths(): PictorialPath[] {

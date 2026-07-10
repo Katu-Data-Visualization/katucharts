@@ -33,7 +33,7 @@ export class RSIIndicator extends Indicator {
     const rs = avgLoss === 0 ? Infinity : avgGain / avgLoss;
     values[period] = {
       x: data[period].x,
-      y: avgLoss === 0 ? 100 : 100 - 100 / (1 + rs),
+      y: avgGain === 0 && avgLoss === 0 ? 50 : (avgLoss === 0 ? 100 : 100 - 100 / (1 + rs)),
     };
 
     for (let i = period + 1; i < data.length; i++) {
@@ -44,7 +44,7 @@ export class RSIIndicator extends Indicator {
       avgGain = (avgGain * (period - 1) + gain) / period;
       avgLoss = (avgLoss * (period - 1) + loss) / period;
 
-      const rsi = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+      const rsi = avgGain === 0 && avgLoss === 0 ? 50 : (avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss));
       values[i] = { x: data[i].x, y: rsi };
     }
 

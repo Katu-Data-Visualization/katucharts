@@ -624,6 +624,13 @@ export interface SeriesOptions {
   paths?: { definition: string }[];
   colorByPoint?: boolean;
   colors?: string[];
+  /**
+   * Ranked ordering of the series points. When enabled, points are sorted by
+   * value (descending) on every render/update and re-indexed along the axis by
+   * rank; `matchByName` keys points by name across updates so rank changes
+   * animate (bar-race style) instead of redrawing in place.
+   */
+  dataSorting?: { enabled?: boolean; matchByName?: boolean; sortKey?: string };
   innerSize?: string | number;
   size?: string | number;
   center?: (string | number)[];

@@ -171,6 +171,7 @@ export class BubbleChart extends BaseSeries {
     }
     if (this.config.colorByPoint) {
       const palette = this.config.colors || this.context.colors;
+      if (!palette || palette.length === 0) return seriesColor;
       return palette[i % palette.length];
     }
     return seriesColor;

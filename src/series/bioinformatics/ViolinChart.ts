@@ -26,10 +26,12 @@ function computeKDE(values: number[], bandwidth: number, nPoints: number): { val
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
-  const step = range / (nPoints - 1);
+  // Ensure at least 2 points to avoid division by zero in step calculation
+  const adjustedNPoints = Math.max(nPoints, 2);
+  const step = range / (adjustedNPoints - 1);
   const result: { value: number; density: number }[] = [];
 
-  for (let i = 0; i < nPoints; i++) {
+  for (let i = 0; i < adjustedNPoints; i++) {
     const x = min + step * i;
     let sum = 0;
     for (const v of values) {
@@ -78,7 +80,11 @@ export class ViolinChart extends BaseSeries {
       if (values.length === 0) continue;
 
       const precomputedKde = d.custom?.kde;
-      const bandwidth = this.config.bandwidth ?? silvermanBandwidth(values);
+      let bandwidth = this.config.bandwidth ?? silvermanBandwidth(values);
+      // Guard against zero or negative bandwidth which produces NaN densities
+      if (bandwidth <= 0) {
+        bandwidth = silvermanBandwidth(values);
+      }
       const kde = precomputedKde || computeKDE(values, bandwidth, resolution);
 
       const cx = xAxis.getPixelForValue(d.x ?? i) + violinOffset + violinWidth / 2;

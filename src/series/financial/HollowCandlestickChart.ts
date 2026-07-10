@@ -10,9 +10,16 @@ import { CandlestickChart, type CandleStyleContext } from './CandlestickChart';
  */
 export class HollowCandlestickChart extends CandlestickChart {
   protected getCandleStyle(ctx: CandleStyleContext): { fill: string; stroke: string; wick: string } {
-    const prevClose = ctx.index > 0
-      ? (ctx.data[ctx.index - 1].close ?? ctx.data[ctx.index - 1].y ?? 0)
-      : ctx.open;
+    let prevClose = ctx.open;
+    if (ctx.index > 0) {
+      for (let i = ctx.index - 1; i >= 0; i--) {
+        const prevData = ctx.data[i];
+        if (!(prevData.y === null && prevData.open === undefined)) {
+          prevClose = prevData.close ?? prevData.y ?? 0;
+          break;
+        }
+      }
+    }
     const trendUp = ctx.close > prevClose;
     const trendColor = trendUp ? ctx.upColor : ctx.downColor;
     return {

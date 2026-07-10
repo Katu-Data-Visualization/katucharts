@@ -516,7 +516,7 @@ export abstract class BaseSeries {
     const shadow = this.config.shadow;
     if (!shadow) return;
 
-    const filterId = `katucharts-shadow-${this.config.index}-${Date.now()}`;
+    const filterId = `katucharts-shadow-${this.config.index}`;
     const svg = this.group.select(function() { return (this as unknown as SVGElement).ownerSVGElement; }) as any;
     if (!svg.empty()) {
       let defs = svg.select('defs');
@@ -527,6 +527,8 @@ export abstract class BaseSeries {
       const offsetY = shadowOpts.offsetY ?? 1;
       const blurWidth = shadowOpts.width ?? 3;
       const shadowOpacity = shadowOpts.opacity ?? 0.15;
+
+      defs.selectAll(`filter#${filterId}`).remove();
 
       const filter = defs.append('filter').attr('id', filterId);
       filter.append('feDropShadow')
@@ -591,6 +593,82 @@ export abstract class BaseSeries {
   }
 
   /**
+   * Resolves a point's data-label text through the configured formatter/format
+   * (falling back to the raw value). A formatter may return inline HTML like
+   * `<span style="color:#fff">12%</span>` to color the label; rather than
+   * print the raw markup, the color is pulled out of the span and the tags
+   * stripped so the text can be rendered as plain SVG in that color.
+   */
+  protected resolveDataLabelText(
+    d: PointOptions,
+    i: number,
+    merged: Record<string, any>
+  ): { text: string; htmlColor?: string } {
+    let text: string;
+    if (merged.formatter) {
+      text = merged.formatter.call({
+        point: { ...d, index: i }, series: this, x: d.x ?? i, y: d.y, percentage: (d as any)._percentage,
+      });
+    } else if (merged.format) {
+      text = stripHtmlTags(templateFormat(merged.format, {
+        point: d,
+        series: { name: this.config.name ?? '' },
+        x: d.x,
+        y: d.y,
+        percentage: (d as any)._percentage ?? (d as any).percentage,
+      }));
+    } else {
+      text = String(d.y);
+    }
+
+    let htmlColor: string | undefined;
+    if (typeof text === 'string' && text.indexOf('<') !== -1) {
+      const colorMatch = text.match(/color:\s*([^;"')]+)/i);
+      if (colorMatch) htmlColor = colorMatch[1].trim();
+      text = stripHtmlTags(text);
+    }
+    return { text, htmlColor };
+  }
+
+  /**
+   * Applies the resolved font, fill and outline styling to a data-label text
+   * element. Labels carry a contrasting outline by default so the value stays
+   * legible over any fill. `textOutline: false`/`'none'` turns it off; an
+   * explicit `<width>px <color>` string overrides thickness and/or colour,
+   * with the `contrast` keyword resolving to whatever reads against the
+   * label's own fill.
+   */
+  protected applyDataLabelStyle(
+    label: Selection<SVGTextElement, any, any, any>,
+    merged: Record<string, any>,
+    htmlColor?: string
+  ): void {
+    const style = merged.style || {};
+    label
+      .style('font-size', style.fontSize ?? DEFAULT_CHART_TEXT_SIZE)
+      .style('font-weight', style.fontWeight ?? 'bold')
+      .style('fill', merged.color || htmlColor || style.color || this.autoLabelColor());
+
+    const outline = style.textOutline as string | false | undefined;
+    if (outline !== false && outline !== 'none' && outline !== 'transparent') {
+      const fill = String(merged.color || htmlColor || style.color || this.autoLabelColor());
+      let strokeWidth = '1px';
+      let strokeColor = readableTextColor(fill);
+      if (typeof outline === 'string') {
+        const widthMatch = outline.match(/-?\d*\.?\d+\s*px/);
+        if (widthMatch) strokeWidth = widthMatch[0].replace(/\s+/g, '');
+        const colorPart = outline.replace(/-?\d*\.?\d+\s*px/, '').trim();
+        if (colorPart && colorPart !== 'contrast') strokeColor = colorPart;
+      }
+      label
+        .style('paint-order', 'stroke')
+        .style('stroke', strokeColor)
+        .style('stroke-width', strokeWidth)
+        .style('stroke-linejoin', 'round');
+    }
+  }
+
+  /**
    * Render data labels for all visible points based on dataLabels config.
    */
   protected renderDataLabels(
@@ -604,7 +682,7 @@ export abstract class BaseSeries {
     if (!dlConfig?.enabled) return;
 
     this.group.selectAll('.katucharts-data-labels').remove();
-    const labelsGroup = this.group.append('g').attr('class', 'katucharts-data-labels');
+    const labelsGroup = this.group.append('g').attr('class', 'katucharts-data-labels katucharts-data-label');
     const color = this.getColor();
 
     /**
@@ -621,35 +699,7 @@ export abstract class BaseSeries {
       const pointDl = d.dataLabels;
       const merged = { ...dlConfig, ...pointDl };
 
-      let text: string;
-      if (merged.formatter) {
-        text = merged.formatter.call({
-          point: { ...d, index: i }, series: this, x: d.x ?? i, y: d.y, percentage: (d as any)._percentage,
-        });
-      } else if (merged.format) {
-        text = stripHtmlTags(templateFormat(merged.format, {
-          point: d,
-          series: { name: this.config.name ?? '' },
-          x: d.x,
-          y: d.y,
-          percentage: (d as any)._percentage ?? (d as any).percentage,
-        }));
-      } else {
-        text = String(d.y);
-      }
-
-      /**
-       * A formatter (or format) may return inline HTML like
-       * `<span style="color:#fff">12%</span>` to color the label. Rather than
-       * print the raw markup, pull the color out of the span and strip the tags
-       * so the text shows in that color.
-       */
-      let htmlColor: string | undefined;
-      if (typeof text === 'string' && text.indexOf('<') !== -1) {
-        const colorMatch = text.match(/color:\s*([^;"')]+)/i);
-        if (colorMatch) htmlColor = colorMatch[1].trim();
-        text = stripHtmlTags(text);
-      }
+      const { text, htmlColor } = this.resolveDataLabelText(d, i, merged);
 
       if (merged.filter) {
         const propVal = (d as any)[merged.filter.property ?? 'y'] ?? 0;
@@ -706,35 +756,7 @@ export abstract class BaseSeries {
         )
         .text(text);
 
-      label
-        .style('font-size', style.fontSize ?? DEFAULT_CHART_TEXT_SIZE)
-        .style('font-weight', style.fontWeight ?? 'bold')
-        .style('fill', merged.color || htmlColor || style.color || this.autoLabelColor());
-
-      /**
-       * Data labels carry a contrasting outline by default so the value stays
-       * legible over any fill. `textOutline: false`/`'none'` turns it off; an
-       * explicit `<width>px <color>` string overrides thickness and/or colour,
-       * with the `contrast` keyword resolving to whatever reads against the
-       * label's own fill.
-       */
-      const outline = style.textOutline as string | false | undefined;
-      if (outline !== false && outline !== 'none' && outline !== 'transparent') {
-        const fill = String(merged.color || htmlColor || style.color || this.autoLabelColor());
-        let strokeWidth = '1px';
-        let strokeColor = readableTextColor(fill);
-        if (typeof outline === 'string') {
-          const widthMatch = outline.match(/-?\d*\.?\d+\s*px/);
-          if (widthMatch) strokeWidth = widthMatch[0].replace(/\s+/g, '');
-          const colorPart = outline.replace(/-?\d*\.?\d+\s*px/, '').trim();
-          if (colorPart && colorPart !== 'contrast') strokeColor = colorPart;
-        }
-        label
-          .style('paint-order', 'stroke')
-          .style('stroke', strokeColor)
-          .style('stroke-width', strokeWidth)
-          .style('stroke-linejoin', 'round');
-      }
+      this.applyDataLabelStyle(label, merged, htmlColor);
 
       if (merged.rotation) {
         label.attr('transform', `rotate(${merged.rotation},${finalX},${py})`);

@@ -43,7 +43,10 @@ export class KagiChart extends BaseSeries {
     if (closes.length < 2) return;
 
     const priceRange = Math.max(...closes) - Math.min(...closes);
-    const reversalAmount = (this.config as any).reversalAmount ?? priceRange * 0.04;
+    const reversalAmount = Math.max(
+      (this.config as any).reversalAmount ?? priceRange * 0.04,
+      1
+    );
 
     let direction: 'up' | 'down' = closes[1] >= closes[0] ? 'up' : 'down';
     let currentStart = closes[0];

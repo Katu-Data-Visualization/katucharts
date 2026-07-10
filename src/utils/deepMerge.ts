@@ -49,7 +49,7 @@ function _deepMerge<T extends Record<string, any>>(
       } else if (isPlainObject(srcVal) && isPlainObject(tgtVal)) {
         (result as any)[key] = _deepMerge(tgtVal, [srcVal], depth + 1);
       } else if (Array.isArray(srcVal)) {
-        (result as any)[key] = [...srcVal];
+        (result as any)[key] = srcVal.map(item => isPlainObject(item) ? deepClone(item) : item);
       } else {
         (result as any)[key] = srcVal;
       }

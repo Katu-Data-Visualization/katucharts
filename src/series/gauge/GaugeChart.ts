@@ -222,6 +222,7 @@ export class GaugeChart extends BaseSeries {
     const plotBands: PlotBandOptions[] = ((this.config as any)._yAxis ?? (this.config as any).yAxis)?.plotBands || [];
     if (plotBands.length === 0) return;
 
+    if (max === min) return;
     const thickness = bandThickness ?? radius * 0.15;
     const angleScale = scaleLinear().domain([min, max]).range([startAngle, endAngle]);
 
@@ -253,6 +254,7 @@ export class GaugeChart extends BaseSeries {
     const fontColor = (labelStyle.color as string) || this.autoLabelColor();
     const thickness = bandThickness ?? radius * 0.15;
 
+    if (max === min) return;
     const angleScale = scaleLinear().domain([min, max]).range([startAngle, endAngle]);
 
     const minorCount = yAxisCfg.minorTickInterval ? Math.round((max - min) / yAxisCfg.minorTickInterval) : 0;
@@ -447,10 +449,10 @@ export class SolidGaugeChart extends BaseSeries {
     cx: number, cy: number, animate: boolean | undefined
   ): void {
     const value = d?.y ?? 0;
-    const fraction = Math.max(0, Math.min(1, (value - min) / (max - min)));
+    const fraction = max === min ? 0 : Math.max(0, Math.min(1, (value - min) / (max - min)));
     let valueAngle = startAngle + (endAngle - startAngle) * fraction;
 
-    if (overshoot > 0 && value > max) {
+    if (overshoot > 0 && value > max && max !== min) {
       const extraFraction = (value - max) / (max - min);
       valueAngle = endAngle + Math.min(overshootRad, (endAngle - startAngle) * extraFraction);
     }
@@ -588,6 +590,7 @@ export class SolidGaugeChart extends BaseSeries {
     const plotBands: any[] = ((this.config as any)._yAxis ?? (this.config as any).yAxis)?.plotBands || [];
     if (plotBands.length === 0) return;
 
+    if (max === min) return;
     const angleScale = scaleLinear().domain([min, max]).range([startAngle, endAngle]);
 
     for (const band of plotBands) {
@@ -614,6 +617,7 @@ export class SolidGaugeChart extends BaseSeries {
     const fontSize = (labelStyle.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
     const fontColor = (labelStyle.color as string) || this.autoLabelColor();
 
+    if (max === min) return;
     const angleScale = scaleLinear().domain([min, max]).range([startAngle, endAngle]);
 
     for (const val of tickPositions) {

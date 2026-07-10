@@ -49,7 +49,7 @@ export class VolcanoChart extends BaseSeries {
     const animate = this.context.animate;
     const data = this.data.filter(d => d.y !== null && d.y !== undefined);
 
-    const pThreshold = this.config.pValueThreshold ?? 0.05;
+    const pThreshold = (this.config.pValueThreshold && this.config.pValueThreshold > 0) ? this.config.pValueThreshold : 0.05;
     const fcThreshold = this.config.foldChangeThreshold ?? 1.0;
     const upColor = this.config.upColor ?? this.context.colors[0] ?? '#e74c3c';
     const downColor = this.config.downColor ?? this.context.colors[1] ?? '#3498db';
@@ -319,7 +319,7 @@ export class VolcanoChart extends BaseSeries {
     xMin = Math.min(xMin, -fcThreshold - 0.5);
     xMax = Math.max(xMax, fcThreshold + 0.5);
 
-    const pThreshold = this.config.pValueThreshold ?? 0.05;
+    const pThreshold = (this.config.pValueThreshold && this.config.pValueThreshold > 0) ? this.config.pValueThreshold : 0.05;
     const negLog10Threshold = -Math.log10(pThreshold);
     yMax = Math.max(yMax, negLog10Threshold + 1);
 

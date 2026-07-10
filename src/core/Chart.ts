@@ -807,11 +807,16 @@ export class Chart {
     for (let i = 0; i < this.options.series.length; i++) {
       const cfg = this.options.series[i];
       if (cfg.stacking) {
+        const s = this.seriesInstances[i];
+        s.processData();
+        // A hidden series contributes nothing to the stack: excluding it lets the
+        // remaining series re-stack to close the gap and, for percent stacking,
+        // renormalise to 100%. Mirrors the animated-redraw path so a full render
+        // and a legend toggle agree.
+        if (!s.visible) continue;
         const sk = buildStackKey(cfg);
         stackSeriesCount.set(sk, (stackSeriesCount.get(sk) || 0) + 1);
         if (!stackTotalsPos.has(sk)) { stackTotalsPos.set(sk, new Map()); stackTotalsNeg.set(sk, new Map()); }
-        const s = this.seriesInstances[i];
-        s.processData();
         accumulateSignedStackTotals(s.data, stackTotalsPos.get(sk)!, stackTotalsNeg.get(sk)!);
       }
     }
@@ -827,6 +832,9 @@ export class Chart {
       if (!fwdPos.has(sk)) { fwdPos.set(sk, new Map()); fwdNeg.set(sk, new Map()); }
       precomputedOffsetsPos.set(i, new Map(fwdPos.get(sk)!));
       precomputedOffsetsNeg.set(i, new Map(fwdNeg.get(sk)!));
+      // Skip hidden series so they don't advance the running offset — otherwise a
+      // series stacked above a hidden one floats above an empty gap.
+      if (!this.seriesInstances[i].visible) continue;
       accumulateSignedStackTotals(this.seriesInstances[i].data, fwdPos.get(sk)!, fwdNeg.get(sk)!);
     }
 
@@ -894,7 +902,77 @@ export class Chart {
       }
     }
 
+    this.declutterColumnDataLabels();
     this.reorderSeriesByZIndex();
+  }
+
+  /**
+   * After the columns draw their value labels, spread the ones that pile up
+   * inside a single bar. Labels are grouped by the bar they sit on (same centre
+   * on the category axis) and, where two would overlap, the later one is nudged
+   * along the bar to the nearest free slot — staying inside the plot — so a tall
+   * bar's thin segments relocate their numbers into open space instead of
+   * printing them on top of each other. Vertical columns spread along y,
+   * horizontal bars along x. Runs after every draw so the layout survives a
+   * legend toggle.
+   */
+  private declutterColumnDataLabels(): void {
+    const isBar = (t: string) => t === 'column' || t === 'bar';
+    const active = this.options.series.some(
+      (cfg, i) => this.seriesInstances[i]?.visible && cfg.dataLabels?.enabled && isBar(cfg._internalType)
+    );
+    if (!active) return;
+
+    const inverted = !!this.options.chart.inverted;
+    const plotSize = inverted ? this.layout.plotArea.width : this.layout.plotArea.height;
+    if (!(plotSize > 0)) return;
+
+    type L = { el: SVGTextElement; main: number; cross: number; thick: number };
+    const labels: L[] = [];
+    for (let i = 0; i < this.seriesInstances.length; i++) {
+      const s = this.seriesInstances[i];
+      const cfg = this.options.series[i];
+      if (!s.visible || !cfg.dataLabels?.enabled || !isBar(cfg._internalType)) continue;
+      const group = (s as any).group;
+      if (!group) continue;
+      group.selectAll('.katucharts-data-labels text').each(function (this: SVGTextElement) {
+        const x = parseFloat(this.getAttribute('x') || '0');
+        const y = parseFloat(this.getAttribute('y') || '0');
+        let w = 8, h = 12;
+        try { const b = this.getBBox(); w = b.width; h = b.height; } catch { /* not laid out yet */ }
+        // `main` is the axis we spread along; `cross` groups labels onto one bar.
+        labels.push(inverted
+          ? { el: this, main: x, cross: Math.round(y), thick: w }
+          : { el: this, main: y, cross: Math.round(x), thick: h });
+      });
+    }
+    if (labels.length < 2) return;
+
+    const bars = new Map<number, L[]>();
+    for (const l of labels) {
+      const arr = bars.get(l.cross);
+      if (arr) arr.push(l); else bars.set(l.cross, [l]);
+    }
+
+    const gap = 1;
+    for (const arr of bars.values()) {
+      if (arr.length < 2) continue;
+      arr.sort((a, b) => a.main - b.main);
+      let moved = false;
+      for (let i = 1; i < arr.length; i++) {
+        const need = arr[i - 1].main + arr[i - 1].thick / 2 + gap + arr[i].thick / 2;
+        if (arr[i].main < need - 0.5) { arr[i].main = need; moved = true; }
+      }
+      if (!moved) continue;
+      // Slide the whole run back inside the plot if it pushed off either end.
+      const last = arr[arr.length - 1];
+      const over = (last.main + last.thick / 2) - plotSize;
+      if (over > 0) arr.forEach(l => { l.main -= over; });
+      const first = arr[0];
+      const under = (first.thick / 2) - first.main;
+      if (under > 0) arr.forEach(l => { l.main += under; });
+      for (const l of arr) l.el.setAttribute(inverted ? 'x' : 'y', String(l.main));
+    }
   }
 
   /**
@@ -1072,9 +1150,10 @@ export class Chart {
   private syncSeriesInstances(newConfig: InternalConfig): void {
     for (let i = 0; i < this.seriesInstances.length; i++) {
       const series = this.seriesInstances[i];
+      const hasExplicitVisible = 'visible' in newConfig.series[i];
       const nextConfig = {
         ...newConfig.series[i],
-        visible: series.visible,
+        visible: hasExplicitVisible ? newConfig.series[i].visible : series.visible,
       };
 
       this.options.series[i] = nextConfig;
@@ -1092,7 +1171,13 @@ export class Chart {
       );
     }
     const parser = new OptionsParser();
-    const merged = deepMerge(this.optionsToExternal(), options) as KatuChartsOptions;
+    const external = this.optionsToExternal();
+    const merged = deepMerge(external, options) as KatuChartsOptions;
+    if (Array.isArray(options.series) && Array.isArray(merged.series) && Array.isArray(external.series)) {
+      for (let i = 0; i < options.series.length && i < external.series.length; i++) {
+        merged.series[i] = deepMerge(external.series[i], options.series[i]);
+      }
+    }
     if (options.chart?.type && Array.isArray(merged.series)) {
       merged.series.forEach((s, i) => {
         const updatedType = Array.isArray(options.series) ? (options.series[i] as { type?: string })?.type : undefined;
@@ -1106,14 +1191,26 @@ export class Chart {
     this.state.updateConfig(newConfig);
     this.options = this.state.getConfig();
 
+    if (canReuseSeries) {
+      this.buildAxes();
+      this.syncSeriesInstances(newConfig);
+    }
+
     if (redraw) {
       if (!canReuseSeries) {
         this.redraw();
       } else {
-        this.buildAxes();
-        this.syncSeriesInstances(newConfig);
+        /**
+         * Update transitions run at the chart-level animation duration when one
+         * is configured (`chart.animation.duration`), matching the conventional
+         * contract that update animation is governed by the chart, not the series.
+         */
+        const chartAnim = this.options.chart?.animation as boolean | { duration?: number } | undefined;
+        const duration = chartAnim === false
+          ? 0
+          : (typeof chartAnim === 'object' ? chartAnim?.duration ?? 300 : 300);
         try {
-          this.animatedRedraw(300);
+          this.animatedRedraw(duration);
         } catch {
           this.redraw();
         }
@@ -1200,6 +1297,7 @@ export class Chart {
       }
     }
 
+    this.declutterColumnDataLabels();
     this.renderStackLabels();
     this.renderTitles();
     this.renderLegend();

@@ -272,7 +272,7 @@ export class TreemapChart extends BaseSeries {
     if (hasChildren) {
       const prepareNested = (items: any[]): any[] =>
         items.map(d => {
-          const item: any = { ...d, value: d.y ?? d.value ?? (d.children ? 0 : 1) };
+          const item: any = { ...d, value: Math.max(0, d.y ?? d.value ?? (d.children ? 0 : 1)) };
           if (item.children) item.children = prepareNested(item.children);
           return item;
         });
@@ -281,7 +281,7 @@ export class TreemapChart extends BaseSeries {
         .sum((d: any) => d.children ? 0 : (d.value || 0));
     }
 
-    return hierarchy({ children: data.map(d => ({ ...d, value: d.y ?? d.value ?? 1 })) } as any)
+    return hierarchy({ children: data.map(d => ({ ...d, value: Math.max(0, d.y ?? d.value ?? 1) })) } as any)
       .sum((d: any) => d.value || 0);
   }
 
@@ -442,7 +442,7 @@ export class TreemapChart extends BaseSeries {
         try {
           const bbox = textNode.getBBox();
           if (bbox.height + padY > h || bbox.width + padX > w) {
-            if (bbox.height > h - padY) textEl.remove();
+            textEl.remove();
           }
         } catch (_e) { void _e; }
       }

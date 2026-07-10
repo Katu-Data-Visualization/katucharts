@@ -46,8 +46,8 @@ export class ManhattanChart extends BaseSeries {
     const data = this.data.filter(d => d.y !== null && d.y !== undefined);
 
     const chrColors = this.config.chromosomeColors ?? [this.context.colors[0] ?? '#2980b9', this.context.colors[1] ?? '#7f8c8d'];
-    const sigLine = this.config.significanceLine ?? 5e-8;
-    const sugLine = this.config.suggestiveLine ?? 1e-5;
+    const sigLine = (this.config.significanceLine && this.config.significanceLine > 0) ? this.config.significanceLine : 5e-8;
+    const sugLine = (this.config.suggestiveLine && this.config.suggestiveLine > 0) ? this.config.suggestiveLine : 1e-5;
     const sigLineColor = this.config.significanceLineColor ?? '#e74c3c';
     const sugLineColor = this.config.suggestiveLineColor ?? '#3498db';
     const radius = this.config.marker?.radius ?? 2.5;
@@ -401,7 +401,7 @@ export class ManhattanChart extends BaseSeries {
       }
     }
 
-    const sigLine = this.config.significanceLine ?? 5e-8;
+    const sigLine = (this.config.significanceLine && this.config.significanceLine > 0) ? this.config.significanceLine : 5e-8;
     const negLog10Sig = -Math.log10(sigLine);
     yMax = Math.max(yMax, negLog10Sig + 1);
 
