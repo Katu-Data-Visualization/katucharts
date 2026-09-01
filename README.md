@@ -18,6 +18,7 @@ D3.js charting library with a declarative configuration interface.
   - [title / subtitle](#title--subtitle)
   - [xAxis / yAxis](#xaxis--yaxis)
   - [series](#series-options)
+  - [data labels & leader lines](#data-labels--leader-lines)
   - [tooltip](#tooltip)
   - [legend](#legend)
   - [exporting](#exporting)
@@ -532,6 +533,56 @@ data: [
   { x: 2, y: 30, sliced: true, selected: true }
 ]
 ```
+
+### data labels & leader lines
+
+`dataLabels` prints a value beside its own point. On `pie`, `donut`, `funnel`
+and `pyramid` the label is placed **outside** the shape by default and joined to
+its slice by a leader line drawn in that slice's colour, so a chart reads without
+hovering. The sign of `distance` chooses the placement: zero or positive puts the
+label outside with a leader, negative tucks it inside the shape (and drops the
+leader).
+
+| Option | Type | Default | Notes |
+|---|---|---|---|
+| `enabled` | `boolean` | `true` for pie/donut/funnel/pyramid, `false` elsewhere | |
+| `format` | `string` | point name | Template, e.g. `'{point.name}: {point.percentage:.0f}%'` |
+| `formatter` | `function` | — | Called with `{ point, series, x, y, percentage }` |
+| `style` | `object` | — | `{ fontSize, fontWeight, fontFamily, color, textOutline }` |
+| `color` | `string` | auto | Overrides the automatic contrast colour |
+| `distance` | `number` | `30` | Gap from the shape's edge to the label. Negative ⇒ inside |
+| `connectorWidth` | `number` | `1` | `0` hides the leader line |
+| `connectorColor` | `string` | the slice colour | |
+| `connectorPadding` | `number` | `5` | Gap between the shape's edge and where the leader starts |
+| `connectorShape` | `string \| function` | `'fixedOffset'` | `'fixedOffset'`, `'straight'`, `'crookedLine'`, or a function returning a path `d` (pie/donut only) |
+| `crookDistance` | `string \| number` | `'70%'` | Where the bend sits, for `'crookedLine'` |
+| `softConnector` | `boolean` | `false` | Rounds the leader's elbow into a curve |
+| `align` | `'left' \| 'right'` | `'right'` | Which side funnel/pyramid labels sit on |
+| `alternate` | `boolean` | `false` | Alternate funnel/pyramid labels between sides |
+| `allowOverlap` | `boolean` | `false` | By default crowded labels are decluttered, and the lowest-value ones dropped |
+| `x` / `y` | `number` | `0` | Pixel nudges |
+
+Labels take their colour from the chart background (or, when inside a slice, from
+the slice) so they stay readable on light and dark themes alike; setting `color`
+or `style.color` overrides that.
+
+A point can carry **several** label sets — pass an array to show, say, the name
+outside the slice and the share inside it:
+
+```js
+series: [{
+  type: 'pie',
+  dataLabels: [
+    { format: '{point.name}' },                    // outside, with a leader
+    { format: '{point.percentage:.0f}%', distance: -28 },  // inside the slice
+  ],
+  data: [{ name: 'Organic', y: 42 }, { name: 'Direct', y: 28 }],
+}]
+```
+
+On narrow containers the built-in `responsive` rules shrink these labels and
+their leaders automatically. Setting `distance` (or `connectorWidth`) on the
+series itself opts out of that, because series options outrank `plotOptions`.
 
 ### map & globe
 

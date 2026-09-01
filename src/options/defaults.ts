@@ -213,6 +213,24 @@ export const defaultOptions: KatuChartsOptions = {
       },
     },
     donut: {
+      tooltip: {
+        pointFormat: '<span style="color:{point.color}">\u25CF</span> {series.name}: <b>{point.percentage:.1f}%</b><br/>',
+      },
+      dataLabels: { enabled: true },
+      showInLegend: false,
+    },
+    funnel: {
+      tooltip: {
+        pointFormat: '<span style="color:{point.color}">\u25CF</span> {series.name}: <b>{point.percentage:.1f}%</b><br/>',
+      },
+      dataLabels: { enabled: true },
+      showInLegend: false,
+    },
+    pyramid: {
+      tooltip: {
+        pointFormat: '<span style="color:{point.color}">\u25CF</span> {series.name}: <b>{point.percentage:.1f}%</b><br/>',
+      },
+      dataLabels: { enabled: true },
       showInLegend: false,
     },
     sankey: { dataLabels: { enabled: true }, showInLegend: false },
@@ -293,6 +311,28 @@ export const defaultOptions: KatuChartsOptions = {
                 connectorPadding: 3,
               },
             },
+            donut: {
+              size: '65%',
+              dataLabels: {
+                distance: 10,
+                style: { fontSize: '9px' },
+                connectorPadding: 3,
+              },
+            },
+            funnel: {
+              dataLabels: {
+                distance: 10,
+                style: { fontSize: '9px' },
+                connectorPadding: 3,
+              },
+            },
+            pyramid: {
+              dataLabels: {
+                distance: 10,
+                style: { fontSize: '9px' },
+                connectorPadding: 3,
+              },
+            },
           },
         },
       },
@@ -305,6 +345,28 @@ export const defaultOptions: KatuChartsOptions = {
           plotOptions: {
             pie: {
               size: '55%',
+              dataLabels: {
+                distance: 5,
+                style: { fontSize: '8px' },
+                connectorWidth: 0,
+              },
+            },
+            donut: {
+              size: '55%',
+              dataLabels: {
+                distance: 5,
+                style: { fontSize: '8px' },
+                connectorWidth: 0,
+              },
+            },
+            funnel: {
+              dataLabels: {
+                distance: 5,
+                style: { fontSize: '8px' },
+                connectorWidth: 0,
+              },
+            },
+            pyramid: {
               dataLabels: {
                 distance: 5,
                 style: { fontSize: '8px' },

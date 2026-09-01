@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Direct label harness — pie / donut / funnel</title>
+<style>
+  :root { color-scheme: light; }
+  html, body { margin: 0; padding: 0; background:#f5f5f7; font-family: system-ui, sans-serif; }
+  .wrap { max-width: 1180px; margin: 20px auto; padding: 12px; box-sizing: border-box; }
+  .grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:16px; }
+  .card {
+    background:#fff; border-radius:12px; padding:12px 16px 16px; box-shadow:0 1px 3px rgba(0,0,0,0.08);
+  }
+  .card.dark { background:#15161c; }
+  .card.dark h2 { color:#e8e8ee; }
+  h2 { margin:0 0 8px; font-size:14px; color:#2b2b2b; font-weight:600; }
+  .chart { width:100%; height:340px; }
+  .toolbar { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center; }
+  .toolbar button {
+    font-size:12px; padding:6px 10px; border:1px solid #ccc; border-radius:6px; background:#fff; cursor:pointer;
+  }
+  .toolbar button.on { background:#1b1a15; color:#fff; border-color:#1b1a15; }
+  .narrow-row { display:flex; gap:16px; margin-top:16px; align-items:flex-start; flex-wrap:wrap; }
+  .narrow { background:#fff; border-radius:12px; padding:10px; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+  .narrow .chart { height:300px; }
+  .w300 { width:300px; }
+  .w240 { width:240px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="toolbar">
+    <button data-n="6">6 fatias</button>
+    <button data-n="14">14 fatias</button>
+    <button data-n="24">24 fatias</button>
+    <button id="longNames">nomes longos</button>
+    <button id="soft">softConnector</button>
+    <button id="connColor">connectorColor rosa</button>
+    <button id="shape">shape: fixedOffset</button>
+    <button id="bbox">caixas de texto</button>
+  </div>
+
+  <div class="grid">
+    <div class="card"><h2>pie — fora + linha</h2><div class="chart" id="c-pie"></div></div>
+    <div class="card"><h2>donut — padrões da lib</h2><div class="chart" id="c-donut"></div></div>
+    <div class="card"><h2>funnel — align: right (padrão)</h2><div class="chart" id="c-funnel"></div></div>
+    <div class="card"><h2>funnel — alternate: true</h2><div class="chart" id="c-funnel-alt"></div></div>
+    <div class="card"><h2>pyramid — dados invertidos</h2><div class="chart" id="c-pyramid"></div></div>
+    <div class="card"><h2>pie — dois conjuntos (nome fora, % dentro)</h2><div class="chart" id="c-multi"></div></div>
+    <div class="card dark"><h2>fundo escuro — pie</h2><div class="chart" id="c-dark-pie"></div></div>
+    <div class="card dark"><h2>fundo escuro — funnel</h2><div class="chart" id="c-dark-funnel"></div></div>
+  </div>
+
+  <div class="narrow-row">
+    <div class="narrow w300"><h2>300px — pie</h2><div class="chart" id="c-n300-pie"></div></div>
+    <div class="narrow w300"><h2>300px — donut</h2><div class="chart" id="c-n300-donut"></div></div>
+    <div class="narrow w240"><h2>240px — pie</h2><div class="chart" id="c-n240-pie"></div></div>
+    <div class="narrow w240"><h2>240px — funnel</h2><div class="chart" id="c-n240-funnel"></div></div>
+  </div>
+</div>
+
+<script type="module">
+  import KatuCharts from '/src/index.ts';
+
+  const SHORT = [
+    'Busca', 'Direto', 'Social', 'Indicação', 'E-mail', 'Pago',
+    'Afiliados', 'Vídeo', 'Display', 'Push', 'SMS', 'Parceiros',
+    'Eventos', 'Newsletter', 'Blog', 'Podcast', 'Webinar', 'Fórum',
+    'Marketplace', 'App', 'QR', 'Rádio', 'TV', 'Outros',
+  ];
+  const LONG = [
+    'Busca orgânica não paga', 'Tráfego direto do navegador', 'Redes sociais orgânicas',
+    'Indicação de parceiros estratégicos', 'Campanhas de e-mail marketing',
+    'Mídia paga de performance', 'Programa de afiliados', 'Plataformas de vídeo',
+    'Rede de display programática', 'Notificações push do aplicativo',
+    'Mensagens SMS transacionais', 'Parcerias comerciais regionais',
+    'Eventos presenciais e feiras', 'Newsletter semanal do produto',
+    'Conteúdo editorial do blog', 'Episódios de podcast patrocinados',
+    'Webinars de demonstração', 'Fóruns técnicos da comunidade',
+    'Marketplaces de terceiros', 'Loja de aplicativos móveis',
+    'Códigos QR impressos', 'Anúncios em rádio local',
+    'Comerciais de televisão aberta', 'Demais origens agrupadas',
+  ];
+
+  /** A long tail: the first slices dominate, the rest fall under 1%. */
+  function values(n) {
+    return Array.from({ length: n }, (_, i) => Math.max(0.4, Math.round(1000 / Math.pow(i + 1, 1.6)) / 10));
+  }
+
+  const state = { n: 6, longNames: false, soft: false, connColor: false, shapeIdx: 0, bbox: false };
+  const SHAPES = ['fixedOffset', 'straight', 'crookedLine'];
+
+  function points(n) {
+    const names = state.longNames ? LONG : SHORT;
+    return values(n).map((y, i) => ({ name: names[i % names.length], y }));
+  }
+
+  /** The label set every card shares, so a toolbar toggle is visible everywhere. */
+  function labels(extra = {}) {
+    return Object.assign({
+      format: '{point.name}: {point.percentage:.0f}%',
+      connectorShape: SHAPES[state.shapeIdx],
+      softConnector: state.soft,
+      ...(state.connColor ? { connectorColor: '#ff0080' } : {}),
+    }, extra);
+  }
+
+  const base = (type, extra = {}) => Object.assign({
+    chart: { type, animation: false },
+    title: { text: null },
+    credits: { enabled: false },
+    legend: { enabled: false },
+    series: [{ name: 'Sessões', data: points(state.n), dataLabels: labels() }],
+  }, extra);
+
+  const charts = [];
+
+  function draw(id, options) {
+    const el = document.getElementById(id);
+    el.innerHTML = '';
+    charts.push(KatuCharts.chart(el, options));
+  }
+
+  function render() {
+    charts.splice(0).forEach(c => c.destroy?.());
+
+    draw('c-pie', base('pie'));
+    draw('c-donut', base('donut', {
+      series: [{ name: 'Sessões', innerSize: '60%', data: points(state.n), dataLabels: labels() }],
+    }));
+    draw('c-funnel', base('funnel'));
+    draw('c-funnel-alt', base('funnel', {
+      series: [{ name: 'Etapas', data: points(state.n), dataLabels: labels({ alternate: true }) }],
+    }));
+    draw('c-pyramid', base('pyramid'));
+    draw('c-multi', base('pie', {
+      series: [{
+        name: 'Sessões',
+        data: points(state.n),
+        dataLabels: [
+          labels({ format: '{point.name}' }),
+          { distance: -28, format: '{point.percentage:.0f}%' },
+        ],
+      }],
+    }));
+
+    const dark = { chart: { backgroundColor: '#15161c' } };
+    draw('c-dark-pie', base('pie', dark));
+    draw('c-dark-funnel', base('funnel', dark));
+
+    draw('c-n300-pie', base('pie'));
+    draw('c-n300-donut', base('donut', {
+      series: [{ name: 'Sessões', innerSize: '60%', data: points(state.n), dataLabels: labels() }],
+    }));
+    draw('c-n240-pie', base('pie'));
+    draw('c-n240-funnel', base('funnel'));
+
+    if (state.bbox) requestAnimationFrame(drawBoxes);
+    syncToolbar();
+    window.__charts = charts;
+  }
+
+  /**
+   * Outline every rendered label. Overlaps and labels leaking past a card edge
+   * are then unambiguous instead of eyeballed.
+   */
+  function drawBoxes() {
+    document.querySelectorAll('svg.katucharts-root').forEach(svg => {
+      svg.querySelectorAll('text').forEach(t => {
+        let b;
+        try { b = t.getBBox(); } catch { return; }
+        if (!b.width) return;
+        const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        r.setAttribute('x', b.x); r.setAttribute('y', b.y);
+        r.setAttribute('width', b.width); r.setAttribute('height', b.height);
+        r.setAttribute('fill', 'none'); r.setAttribute('stroke', 'red');
+        r.setAttribute('stroke-width', '0.5'); r.setAttribute('pointer-events', 'none');
+        t.parentNode.insertBefore(r, t);
+      });
+    });
+  }
+
+  function syncToolbar() {
+    document.querySelectorAll('[data-n]').forEach(b => b.classList.toggle('on', +b.dataset.n === state.n));
+    document.getElementById('longNames').classList.toggle('on', state.longNames);
+    document.getElementById('soft').classList.toggle('on', state.soft);
+    document.getElementById('connColor').classList.toggle('on', state.connColor);
+    document.getElementById('bbox').classList.toggle('on', state.bbox);
+    document.getElementById('shape').textContent = 'shape: ' + SHAPES[state.shapeIdx];
+  }
+
+  document.querySelectorAll('[data-n]').forEach(b =>
+    b.addEventListener('click', () => { state.n = +b.dataset.n; render(); }));
+  document.getElementById('longNames').addEventListener('click', () => { state.longNames = !state.longNames; render(); });
+  document.getElementById('soft').addEventListener('click', () => { state.soft = !state.soft; render(); });
+  document.getElementById('connColor').addEventListener('click', () => { state.connColor = !state.connColor; render(); });
+  document.getElementById('shape').addEventListener('click', () => { state.shapeIdx = (state.shapeIdx + 1) % SHAPES.length; render(); });
+  document.getElementById('bbox').addEventListener('click', () => { state.bbox = !state.bbox; render(); });
+
+  render();
+</script>
+</body>
+</html>

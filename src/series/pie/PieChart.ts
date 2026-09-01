@@ -4,9 +4,19 @@ import { select } from 'd3-selection';
 import 'd3-transition';
 import { BaseSeries, staggerDelay, type SeriesContext } from '../BaseSeries';
 import type { InternalSeriesConfig, PointOptions, DataLabelOptions, BorderRadiusOptions } from '../../types/options';
-import { templateFormat, stripHtmlTags, sanitizeColor } from '../../utils/format';
 import { resolveFillPaint } from '../../utils/gradient';
-import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE, parseFontSizePx, measureTextWidth } from '../../utils/chartText';
+import { readableTextColor } from '../../utils/chartText';
+import {
+  normalizeDataLabelConfigs,
+  labelFontMetrics,
+  measureLabel,
+  resolveLabelText,
+  estimateLabelLines,
+  wrapLabelLines,
+  connectorPath,
+  applyLabelStyle,
+  type LabelFontMetrics,
+} from './directLabels';
 import {
   ENTRY_DURATION,
   ENTRY_DELAY_BASE,
@@ -60,18 +70,11 @@ export class PieChart extends BaseSeries {
     return point.visible !== false;
   }
 
-  /**
-   * Returns the enabled data-label configs in array form. The API allows a
-   * pie point to carry several label sets (e.g. the name outside the slice plus
-   * the percentage inside it), passed as an array; this normalises the single-
-   * object and array forms to one list so the rest of the chart can treat them
-   * uniformly.
-   */
+  /** The enabled data-label sets configured on this pie, in array form. */
   private dataLabelConfigs(): DataLabelOptions[] {
-    const dl = this.config.dataLabels as DataLabelOptions | DataLabelOptions[] | undefined;
-    if (!dl) return [];
-    const arr = Array.isArray(dl) ? dl : [dl];
-    return arr.filter(d => d && d.enabled !== false);
+    return normalizeDataLabelConfigs(
+      this.config.dataLabels as DataLabelOptions | DataLabelOptions[] | undefined
+    );
   }
 
   init(context: SeriesContext): void {
@@ -347,35 +350,6 @@ export class PieChart extends BaseSeries {
   }
 
   /**
-   * Resolves a point's label to its rendered text (formatter/format/fallback,
-   * HTML stripped) plus any inline `color:` declared in the markup. Shared by the
-   * sizing pre-pass and the renderer so the measured width can't drift from what
-   * is actually drawn.
-   */
-  private resolveLabelText(
-    dlCfg: DataLabelOptions, point: any, sliceColor: string
-  ): { text: string; inlineColor?: string } {
-    const pointCtx = { ...point, color: sliceColor };
-    let text: string;
-    if (dlCfg.formatter) {
-      text = dlCfg.formatter.call({
-        point: pointCtx, series: { name: this.config.name },
-        x: point.x, y: point.y, percentage: point.percentage,
-      });
-    } else if (dlCfg.format) {
-      text = templateFormat(dlCfg.format, {
-        point: pointCtx, series: { name: this.config.name },
-      });
-    } else {
-      text = point.name || String(point.y);
-    }
-    let inlineColor: string | undefined;
-    const colorMatch = /(?:^|[\s;"'])color\s*:\s*([^;"'>]+)/i.exec(text);
-    if (colorMatch) inlineColor = sanitizeColor(colorMatch[1], sliceColor);
-    return { text: stripHtmlTags(text), inlineColor };
-  }
-
-  /**
    * Plot space to reserve for external labels, measured from real text widths.
    * Horizontal: the widest `distance + textWidth + connectorPadding` over each
    * side, capped at a third of the plot width per side so a single long label
@@ -393,13 +367,12 @@ export class PieChart extends BaseSeries {
     for (const dlCfg of dlCfgs) {
       const distance = dlCfg.distance ?? 30;
       const connectorPadding = dlCfg.connectorPadding ?? 5;
-      const fontPx = parseFontSizePx((dlCfg.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE);
-      const labelHeight = fontPx * 1.4;
-      vertical = Math.max(vertical, 2 * (distance + labelHeight));
+      const metrics = labelFontMetrics(dlCfg);
+      vertical = Math.max(vertical, 2 * (distance + metrics.labelHeight));
       for (const d of pieData) {
         const sliceColor = this.resolveSliceColor(d.data, d.index);
-        const { text } = this.resolveLabelText(dlCfg, d.data, sliceColor);
-        const required = distance + measureTextWidth(text, fontPx) + connectorPadding;
+        const { text } = resolveLabelText(dlCfg, d.data, this.config.name, sliceColor);
+        const required = distance + measureLabel(text, metrics) + connectorPadding;
         const midAngle = (d.startAngle + d.endAngle) / 2;
         if (midAngle < Math.PI) rightReq = Math.max(rightReq, required);
         else leftReq = Math.max(leftReq, required);
@@ -422,21 +395,35 @@ export class PieChart extends BaseSeries {
     const plotHalfHeight = plotH / 2;
     const labelDistance = dlCfg.distance ?? 30;
     const connectorWidth = dlCfg.connectorWidth ?? 1;
-    const connectorColor = dlCfg.connectorColor || '#999';
+    const connectorColor = dlCfg.connectorColor;
     const connectorPadding = dlCfg.connectorPadding ?? 5;
-    const softConnector = dlCfg.softConnector !== false;
-    const fontSize = (dlCfg.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
-    const fontColor = dlCfg.color || (dlCfg.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
+    /**
+     * Rounding the elbow is opt-in rather than the conventional opt-out: the
+     * option was declared but never wired, so honouring its documented `true`
+     * default would silently re-shape every existing pie's connectors.
+     */
+    const softConnector = dlCfg.softConnector === true;
     const alignTo = dlCfg.alignTo;
     const isInside = labelDistance < 0;
+    const colorOverride = dlCfg.color || (dlCfg.style?.color as string);
+    /**
+     * Outside labels sit on the chart background, so they follow it for contrast
+     * the way every other series does. Inside labels sit on their own slice and
+     * are resolved per-slice further down — a single background-derived colour
+     * would be wrong for at least one of the two.
+     */
+    const outsideColor = this.autoLabelColor(colorOverride);
 
     /**
-     * Resolve the font size to real pixels: configs commonly use `rem`/`em`, and
-     * `parseFloat('1.4rem')` is 1.4 — which would collapse every label box to a
-     * couple of pixels and defeat the overlap/spacing declutter below.
+     * The font the label is actually painted in — size resolved to real pixels
+     * (configs commonly use `rem`/`em`, and `parseFloat('1.4rem')` is 1.4, which
+     * would collapse every label box), and the bold weight included so measured
+     * widths match the glyphs rather than running a few percent narrow.
      */
-    const fontPx = parseFontSizePx(fontSize);
-    const labelHeight = fontPx * 1.4;
+    const metrics = labelFontMetrics(dlCfg);
+    const fontSize = metrics.fontSize;
+    const fontPx = metrics.fontPx;
+    const labelHeight = metrics.labelHeight;
 
     interface LabelInfo {
       lx: number; ly: number; text: string; midAngle: number;
@@ -464,7 +451,7 @@ export class PieChart extends BaseSeries {
        * (e.g. `<b style="color:{point.color}">{point.name}</b>`) via the same path
        * the sizing pre-pass measured, so width and drawing stay in lockstep.
        */
-      const { text, inlineColor } = this.resolveLabelText(dlCfg, d.data, sliceColor);
+      const { text, inlineColor } = resolveLabelText(dlCfg, d.data, this.config.name, sliceColor);
 
       labels.push({ lx, ly, text, midAngle, centroid, percentage, data: d.data, visible: true, color: sliceColor, inlineColor });
     });
@@ -482,8 +469,8 @@ export class PieChart extends BaseSeries {
       }
       const rightLabels = labels.filter(l => l.midAngle < Math.PI);
       const leftLabels = labels.filter(l => l.midAngle >= Math.PI);
-      this.distribute(rightLabels, labelHeight, plotHalfHeight, plotHalfWidth, fontSize);
-      this.distribute(leftLabels, labelHeight, plotHalfHeight, plotHalfWidth, fontSize);
+      this.distribute(rightLabels, plotHalfHeight, metrics);
+      this.distribute(leftLabels, plotHalfHeight, metrics);
 
       const labelR = outerRadius + labelDistance;
       for (const l of labels) {
@@ -511,7 +498,7 @@ export class PieChart extends BaseSeries {
       const kept: { l: number; r: number; t: number; b: number }[] = [];
       const ordered = labels.filter(l => l.visible).sort((a, b) => b.percentage - a.percentage);
       for (const l of ordered) {
-        const w = measureTextWidth(l.text, fontPx);
+        const w = measureLabel(l.text, metrics);
         const h = fontPx * 1.1;
         const cx = l.centroid[0], cy = l.centroid[1];
         const box = { l: cx - w / 2, r: cx + w / 2, t: cy - h / 2, b: cy + h / 2 };
@@ -527,7 +514,7 @@ export class PieChart extends BaseSeries {
       if (!info.visible) return;
       const { lx, ly, text, midAngle, centroid, color: sliceColor, inlineColor } = info;
       const isRight = midAngle < Math.PI;
-      const lineColor = sliceColor || connectorColor;
+      const lineColor = connectorColor || sliceColor;
 
       if (connectorWidth > 0 && labelDistance >= 0) {
         const edgeR = outerRadius + connectorPadding;
@@ -551,7 +538,7 @@ export class PieChart extends BaseSeries {
           const crookY = -crookR * Math.cos(midAngle);
           labelsGroup.append('path')
             .attr('class', 'katucharts-pie-connector')
-            .attr('d', `M${centroid[0]},${centroid[1]}L${crookX},${crookY}L${lx},${ly}`)
+            .attr('d', connectorPath([centroid, [crookX, crookY], [lx, ly]], softConnector))
             .attr('fill', 'none')
             .attr('stroke', lineColor)
             .attr('stroke-width', connectorWidth);
@@ -573,7 +560,7 @@ export class PieChart extends BaseSeries {
 
           labelsGroup.append('path')
             .attr('class', 'katucharts-pie-connector')
-            .attr('d', `M${ex},${ey}L${breakX},${breakY}L${lx},${ly}`)
+            .attr('d', connectorPath([[ex, ey], [breakX, breakY], [lx, ly]], softConnector))
             .attr('fill', 'none')
             .attr('stroke', lineColor)
             .attr('stroke-width', connectorWidth);
@@ -587,58 +574,16 @@ export class PieChart extends BaseSeries {
         .attr('text-anchor', isInside ? 'middle' : (isRight ? 'start' : 'end'))
         .attr('dominant-baseline', 'middle')
         .attr('font-size', fontSize)
-        .attr('fill', inlineColor || fontColor)
+        .attr('fill', inlineColor
+          || (isInside ? readableTextColor(sliceColor, colorOverride) : outsideColor))
         .style('pointer-events', 'none');
       if (!isInside && info.availWidth) {
-        this.wrapLabelLines(labelEl, text, info.availWidth, fontPx, labelX);
+        wrapLabelLines(labelEl, text, info.availWidth, metrics, labelX);
       } else {
         labelEl.text(text);
       }
 
-      const dlStyle = dlCfg.style || {};
-      labelEl.attr('font-weight', (dlStyle.fontWeight as string) || 'bold');
-      if (dlStyle.fontFamily) labelEl.attr('font-family', dlStyle.fontFamily as string);
-      if (dlStyle.textOutline) labelEl.style('text-shadow', dlStyle.textOutline as string);
-    });
-  }
-
-  /**
-   * Renders a pie label on one line, or word-wraps it onto multiple lines when
-   * it exceeds the horizontal space before the plot edge — so long category
-   * names break instead of being ellipsis-truncated. Lines are vertically
-   * centered on the anchor; an over-long run is capped at three lines and the
-   * last is ellipsized.
-   */
-  private wrapLabelLines(
-    textEl: any, text: string, maxWidth: number, fontPx: number, x: number
-  ): void {
-    if (!(maxWidth > fontPx) || measureTextWidth(text, fontPx) <= maxWidth) {
-      textEl.text(text);
-      return;
-    }
-    const words = String(text).split(/\s+/).filter(Boolean);
-    const lines: string[] = [];
-    let cur = '';
-    for (const w of words) {
-      const trial = cur ? `${cur} ${w}` : w;
-      if (cur && measureTextWidth(trial, fontPx) > maxWidth) { lines.push(cur); cur = w; }
-      else cur = trial;
-    }
-    if (cur) lines.push(cur);
-
-    const maxLines = 3;
-    if (lines.length > maxLines) {
-      let last = lines.slice(maxLines - 1).join(' ');
-      while (last.length > 1 && measureTextWidth(`${last}…`, fontPx) > maxWidth) last = last.slice(0, -1);
-      lines.length = maxLines - 1;
-      lines.push(`${last.trimEnd()}…`);
-    }
-
-    textEl.text(null);
-    const lineHeight = fontPx * 1.15;
-    const startDy = -((lines.length - 1) / 2) * lineHeight;
-    lines.forEach((ln, i) => {
-      textEl.append('tspan').attr('x', x).attr('dy', i === 0 ? startDy : lineHeight).text(ln);
+      applyLabelStyle(labelEl, dlCfg, metrics);
     });
   }
 
@@ -652,10 +597,8 @@ export class PieChart extends BaseSeries {
    */
   private distribute(
     labels: { lx: number; ly: number; text: string; midAngle: number; percentage: number; visible: boolean; availWidth?: number }[],
-    labelHeight: number,
     halfHeight: number,
-    plotHalfWidth: number,
-    fontSize: string
+    metrics: LabelFontMetrics
   ): void {
     const active = labels.filter(l => l.visible);
     if (active.length <= 1) return;
@@ -673,10 +616,10 @@ export class PieChart extends BaseSeries {
       label: typeof active[0];
     }
 
-    const fontPx = parseFontSizePx(fontSize);
+    const labelHeight = metrics.labelHeight;
     const boxes: Box[] = active.map(l => ({
       target: l.ly - top,
-      size: labelHeight * this.estimateLabelLines(l.text, l.availWidth ?? Infinity, fontPx),
+      size: labelHeight * estimateLabelLines(l.text, l.availWidth ?? Infinity, metrics),
       rank: l.percentage,
       pos: 0,
       removed: false,
@@ -698,14 +641,6 @@ export class PieChart extends BaseSeries {
         box.label.ly = top + box.pos + box.size / 2;
       }
     }
-  }
-
-  /** Estimated wrapped line count for a label (1-3), from its width vs available space. */
-  private estimateLabelLines(text: string, maxWidth: number, fontPx: number): number {
-    if (!(maxWidth > fontPx)) return 1;
-    const w = measureTextWidth(text, fontPx);
-    if (w <= maxWidth) return 1;
-    return Math.min(3, Math.ceil(w / maxWidth));
   }
 
   private distributeBoxes(
@@ -839,25 +774,73 @@ export class PieChart extends BaseSeries {
   }
 }
 
+/**
+ * Default gap between the funnel's widest edge and the label column. Matches the
+ * pie's default so the whole proportion family reads the same `distance` rule:
+ * absent or positive puts the label outside with a leader line, negative puts it
+ * back inside the shape.
+ */
+const FUNNEL_LABEL_DISTANCE = 30;
+
+interface FunnelLabelPlacement {
+  point: PointOptions;
+  index: number;
+  /** Vertical centre of the segment — the row its label sits on. */
+  midY: number;
+  topWidth: number;
+  bottomWidth: number;
+  color: string;
+}
+
 export class FunnelChart extends BaseSeries {
   constructor(config: InternalSeriesConfig) {
     super(config);
   }
 
   render(): void {
-    const { plotArea, colors } = this.context;
+    const { plotArea } = this.context;
     const data = this.data.filter(d => d.y !== null && d.y !== undefined);
     const animate = this.context.animate;
     const totalHeight = plotArea.height * 0.8;
     const segmentHeight = totalHeight / data.length;
     const maxValue = Math.max(...data.map(d => d.y ?? 0), 1);
-    const centerX = plotArea.width / 2;
-    const maxWidth = plotArea.width * 0.7;
-    const minWidth = maxWidth * 0.15;
     const startY = (plotArea.height - totalHeight) / 2;
     const inactiveOpacity = this.config.states?.inactive?.opacity ?? 0.4;
 
+    /**
+     * Stamp each stage's share of the total so `{point.percentage:.0f}%` resolves
+     * in label formats and tooltips, matching what the pie does. Unlike the pie,
+     * funnel data is filtered only for null/undefined — negatives and zeros
+     * survive — so magnitudes are summed and the denominator is guarded.
+     */
+    const totalValue = data.reduce((sum, d) => sum + Math.abs(d.y ?? 0), 0);
+    for (const d of data) {
+      (d as any).total = totalValue;
+      (d as any).percentage = totalValue ? (Math.abs(d.y ?? 0) / totalValue) * 100 : 0;
+    }
+
+    const dlCfgs = this.dataLabelConfigs();
+    /**
+     * Reserve horizontal room for labels placed beside the funnel, then derive
+     * both the width and the centre from what is left. Reserving without also
+     * re-centring would just push the label column off the plot edge.
+     */
+    const reserve = this.measureFunnelLabelMargins(data, dlCfgs, plotArea.width);
+    const remaining = plotArea.width - reserve.left - reserve.right;
+    const usable = Math.max(plotArea.width * 0.25, remaining);
+    const maxWidth = Math.min(usable, plotArea.width * 0.7);
+    const minWidth = maxWidth * 0.15;
+    const centerX = Math.max(
+      usable / 2,
+      Math.min(plotArea.width - usable / 2, reserve.left + remaining / 2),
+    );
+
     const segments: any[] = [];
+    /**
+     * Label geometry is collected here and drawn after every segment, so a later
+     * segment's fill can no longer paint over an earlier stage's label.
+     */
+    const placements: FunnelLabelPlacement[] = [];
 
     data.forEach((d, i) => {
       const fraction = (d.y ?? 0) / maxValue;
@@ -874,7 +857,7 @@ export class FunnelChart extends BaseSeries {
         'Z',
       ].join(' ');
 
-      const color = d.color || colors[i % colors.length];
+      const color = this.resolveSegmentColor(d, i);
       const el = this.group.append('path')
         .attr('d', path)
         .attr('stroke', this.config.borderColor || this.autoBorderColor())
@@ -893,36 +876,7 @@ export class FunnelChart extends BaseSeries {
         el.attr('fill', color);
       }
 
-      if (this.config.dataLabels?.enabled) {
-        const dlCfg = this.config.dataLabels;
-        const fontSize = (dlCfg.style?.fontSize as string) || DEFAULT_CHART_TEXT_SIZE;
-        const fontColor = dlCfg.color || (dlCfg.style?.color as string) || DEFAULT_CHART_TEXT_COLOR;
-
-        let text: string;
-        if (dlCfg.formatter) {
-          text = dlCfg.formatter.call({
-            point: d, series: { name: this.config.name },
-            x: d.x, y: d.y,
-          });
-        } else if (dlCfg.format) {
-          text = stripHtmlTags(templateFormat(dlCfg.format, {
-            point: d, series: { name: this.config.name },
-          }));
-        } else {
-          text = d.name || String(d.y);
-        }
-
-        this.group.append('text')
-          .attr('class', 'katucharts-funnel-label')
-          .attr('x', centerX + (dlCfg.x ?? 0))
-          .attr('y', y + segmentHeight / 2 + (dlCfg.y ?? 0))
-          .attr('text-anchor', 'middle')
-          .attr('dominant-baseline', 'middle')
-          .attr('font-size', fontSize)
-          .attr('fill', fontColor)
-          .style('pointer-events', 'none')
-          .text(text);
-      }
+      placements.push({ point: d, index: i, midY: y + segmentHeight / 2, topWidth, bottomWidth, color });
 
       if (this.config.enableMouseTracking !== false) {
         el.on('mouseover', (event: MouseEvent) => {
@@ -954,6 +908,159 @@ export class FunnelChart extends BaseSeries {
         });
       }
     });
+
+    for (const dlCfg of dlCfgs) {
+      this.renderFunnelLabels(placements, dlCfg, centerX, maxWidth, segmentHeight);
+    }
+  }
+
+  /** The enabled data-label sets configured on this funnel, in array form. */
+  private dataLabelConfigs(): DataLabelOptions[] {
+    return normalizeDataLabelConfigs(
+      this.config.dataLabels as DataLabelOptions | DataLabelOptions[] | undefined
+    );
+  }
+
+  /**
+   * The colour of segment `index`: an explicit per-point colour wins, then the
+   * series palette, then the chart palette — matching the pie so the segment,
+   * its label and its leader line all agree.
+   */
+  private resolveSegmentColor(point: any, index: number): string {
+    if (point.color) return point.color;
+    if (this.config.colors) return this.config.colors[index % this.config.colors.length];
+    const ctxColors = this.context.colors;
+    return ctxColors[index % ctxColors.length];
+  }
+
+  /**
+   * Which side of the funnel a label sits on. A single right-hand column is the
+   * default: the funnel is a symmetric vertical stack, so alternating sides both
+   * makes the eye zig-zag and doubles the width reserved for labels, halving the
+   * funnel itself. `alternate` and `align` remain available for the other reads.
+   * A negative `distance` means inside the segment, matching the pie's rule.
+   */
+  private labelSide(dlCfg: DataLabelOptions, index: number): 'inside' | 'left' | 'right' {
+    if ((dlCfg.distance ?? FUNNEL_LABEL_DISTANCE) < 0) return 'inside';
+    if (dlCfg.alternate) return index % 2 === 0 ? 'right' : 'left';
+    if (dlCfg.align === 'left') return 'left';
+    return 'right';
+  }
+
+  /**
+   * Horizontal plot space to reserve per side, measured from real text widths —
+   * the funnel counterpart of `PieChart.measureLabelMargins`. Capped per side so
+   * one very long stage name shrinks its own label (by wrapping) instead of
+   * collapsing the funnel.
+   */
+  private measureFunnelLabelMargins(
+    data: PointOptions[], dlCfgs: DataLabelOptions[], plotWidth: number
+  ): { left: number; right: number } {
+    let left = 0, right = 0;
+    data.forEach((d, i) => {
+      for (const dlCfg of dlCfgs) {
+        const side = this.labelSide(dlCfg, i);
+        if (side === 'inside') continue;
+        const metrics = labelFontMetrics(dlCfg);
+        const { text } = resolveLabelText(dlCfg, d, this.config.name, this.resolveSegmentColor(d, i));
+        const required = (dlCfg.distance ?? FUNNEL_LABEL_DISTANCE)
+          + (dlCfg.connectorPadding ?? 5)
+          + measureLabel(text, metrics);
+        if (side === 'left') left = Math.max(left, required);
+        else right = Math.max(right, required);
+      }
+    });
+    const cap = plotWidth * 0.32;
+    return { left: Math.min(left, cap), right: Math.min(right, cap) };
+  }
+
+  /**
+   * Draws one data-label set beside (or inside) the funnel. Segments are already
+   * evenly spaced and each owns exactly one row, so there is nothing to
+   * declutter vertically — the only risk is a label wrapping taller than its row,
+   * which is capped rather than resolved by the pie's rank-based packing.
+   */
+  private renderFunnelLabels(
+    placements: FunnelLabelPlacement[], dlCfg: DataLabelOptions,
+    centerX: number, maxWidth: number, segmentHeight: number
+  ): void {
+    const plotW = this.context.plotArea.width;
+    const distance = dlCfg.distance ?? FUNNEL_LABEL_DISTANCE;
+    const connectorWidth = dlCfg.connectorWidth ?? 1;
+    const connectorColor = dlCfg.connectorColor;
+    const connectorPadding = dlCfg.connectorPadding ?? 5;
+    const softConnector = dlCfg.softConnector === true;
+    const metrics = labelFontMetrics(dlCfg);
+    const colorOverride = dlCfg.color || (dlCfg.style?.color as string);
+    const outsideColor = this.autoLabelColor(colorOverride);
+    const maxLines = Math.max(1, Math.min(3, Math.floor(segmentHeight / metrics.lineHeight)));
+
+    const labelsGroup = this.group.append('g').attr('class', 'katucharts-funnel-labels');
+
+    for (const place of placements) {
+      const side = this.labelSide(dlCfg, place.index);
+      const { text, inlineColor } = resolveLabelText(dlCfg, place.point, this.config.name, place.color);
+      const midY = place.midY;
+      const labelY = midY + (dlCfg.y ?? 0);
+
+      if (side === 'inside') {
+        const insideX = centerX + (dlCfg.x ?? 0);
+        const insideEl = labelsGroup.append('text')
+          .attr('class', 'katucharts-funnel-label')
+          .attr('x', insideX)
+          .attr('y', labelY)
+          .attr('text-anchor', 'middle')
+          .attr('dominant-baseline', 'middle')
+          .attr('font-size', metrics.fontSize)
+          .attr('fill', inlineColor || readableTextColor(place.color, colorOverride))
+          .style('pointer-events', 'none')
+          .text(text);
+        applyLabelStyle(insideEl, dlCfg, metrics);
+        continue;
+      }
+
+      const dir = side === 'right' ? 1 : -1;
+      /**
+       * Start the leader on the segment's own slanted edge at the label's row —
+       * at the vertical midpoint that edge's half-width is the mean of the top
+       * and bottom half-widths — so connectors follow the taper instead of all
+       * leaving from one vertical line.
+       */
+      const edgeHalf = (place.topWidth + place.bottomWidth) / 4;
+      const startX = centerX + dir * (edgeHalf + connectorPadding);
+      const gutterX = centerX + dir * (maxWidth / 2 + distance);
+      const labelX = gutterX + (dlCfg.x ?? 0);
+
+      if (connectorWidth > 0) {
+        /**
+         * The label normally sits on its own segment's row, so the leader is a
+         * single horizontal run; an elbow appears only when `y` nudges the label
+         * off that row, and inventing one otherwise would just look contrived.
+         */
+        const points: [number, number][] = labelY === midY
+          ? [[startX, midY], [gutterX, midY]]
+          : [[startX, midY], [(startX + gutterX) / 2, midY], [gutterX, labelY]];
+        labelsGroup.append('path')
+          .attr('class', 'katucharts-funnel-connector')
+          .attr('d', connectorPath(points, softConnector))
+          .attr('fill', 'none')
+          .attr('stroke', connectorColor || place.color)
+          .attr('stroke-width', connectorWidth);
+      }
+
+      const availWidth = (side === 'right' ? plotW - labelX : labelX) - 4;
+      const el = labelsGroup.append('text')
+        .attr('class', 'katucharts-funnel-label')
+        .attr('x', labelX)
+        .attr('y', labelY)
+        .attr('text-anchor', side === 'right' ? 'start' : 'end')
+        .attr('dominant-baseline', 'middle')
+        .attr('font-size', metrics.fontSize)
+        .attr('fill', inlineColor || outsideColor)
+        .style('pointer-events', 'none');
+      wrapLabelLines(el, text, availWidth, metrics, labelX, maxLines);
+      applyLabelStyle(el, dlCfg, metrics);
+    }
   }
 
   getDataExtents() {

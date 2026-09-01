@@ -43,7 +43,9 @@ export const SELF_RENDERED_DATALABEL_TYPES: ReadonlySet<string> = new Set([
 /**
  * Series types whose geometry overflows the plot area and must not be clipped.
  */
-export const NO_CLIP_TYPES: ReadonlySet<string> = new Set(['pie', 'venn', 'forestplot', 'pcoa', 'item', 'classroom', 'pictorial']);
+export const NO_CLIP_TYPES: ReadonlySet<string> = new Set([
+  'pie', 'donut', 'funnel', 'pyramid', 'venn', 'forestplot', 'pcoa', 'item', 'classroom', 'pictorial',
+]);
 
 /**
  * Series types whose markers extend beyond data extents and need the plot clip
