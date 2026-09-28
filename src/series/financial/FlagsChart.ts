@@ -259,12 +259,7 @@ export class FlagsChart extends BaseSeries {
       seriesPointEvents.mouseOut?.call(point, event);
     })
     .on('click', (event: MouseEvent) => {
-      this.context.events.emit('point:click', {
-        point, index, series: this, event,
-      });
-      pointEvents.click?.call(point, event);
-      seriesPointEvents.click?.call(point, event);
-      this.config.events?.click?.call(this, event);
+      this.firePointClick(point, index, event);
     });
   }
 }

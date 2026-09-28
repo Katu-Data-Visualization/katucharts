@@ -232,9 +232,8 @@ export class NetworkGraphChart extends BaseSeries {
       })
       .on('click', (event: MouseEvent, d: any) => {
         const i = nodes.indexOf(d);
-        this.context.events.emit('point:click', {
-          point: { name: d.name || d.id }, index: i, series: this, event,
-        });
+        if (d.name == null) d.name = d.id;
+        this.firePointClick(d, i, event);
       });
 
     const labels = this.group.selectAll('.katucharts-network-label')

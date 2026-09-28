@@ -169,6 +169,7 @@ export class CandlestickChart extends BaseSeries {
           d.events?.mouseOut?.call(d, event);
         })
         .on('click', (event: MouseEvent) => {
+          if (!this.firePointClick(d, i, event)) return;
           if (allowSelect) {
             const wasSelected = this.selectedIndices.has(i);
             if (wasSelected) {
@@ -184,9 +185,6 @@ export class CandlestickChart extends BaseSeries {
               d.events?.select?.call(d, event);
             }
           }
-          this.context.events.emit('point:click', { point: d, index: i, series: this, event });
-          d.events?.click?.call(d, event);
-          this.config.events?.click?.call(this, event);
         });
       }
     }
@@ -375,9 +373,7 @@ export class OHLCChart extends BaseSeries {
           d.events?.mouseOut?.call(d, event);
         })
         .on('click', (event: MouseEvent) => {
-          this.context.events.emit('point:click', { point: d, index: i, series: this, event });
-          d.events?.click?.call(d, event);
-          this.config.events?.click?.call(this, event);
+          this.firePointClick(d, i, event);
         });
       }
     }

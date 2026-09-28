@@ -763,10 +763,7 @@ export class ColumnChart extends BaseSeries {
       })
       .on('click', (event: MouseEvent, d: PointOptions) => {
         const i = data.indexOf(d);
-        this.context.events.emit('point:click', { point: d, index: i, series: this, event });
-        d.events?.click?.call(d, event);
-        this.config.point?.events?.click?.call(d, event);
-        this.config.events?.click?.call(this, event);
+        if (!this.firePointClick(d, i, event)) return;
 
         const target = event.currentTarget as SVGRectElement;
         const sel = select(target);

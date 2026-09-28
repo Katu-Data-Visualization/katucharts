@@ -397,10 +397,7 @@ export class ItemChart extends BaseSeries {
         })
         .on('click', function (event: MouseEvent, d: Seat) {
           const cat = cats[d.catIndex];
-          self.context.events.emit('point:click', { point: cat.point, index: cat.dataIndex, series: self, event });
-          cat.point.events?.click?.call(cat.point, event);
-          self.config.point?.events?.click?.call(cat.point, event);
-          self.config.events?.click?.call(self, event);
+          self.firePointClick(cat.point, cat.dataIndex, event);
         });
     }
   }

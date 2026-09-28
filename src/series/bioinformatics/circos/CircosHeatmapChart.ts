@@ -236,12 +236,11 @@ export class CircosHeatmapChart extends BaseSeries {
         });
       })
       .on('click', (event: MouseEvent) => {
-        this.context.events.emit('point:click', {
-          point: { name: colName, row: row.id, y: value, rowIndex: rowIdx, colIndex: colIdx },
-          index: rowIdx * colIdx,
-          series: this, event,
-        });
-        this.config.events?.click?.call(this, event);
+        this.firePointClick(
+          { name: colName, row: row.id, y: value, rowIndex: rowIdx, colIndex: colIdx } as any,
+          rowIdx * colIdx,
+          event,
+        );
       });
   }
 

@@ -44,6 +44,24 @@ export interface SeriesContext {
   pane?: { size?: string | number; [key: string]: any };
   /** Chart background — lets labels drawn on it pick a readable color automatically. */
   backgroundColor?: string;
+  /** Owning chart, exposed to user callbacks as `series.chart`. */
+  chart?: any;
+}
+
+/**
+ * Clicks already dispatched to a point. A point's own element handler runs
+ * before the event bubbles to the shared svg/container listeners, so those use
+ * this set to avoid firing the click a second time (for a nearby line point or
+ * as a chart click).
+ */
+export const handledClicks = new WeakSet<Event>();
+
+function defineHidden(target: object, key: string, value: unknown): void {
+  try {
+    Object.defineProperty(target, key, { value, configurable: true, writable: true, enumerable: false });
+  } catch {
+    /* frozen user objects: leave them as they are */
+  }
 }
 
 type AnimatedRedrawFn = (duration?: number) => void;
@@ -329,6 +347,61 @@ export abstract class BaseSeries {
 
   destroy(): void {
     this.group?.remove();
+  }
+
+  /** Highcharts-style series fields, so `this.name` etc. work in series callbacks. */
+  get name(): string | undefined { return this.config.name; }
+  get index(): number { return this.config.index; }
+  get type(): string { return this.config.type || this.config._internalType; }
+  get options(): InternalSeriesConfig { return this.config; }
+  get chart(): any { return this.context?.chart; }
+  get xAxis(): AxisInstance | undefined { return this.context?.xAxis; }
+  get yAxis(): AxisInstance | undefined { return this.context?.yAxis; }
+
+  /**
+   * Gives a point the runtime fields Highcharts callbacks read (`this.series`,
+   * `this.index`, `this.category`). They are non-enumerable so spreading or
+   * serializing the point is unaffected.
+   */
+  preparePoint(point: PointOptions, index: number): PointOptions {
+    if (!point || typeof point !== 'object') return point;
+    defineHidden(point, 'series', this);
+    if (!Object.prototype.propertyIsEnumerable.call(point, 'index')) defineHidden(point, 'index', index);
+    if (!Object.prototype.propertyIsEnumerable.call(point, 'category')) {
+      const xAxis: any = this.context?.xAxis;
+      const catIdx = typeof point.x === 'number' ? point.x : index;
+      const label = typeof xAxis?.getCategoryName === 'function' ? xAxis.getCategoryName(catIdx) : undefined;
+      defineHidden(point, 'category', label ?? point.name ?? point.x);
+    }
+    const pct = (point as any)._percentage;
+    if (pct !== undefined && !Object.prototype.propertyIsEnumerable.call(point, 'percentage')) {
+      defineHidden(point, 'percentage', pct);
+    }
+    return point;
+  }
+
+  /**
+   * Single entry point for a click on a point, in Highcharts order: the series
+   * `events.click` (with `event.point`), the `point:click` bus event, then the
+   * point's click handler (the point's own `events.click`, else
+   * `series.point.events.click`, `this` = the point). Returns false when the
+   * click was ignored or the point handler returned false, so the caller skips
+   * its default `allowPointSelect` toggle.
+   */
+  firePointClick(point: PointOptions, index: number, event: MouseEvent): boolean {
+    if (this.config.enableMouseTracking === false) return false;
+    if (!event || handledClicks.has(event)) return false;
+    handledClicks.add(event);
+
+    this.preparePoint(point, index);
+    defineHidden(event, 'point', point);
+
+    this.config.events?.click?.call(this, event);
+    this.context?.events.emit('point:click', { point, index, series: this, event });
+
+    const handler = point?.events?.click ?? this.config.point?.events?.click;
+    const result = handler?.call(point, event);
+    return result !== false;
   }
 
   /**
@@ -834,11 +907,7 @@ export abstract class BaseSeries {
         seriesPointEvents.mouseOut?.call(point, event);
       })
       .on('click', (event: MouseEvent) => {
-        this.context.events.emit('point:click', { point, index, series: this, event });
-        pointEvents.click?.call(point, event);
-        seriesPointEvents.click?.call(point, event);
-        this.config.events?.click?.call(this, event);
-        this.handlePointSelect(element, point, index, event);
+        if (this.firePointClick(point, index, event)) this.handlePointSelect(element, point, index, event);
       });
 
     element.style('cursor', this.config.cursor || 'pointer');

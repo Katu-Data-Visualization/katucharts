@@ -253,9 +253,7 @@ export class TreemapChart extends BaseSeries {
             return;
           }
 
-          this.context.events.emit('point:click', { point: d.data, index: i, series: this, event });
-          d.data.events?.click?.call(d.data, event);
-          this.config.events?.click?.call(this, event);
+          this.firePointClick(d.data, i, event);
         });
     }
 

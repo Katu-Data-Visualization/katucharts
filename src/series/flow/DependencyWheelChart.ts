@@ -358,10 +358,7 @@ export class DependencyWheelChart extends BaseSeries {
         return;
       }
 
-      this.context.events.emit('point:click', {
-        point,
-        index: chords.indexOf(d), series: this, event,
-      });
+      this.fireLinkClick(point, chords.indexOf(d), event);
     };
 
     const handleRibbonMouseOver = (event: MouseEvent, d: any) => {
@@ -544,12 +541,12 @@ export class DependencyWheelChart extends BaseSeries {
       })
       .on('click', (event: MouseEvent, d: any) => {
         const hoveredRibbon = pickRibbonForArcEvent(event, d);
-        this.context.events.emit('point:click', {
-          point: hoveredRibbon
-            ? buildRibbonPoint(hoveredRibbon)
-            : { name: names[d.index], y: d.value, sum: d.value },
-          index: d.index, series: this, event,
-        });
+        if (hoveredRibbon) {
+          this.fireLinkClick(buildRibbonPoint(hoveredRibbon), chords.indexOf(hoveredRibbon), event);
+        } else {
+          const nodeOptions = ((this.config as any).nodes || []).find((n: any) => n.id === names[d.index]);
+          this.firePointClick({ ...(nodeOptions || {}), id: names[d.index], name: nodeOptions?.name || names[d.index], y: d.value, sum: d.value }, d.index, event);
+        }
       });
 
     g.append('g')
@@ -1049,6 +1046,18 @@ export class DependencyWheelChart extends BaseSeries {
         angle += ep.width + gapEach;
       }
     }
+  }
+
+  /**
+   * Ribbons aggregate both directions of a pair, so the clicked link is matched
+   * back to its source data point (either direction) to expose its own options
+   * and click handler.
+   */
+  private fireLinkClick(point: any, fallbackIndex: number, event: MouseEvent): void {
+    const idx = this.data.findIndex((p: any) =>
+      (p.from === point.from && p.to === point.to) || (p.from === point.to && p.to === point.from));
+    const original = idx >= 0 ? this.data[idx] : null;
+    this.firePointClick({ ...point, ...(original || {}) }, idx >= 0 ? idx : fallbackIndex, event);
   }
 
   private buildMatrix(): { matrix: number[][]; names: string[]; nodeColors: (string | undefined)[] } {

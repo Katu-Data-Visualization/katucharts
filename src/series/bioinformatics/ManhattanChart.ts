@@ -379,11 +379,7 @@ export class ManhattanChart extends BaseSeries {
       })
       .on('click', (event: MouseEvent, d: PointOptions) => {
         const i = allData.indexOf(d);
-        this.context.events.emit('point:click', { point: d, index: i, series: this, event });
-        d.events?.click?.call(d, event);
-        this.config.point?.events?.click?.call(d, event);
-        this.config.events?.click?.call(this, event);
-        this.handlePointSelect(select(event.currentTarget as Element), d, i, event);
+        if (this.firePointClick(d, i, event)) this.handlePointSelect(select(event.currentTarget as Element), d, i, event);
       });
   }
 

@@ -102,10 +102,7 @@ export class MapPointChart extends BaseSeries {
             (point as any).events?.mouseOut?.call(point, event);
           })
           .on('click', (event: MouseEvent) => {
-            this.context.events.emit('point:click', { point, index, series: this, event });
-            (point as any).events?.click?.call(point, event);
-            cfg.point?.events?.click?.call(point, event);
-            cfg.events?.click?.call(this, event);
+            this.firePointClick(point, index, event);
           });
       }
 

@@ -197,11 +197,7 @@ export class PointAndFigureChart extends BaseSeries {
             });
           })
           .on('click', (event: MouseEvent) => {
-            this.context.events.emit('point:click', {
-              point: { x: col.index, y: col.endPrice, direction: col.direction },
-              index: ci, series: this, event,
-            });
-            this.config.events?.click?.call(this, event);
+            this.firePointClick({ x: col.index, y: col.endPrice, direction: col.direction } as any, ci, event);
           });
       }
     }

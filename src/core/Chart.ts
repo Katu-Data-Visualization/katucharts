@@ -74,6 +74,10 @@ export class Chart {
   private stock: StockController | null = null;
   private clipPathId: string = '';
   private clipMargin: number = 0;
+  /** Whether the (margin-expanded) plot clip applies to the series group at full view. */
+  private baseClipApplied = false;
+  /** Exact plot-area clip used while any axis is zoomed. */
+  private zoomClipId: string = '';
   private chartWidth: number;
   private chartHeight: number;
   private autoHeight = false;
@@ -82,6 +86,10 @@ export class Chart {
   private stackLabelsGroup!: ReturnType<SVGRenderer['createGroup']>;
   private originalUserOptions!: KatuChartsOptions;
   private isResponsiveUpdate = false;
+  /** Zoom/pan/setExtremes ranges by axis index, kept across axis rebuilds. */
+  private userExtremes: { x: ([number | null, number | null] | undefined)[]; y: ([number | null, number | null] | undefined)[] } = { x: [], y: [] };
+  /** Set while redrawing for an extremes change, so series skip their entry animation. */
+  private suppressSeriesAnimation = false;
 
   constructor(containerOrId: string | HTMLElement, options: KatuChartsOptions) {
     this.container = resolveContainer(containerOrId);
@@ -208,12 +216,10 @@ export class Chart {
         this.renderAll();
         this.credits?.refresh();
       },
-      renderAfterZoom: () => {
-        this.renderAxes();
-        this.renderSeriesInstances();
-        this.renderLegend();
-      },
+      redrawExtremes: () => this.redrawExtremes(),
       fireEvent: (name, ...args) => this.fireEvent(name, ...args),
+      getChart: () => this,
+      getChartSize: () => ({ width: this.chartWidth, height: this.chartHeight }),
     });
     this.applyChartStyles();
 
@@ -480,7 +486,8 @@ export class Chart {
       this.layout.plotArea.height + 2 * this.clipMargin
     );
 
-    if (!isNonCartesianChart(this.options.series) && !clipDisabled) {
+    this.baseClipApplied = !isNonCartesianChart(this.options.series) && !clipDisabled;
+    if (this.baseClipApplied) {
       this.seriesGroup.attr('clip-path', `url(#${this.clipPathId})`);
     }
 
@@ -555,6 +562,51 @@ export class Chart {
       this.layout.plotArea
     ));
     this.yAxes = this.options.yAxis.map(cfg => createAxis(cfg, this.layout.plotArea));
+    this.xAxes.forEach((axis, i) => this.restoreUserExtremes(axis, this.userExtremes.x[i]));
+    this.yAxes.forEach((axis, i) => this.restoreUserExtremes(axis, this.userExtremes.y[i]));
+  }
+
+  private restoreUserExtremes(axis: AxisInstance, stored: [number | null, number | null] | undefined): void {
+    axis.chart = this;
+    axis.userMin = stored?.[0] ?? null;
+    axis.userMax = stored?.[1] ?? null;
+  }
+
+  /** Called by `axis.setExtremes` so the range survives `redraw()` and rebuilds. */
+  storeUserExtremes(axis: AxisInstance): void {
+    const xi = this.xAxes.indexOf(axis);
+    const yi = this.yAxes.indexOf(axis);
+    const entry: [number | null, number | null] | undefined = axis.hasUserExtremes()
+      ? [axis.userMin ?? null, axis.userMax ?? null]
+      : undefined;
+    if (xi >= 0) this.userExtremes.x[xi] = entry;
+    if (yi >= 0) this.userExtremes.y[yi] = entry;
+  }
+
+  /**
+   * Re-renders axes and series for new extremes without recomputing the layout
+   * or replaying entry animations, then fires `afterSetExtremes`.
+   */
+  redrawExtremes(): void {
+    this.suppressSeriesAnimation = true;
+    try {
+      this.renderAll();
+    } finally {
+      this.suppressSeriesAnimation = false;
+    }
+    this.interactions.syncResetButton();
+    for (const axis of [...this.xAxes, ...this.yAxes]) axis.flushAfterSetExtremes();
+    this.events.emit('chart:afterZoom');
+  }
+
+  /** Highcharts `chart.zoomOut()`: clears every zoomed axis back to its data range. */
+  zoomOut(): void {
+    this.interactions.zoomOut();
+  }
+
+  /** Highcharts `chart.showResetZoom()`. */
+  showResetZoom(): void {
+    this.interactions.showResetZoom();
   }
 
   private buildSeries(): void {
@@ -626,11 +678,41 @@ export class Chart {
     this.updateAxesDomains();
     this.updateTooltipCategories();
     this.renderAxes();
+    this.updateZoomClip();
     this.renderSeriesInstances();
     this.renderStackLabels();
     this.raiseplotLineLabels();
     this.renderLegend();
     this.fireEvent('render');
+  }
+
+  /**
+   * While zoomed, series are clipped to the exact plot area so points outside
+   * the zoomed range don't spill over the axes, as in Highcharts. This includes
+   * types that skip clipping only to show edge markers whole (bubbles), but not
+   * a series the user explicitly set to `clip: false`.
+   */
+  private updateZoomClip(): void {
+    if (!this.seriesGroup || isNonCartesianChart(this.options.series)) return;
+    const zoomed = [...this.xAxes, ...this.yAxes].some(a => a.hasUserExtremes());
+    /**
+     * Several series types force `clip: false` on their own config, so only a
+     * `clip: false` the user actually wrote (on a series or in plotOptions) counts.
+     */
+    const user: any = this.originalUserOptions || {};
+    const plotOpts = user.plotOptions || {};
+    const userNoClip = plotOpts.series?.clip === false
+      || (user.series || []).some((s: any) => s?.clip === false || plotOpts[s?.type || user.chart?.type || 'line']?.clip === false);
+    const pa = this.layout.plotArea;
+    if (zoomed && !userNoClip) {
+      if (!this.zoomClipId) this.zoomClipId = this.renderer.createClipPath(0, 0, pa.width, pa.height);
+      else this.renderer.updateClipPath(this.zoomClipId, 0, 0, pa.width, pa.height);
+      this.seriesGroup.attr('clip-path', `url(#${this.zoomClipId})`);
+    } else if (this.baseClipApplied) {
+      this.seriesGroup.attr('clip-path', `url(#${this.clipPathId})`);
+    } else {
+      this.seriesGroup.attr('clip-path', null);
+    }
   }
 
   private formatStackLabel(total: number, cfg: NonNullable<AxisOptions['stackLabels']>): string {
@@ -859,7 +941,7 @@ export class Chart {
         plotGroup: this.plotGroup as any,
         totalSeriesOfType: cfg.stacking ? (stackSeriesCount.get(buildStackKey(cfg)) || 1) : (typeCount.get(t) || 1),
         indexInType: cfg.stacking ? (stackSeriesIndex.get(buildStackKey(cfg)) || 0) : idxInType,
-        animate: chartAnimate && cfg.animation !== false,
+        animate: chartAnimate && !this.suppressSeriesAnimation && cfg.animation !== false,
         stackOffsets: stackOffsetsPos,
         stackOffsetsPos,
         stackOffsetsNeg,
@@ -869,6 +951,7 @@ export class Chart {
         legendConfig: this.options.legend,
         pane: (this.options as any).pane,
         backgroundColor: this.options.chart.backgroundColor,
+        chart: this,
       };
 
       series.processData();
@@ -1395,6 +1478,15 @@ export class Chart {
 
   getXAxes(): AxisInstance[] {
     return this.xAxes;
+  }
+
+  /** Highcharts-style axis arrays: `chart.xAxis[0].setExtremes(...)`. */
+  get xAxis(): AxisInstance[] {
+    return this.xAxes;
+  }
+
+  get yAxis(): AxisInstance[] {
+    return this.yAxes;
   }
 
   getYAxes(): AxisInstance[] {

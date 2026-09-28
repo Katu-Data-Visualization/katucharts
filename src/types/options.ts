@@ -105,7 +105,7 @@ export interface ChartOptions {
   zooming?: {
     type?: 'x' | 'y' | 'xy';
     key?: 'ctrl' | 'alt' | 'shift' | 'meta';
-    mouseWheel?: boolean | { enabled?: boolean; sensitivity?: number };
+    mouseWheel?: boolean | { enabled?: boolean; sensitivity?: number; type?: 'x' | 'y' | 'xy' };
     pinchType?: 'x' | 'y' | 'xy';
     resetButton?: {
       position?: { align?: AlignType; verticalAlign?: VerticalAlignType; x?: number; y?: number };
@@ -113,6 +113,15 @@ export interface ChartOptions {
       relativeTo?: 'plot' | 'chart';
     };
     singleTouch?: boolean;
+    /** Also accepted here; Highcharts places these on `chart.panning` / `chart.panKey`. */
+    panning?: boolean | { enabled?: boolean; type?: 'x' | 'y' | 'xy' };
+    panKey?: 'ctrl' | 'alt' | 'shift' | 'meta';
+  };
+  /** Legacy Highcharts name for `zooming.resetButton`. */
+  resetZoomButton?: {
+    position?: { align?: AlignType; verticalAlign?: VerticalAlignType; x?: number; y?: number };
+    theme?: Record<string, any>;
+    relativeTo?: 'plot' | 'chart';
   };
 }
 
@@ -319,6 +328,11 @@ export interface AxisOptions {
 }
 
 export interface PointOptions {
+  /** Set at runtime for callbacks (Highcharts `point.series`, `point.index`, `point.category`). */
+  readonly series?: any;
+  readonly index?: number;
+  readonly category?: string | number;
+  readonly percentage?: number;
   x?: number;
   y?: number | null;
   z?: number;
@@ -338,7 +352,7 @@ export interface PointOptions {
   marker?: MarkerOptions;
   dataLabels?: DataLabelOptions;
   events?: {
-    click?: (this: any, event: MouseEvent) => void;
+    click?: (this: any, event: MouseEvent) => boolean | void;
     mouseOver?: (this: any, event: MouseEvent) => void;
     mouseOut?: (this: any, event: MouseEvent) => void;
     select?: (this: any, event: MouseEvent) => boolean | void;

@@ -274,11 +274,10 @@ export class WaterfallChart extends BaseSeries {
       })
       .on('click', (event: MouseEvent, d: ProcessedWaterfallPoint) => {
         const idx = processed.indexOf(d);
-        this.context.events.emit('point:click', { point: d, index: idx, series: this, event });
-        d.events?.click?.call(d, event);
-        this.config.point?.events?.click?.call(d, event);
-        this.config.events?.click?.call(this, event);
-        this.handlePointSelect(select(event.currentTarget as Element), d, idx, event);
+        const original = this.data[idx] ?? d;
+        if (this.firePointClick(original, idx, event)) {
+          this.handlePointSelect(select(event.currentTarget as Element), original, idx, event);
+        }
       });
   }
 

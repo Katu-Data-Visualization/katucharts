@@ -150,7 +150,7 @@ export class ClusteredHeatmapChart extends BaseSeries {
             this.context.events.emit('point:mouseout', { point: d, index: idx, series: this, event });
           })
           .on('click', (event: MouseEvent) => {
-            this.context.events.emit('point:click', { point: d, index: idx, series: this, event });
+            this.firePointClick(d, idx, event);
           });
       }
     }

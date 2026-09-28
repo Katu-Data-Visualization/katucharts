@@ -153,11 +153,7 @@ export class LineBreakChart extends BaseSeries {
             });
           })
           .on('click', (event: MouseEvent) => {
-            this.context.events.emit('point:click', {
-              point: { x: block.index, y: block.close, direction: block.direction },
-              index: i, series: this, event,
-            });
-            this.config.events?.click?.call(this, event);
+            this.firePointClick({ x: block.index, y: block.close, direction: block.direction } as any, i, event);
           });
       }
     }

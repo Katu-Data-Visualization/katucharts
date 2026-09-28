@@ -271,7 +271,8 @@ export class MapChart extends BaseSeries {
       .on('click', (event: MouseEvent, d: any) => {
         const key = this.getFeatureKey(d, featureField);
         const point = this.dataMap.get(key) || { name: d.properties?.name || key };
-        this.context.events.emit('point:click', { point, index: 0, series: this, event });
+        const dataIdx = this.data.indexOf(point);
+        this.firePointClick(point, dataIdx >= 0 ? dataIdx : 0, event);
       });
   }
 

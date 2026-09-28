@@ -8,7 +8,7 @@ import 'd3-transition';
 import type { PointOptions, PlotArea } from '../types/options';
 import type { AxisInstance } from '../axis/Axis';
 import type { EventBus } from '../core/EventBus';
-import type { BaseSeries } from '../series/BaseSeries';
+import { handledClicks, type BaseSeries } from '../series/BaseSeries';
 import { HOVER_DURATION, EASE_HOVER } from '../core/animationConstants';
 
 export interface HoverManagerConfig {
@@ -33,23 +33,46 @@ export interface HoverManagerConfig {
 
 const registry = new WeakMap<SVGSVGElement, HoverManager[]>();
 
-function getOrCreateRegistry(svg: SVGSVGElement, plotArea: PlotArea): HoverManager[] {
+/**
+ * Drops managers whose series group has been removed from the DOM — every
+ * re-render (zoom, redraw, setData, resize) builds new ones — so stale managers
+ * can't keep answering hover and clicks at old pixel positions.
+ */
+function pruneDetached(managers: HoverManager[]): void {
+  for (let i = managers.length - 1; i >= 0; i--) {
+    if (!managers[i].isAttached()) managers.splice(i, 1);
+  }
+}
+
+/** Plot-area coordinates of a pointer event, or null when it can't be mapped. */
+function toPlotPoint(svg: SVGSVGElement, event: MouseEvent): { x: number; y: number; plotG: SVGGElement } | null {
+  const plotG = svg.querySelector('.katucharts-plot-group') as SVGGElement | null;
+  if (!plotG) return null;
+  const ctm = plotG.getScreenCTM();
+  if (!ctm) return null;
+  const pt = svg.createSVGPoint();
+  pt.x = event.clientX;
+  pt.y = event.clientY;
+  const p = pt.matrixTransform(ctm.inverse());
+  return { x: p.x, y: p.y, plotG };
+}
+
+function getOrCreateRegistry(svg: SVGSVGElement): HoverManager[] {
   let managers = registry.get(svg);
   if (!managers) {
     managers = [];
     registry.set(svg, managers);
 
+    /** The newest manager carries the current layout's plot area. */
+    const currentPlotArea = (): PlotArea | null => managers![managers!.length - 1]?.plotArea ?? null;
+
     select(svg).on('mousemove.hover-shared', (event: MouseEvent) => {
-      const plotG = svg.querySelector('.katucharts-plot-group') as SVGGElement | null;
-      if (!plotG) return;
-      const ctm = plotG.getScreenCTM();
-      if (!ctm) return;
-      const pt = svg.createSVGPoint();
-      pt.x = event.clientX;
-      pt.y = event.clientY;
-      const svgPt = pt.matrixTransform(ctm.inverse());
-      const mx = svgPt.x;
-      const my = svgPt.y;
+      pruneDetached(managers!);
+      const plotArea = currentPlotArea();
+      const pt = toPlotPoint(svg, event);
+      if (!plotArea || !pt) return;
+      const mx = pt.x;
+      const my = pt.y;
       if (mx < 0 || mx > plotArea.width || my < 0 || my > plotArea.height) {
         for (const mgr of managers!) {
           if (mgr.currentIdx >= 0) mgr.hideHover(event);
@@ -62,6 +85,7 @@ function getOrCreateRegistry(svg: SVGSVGElement, plotArea: PlotArea): HoverManag
       let bestDist = Infinity;
 
       for (const mgr of managers!) {
+        if (!mgr.isActive()) continue;
         const result = mgr.findCandidate(mx, my);
         if (result && result.dist < bestDist) {
           bestDist = result.dist;
@@ -84,9 +108,24 @@ function getOrCreateRegistry(svg: SVGSVGElement, plotArea: PlotArea): HoverManag
       }
     });
 
+    /**
+     * Delegated click for line/spline points. Only a click inside the plot that
+     * no other point element already handled counts, so clicking a bar, the
+     * legend or the title never also fires a nearby line point.
+     */
     select(svg).on('click.hover-shared', (event: MouseEvent) => {
+      if (handledClicks.has(event)) return;
+      pruneDetached(managers!);
+      const plotArea = currentPlotArea();
+      const pt = toPlotPoint(svg, event);
+      if (!plotArea || !pt) return;
+      const target = event.target as Node | null;
+      if (!target) return;
+      const onBackground = target === svg || (target as Element).classList?.contains('katucharts-background');
+      if (!onBackground && !pt.plotG.contains(target)) return;
+      if (pt.x < 0 || pt.x > plotArea.width || pt.y < 0 || pt.y > plotArea.height) return;
       for (const mgr of managers!) {
-        if (mgr.currentIdx >= 0) {
+        if (mgr.currentIdx >= 0 && mgr.isActive()) {
           mgr.handleClick(event);
           break;
         }
@@ -104,7 +143,7 @@ export class HoverManager {
   private validData: PointOptions[];
   currentIdx: number = -1;
 
-  constructor(private config: HoverManagerConfig) {
+  constructor(readonly config: HoverManagerConfig) {
     const { group, data, xAxis, plotArea } = config;
 
     this.validData = data.filter(d => d.y !== null && d.y !== undefined);
@@ -129,9 +168,26 @@ export class HoverManager {
 
     const svgNode = group.node()?.ownerSVGElement;
     if (svgNode) {
-      const managers = getOrCreateRegistry(svgNode, plotArea);
+      const managers = getOrCreateRegistry(svgNode);
+      for (let i = managers.length - 1; i >= 0; i--) {
+        if (managers[i].config.series === config.series) managers.splice(i, 1);
+      }
+      pruneDetached(managers);
       managers.push(this);
     }
+  }
+
+  get plotArea(): PlotArea {
+    return this.config.plotArea;
+  }
+
+  isAttached(): boolean {
+    return !!this.hoverGroup.node()?.isConnected;
+  }
+
+  /** Hidden series take no hover or clicks. */
+  isActive(): boolean {
+    return this.config.series.visible !== false && this.isAttached();
   }
 
   findCandidate(mx: number, my: number): { idx: number; dist: number } | null {
@@ -166,12 +222,10 @@ export class HoverManager {
 
   handleClick(event: MouseEvent): void {
     if (this.currentIdx < 0) return;
-    const { series, events } = this.config;
+    const { series } = this.config;
     const d = this.validData[this.currentIdx];
-    events.emit('point:click', { point: d, index: this.currentIdx, series, event });
-    d.events?.click?.call(d, event);
-    (series.config as any).point?.events?.click?.call(d, event);
-    (series.config as any).events?.click?.call(series, event);
+    const dataIndex = series.data.indexOf(d);
+    series.firePointClick(d, dataIndex >= 0 ? dataIndex : this.currentIdx, event);
   }
 
   showHover(idx: number, event: MouseEvent): void {

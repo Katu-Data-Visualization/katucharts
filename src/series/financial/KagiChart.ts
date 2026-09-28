@@ -243,11 +243,7 @@ export class KagiChart extends BaseSeries {
             });
           })
           .on('click', (event: MouseEvent) => {
-            this.context.events.emit('point:click', {
-              point: { x: seg.x, y: seg.endPrice, type: seg.type },
-              index: i, series: this, event,
-            });
-            this.config.events?.click?.call(this, event);
+            this.firePointClick({ x: seg.x, y: seg.endPrice, type: seg.type } as any, i, event);
           });
       }
     }

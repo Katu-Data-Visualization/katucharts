@@ -492,10 +492,8 @@ export class SankeyChart extends BaseSeries {
         return;
       }
 
-      this.context.events.emit('point:click', {
-        point,
-        index: graph.links.indexOf(d), series: this, event,
-      });
+      const dataIdx = d._point ? this.data.indexOf(d._point) : -1;
+      this.firePointClick({ ...point, ...(d._point || {}) }, dataIdx >= 0 ? dataIdx : graph.links.indexOf(d), event);
     };
 
     const handleLinkMouseOver = (event: MouseEvent, d: any) => {
@@ -619,10 +617,10 @@ export class SankeyChart extends BaseSeries {
     };
 
     const handleNodeClick = (event: MouseEvent, d: any) => {
-      this.context.events.emit('point:click', {
-        point: { name: d.name || d.id, y: d.value },
-        index: graph.nodes.indexOf(d), series: this, event,
-      });
+      this.firePointClick(
+        { ...(d._options || {}), id: d.id, name: d.name || d.id, y: d.value, sum: d.value },
+        graph.nodes.indexOf(d), event,
+      );
     };
 
     nodeRects
@@ -1061,7 +1059,7 @@ export class SankeyChart extends BaseSeries {
     const configNodes: SankeyNodeOptions[] = (this.config as any).nodes || [];
 
     for (const n of configNodes) {
-      nodeMap.set(n.id, { id: n.id, name: n.name || n.id, color: n.color, column: n.column, offset: n.offset });
+      nodeMap.set(n.id, { id: n.id, name: n.name || n.id, color: n.color, column: n.column, offset: n.offset, _options: n });
     }
 
     for (const d of this.data) {
@@ -1072,7 +1070,7 @@ export class SankeyChart extends BaseSeries {
       if (from && to) {
         if (!nodeMap.has(from)) nodeMap.set(from, { id: from, name: from });
         if (!nodeMap.has(to)) nodeMap.set(to, { id: to, name: to });
-        links.push({ source: from, target: to, value: weight });
+        links.push({ source: from, target: to, value: weight, _point: d });
       }
     }
 

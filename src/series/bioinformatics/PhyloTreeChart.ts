@@ -364,10 +364,7 @@ export class PhyloTreeChart extends BaseSeries {
       })
       .on('click', (event: MouseEvent, d: any) => {
         const i = leaves.indexOf(d);
-        this.context.events.emit('point:click', {
-          point: { name: d.data.name, custom: d.data.custom } as PointOptions,
-          index: i, series: this, event,
-        });
+        this.firePointClick({ name: d.data.name, custom: d.data.custom } as PointOptions, i, event);
       });
   }
 

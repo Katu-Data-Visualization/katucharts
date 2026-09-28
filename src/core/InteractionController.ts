@@ -18,7 +18,8 @@ import type { AxisInstance } from '../axis/Axis';
 import type { InternalConfig, InternalSeriesConfig } from '../types/options';
 import { OptionsParser } from './OptionsParser';
 import { Drilldown } from '../interaction/Drilldown';
-import { Zoom, type ZoomConfig, type ZoomType } from '../interaction/Zoom';
+import { Zoom, type ZoomConfig, type ZoomType, type SelectionEvent } from '../interaction/Zoom';
+import { handledClicks } from '../series/BaseSeries';
 import { A11yModule } from '../accessibility/A11yModule';
 
 type Group = ReturnType<SVGRenderer['createGroup']>;
@@ -38,18 +39,20 @@ export interface InteractionHost {
   setSeries(series: InternalSeriesConfig[]): void;
   /** Destroy series instances, rebuild axes + series, and render everything. */
   rebuild(): void;
-  /** Re-render axes, series and legend after a zoom/pan domain change. */
-  renderAfterZoom(): void;
+  /** Re-render axes and series for new axis extremes (keeps the layout). */
+  redrawExtremes(): void;
   fireEvent(name: string, ...args: any[]): void;
+  /** The chart instance, `this` in chart event callbacks. */
+  getChart(): any;
+  getChartSize(): { width: number; height: number };
 }
 
 export class InteractionController {
   private drilldown: Drilldown | null = null;
   private zoom: Zoom | null = null;
   private a11yModule: A11yModule | null = null;
-  private origXDomains: ([number, number] | null)[] = [];
-  private origYDomains: ([number, number] | null)[] = [];
-  private isBoxZoomed = false;
+  private zoomConfig: ZoomConfig = {};
+  private chartClickCleanup: (() => void) | null = null;
 
   constructor(private host: InteractionHost) {}
 
@@ -57,12 +60,14 @@ export class InteractionController {
     this.setupSeriesDimming();
     this.setupDrilldown();
     this.setupZoom();
+    this.setupChartClick();
     this.setupAccessibility();
   }
 
   destroy(): void {
     this.drilldown?.destroy();
     this.zoom?.destroy();
+    this.chartClickCleanup?.();
   }
 
   private setupSeriesDimming(): void {
@@ -145,6 +150,7 @@ export class InteractionController {
 
     events.on('drilldown:drilldown', (data: any) => {
       drilldownStack.push([...this.host.getOptions().series]);
+      this.clearUserExtremes();
 
       if (drillDuration > 0) {
         seriesGroup.transition().duration(drillDuration / 2)
@@ -166,6 +172,7 @@ export class InteractionController {
       if (prev) {
         this.host.setSeries(prev);
       }
+      this.clearUserExtremes();
 
       if (drillDuration > 0) {
         seriesGroup.transition().duration(drillDuration / 2)
@@ -196,139 +203,152 @@ export class InteractionController {
     this.host.rebuild();
   }
 
-  private setupZoom(): void {
-    const options = this.host.getOptions();
-    const zoomCfg = options.chart.zooming || options.chart.zoomType;
-    if (!zoomCfg) return;
-
-    const zoomType: ZoomType = (typeof zoomCfg === 'string'
-      ? zoomCfg
-      : (zoomCfg as any).type || 'x') as ZoomType;
-
-    const config: ZoomConfig = {
-      type: zoomType,
-      key: typeof zoomCfg === 'object' ? (zoomCfg as any).key : undefined,
-      mouseWheel: typeof zoomCfg === 'object' ? (zoomCfg as any).mouseWheel : undefined,
-      resetButton: typeof zoomCfg === 'object' ? (zoomCfg as any).resetButton : undefined,
-      panning: typeof zoomCfg === 'object' ? (zoomCfg as any).panning : undefined,
-      panKey: typeof zoomCfg === 'object' ? (zoomCfg as any).panKey : undefined,
-      pinchType: typeof zoomCfg === 'object' ? (zoomCfg as any).pinchType : undefined,
-      selectionMarkerFill: options.chart.selectionMarkerFill,
-      /**
-       * Standard drag-to-box zoom: convert the pixel selection into axis
-       * domains and re-render. Returning true suppresses the default selection
-       * event so it isn't double-handled.
-       */
-      selectionHandler: (sel) => this.applyBoxZoom(sel, zoomType),
+  /**
+   * Reads the Highcharts zoom/pan options: `chart.zooming` (or the older
+   * `chart.zoomType`), plus `chart.panning` / `chart.panKey` (also accepted
+   * inside `zooming`, where earlier versions of this library read them).
+   */
+  private resolveZoomConfig(): ZoomConfig {
+    const chart: any = this.host.getOptions().chart;
+    const zooming = typeof chart.zooming === 'object' && chart.zooming ? chart.zooming : {};
+    const type: ZoomType | undefined = zooming.type
+      ?? (typeof chart.zooming === 'string' ? chart.zooming : undefined)
+      ?? chart.zoomType ?? undefined;
+    const panning = chart.panning ?? zooming.panning;
+    return {
+      type,
+      key: zooming.key,
+      mouseWheel: chart.scrollablePlotArea ? false : zooming.mouseWheel,
+      pinchType: zooming.pinchType ?? chart.pinchType,
+      resetButton: zooming.resetButton ?? chart.resetZoomButton,
+      panning,
+      panKey: chart.panKey ?? zooming.panKey,
+      selectionMarkerFill: chart.selectionMarkerFill,
     };
+  }
 
-    const events = this.host.getEvents();
+  private setupZoom(): void {
+    this.zoomConfig = this.resolveZoomConfig();
+    const pan = this.zoomConfig.panning;
+    const panOn = typeof pan === 'object' ? pan?.enabled !== false : pan === true;
+    if (!this.zoomConfig.type && !panOn) return;
+    this.ensureZoom();
+  }
 
-    /**
-     * On a scrollable chart the wheel belongs to scrolling, not zooming — never
-     * let wheel-zoom claim it there regardless of the requested config.
-     */
-    if ((options.chart as any).scrollablePlotArea) {
-      config.mouseWheel = false;
-    }
-
-    this.zoom = new Zoom(config, this.host.getPlotGroup() as any, this.host.getLayout().plotArea, this.host.getContainer(), events);
-    this.zoom.setResetHandler(() => this.resetBoxZoom());
-
-    events.on('zoom:changed', (data: any) => {
-      const transform = data.transform;
-      const type: string = data.type;
-      const pa = this.host.getLayout().plotArea;
-      const capture = !this.isBoxZoomed;
-
-      if (type === 'x' || type === 'xy') {
-        this.host.getXAxes().forEach((xAxis, i) => {
-          if (capture) this.origXDomains[i] = xAxis.scale.domain() as [number, number];
-          const orig = this.origXDomains[i];
-          if (!orig || typeof orig[0] !== 'number' || typeof orig[1] !== 'number') return;
-          const range = orig[1] - orig[0];
-          const visMinPx = (0 - transform.x) / transform.k;
-          const visMaxPx = (pa.width - transform.x) / transform.k;
-          xAxis.updateDomain({
-            min: orig[0] + (visMinPx / pa.width) * range,
-            max: orig[0] + (visMaxPx / pa.width) * range,
-          });
-        });
-      }
-      if (type === 'y' || type === 'xy') {
-        this.host.getYAxes().forEach((yAxis, i) => {
-          if (capture) this.origYDomains[i] = yAxis.scale.domain() as [number, number];
-          const orig = this.origYDomains[i];
-          if (!orig || typeof orig[0] !== 'number' || typeof orig[1] !== 'number') return;
-          const range = orig[1] - orig[0];
-          const visTopPx = (0 - transform.y) / transform.k;
-          const visBotPx = (pa.height - transform.y) / transform.k;
-          yAxis.updateDomain({
-            max: orig[1] - (visTopPx / pa.height) * range,
-            min: orig[1] - (visBotPx / pa.height) * range,
-          });
-        });
-      }
-
-      this.isBoxZoomed = true;
-      this.zoom?.setResetButtonVisible(true);
-      this.host.renderAfterZoom();
+  private ensureZoom(): Zoom {
+    if (this.zoom) return this.zoom;
+    const renderer = this.host.getRenderer();
+    this.zoom = new Zoom(this.zoomConfig, {
+      svg: renderer.svg.node() as SVGSVGElement,
+      container: this.host.getContainer(),
+      getPlotGroup: () => (this.host.getPlotGroup() as any).node?.() ?? null,
+      getPlotArea: () => this.host.getLayout().plotArea,
+      getChartSize: () => this.host.getChartSize(),
+      getXAxes: () => this.host.getXAxes(),
+      getYAxes: () => this.host.getYAxes(),
+      isInverted: () => !!this.host.getOptions().chart.inverted,
+      fireSelection: (e) => this.fireSelection(e),
+      redraw: () => this.host.redrawExtremes(),
+      onReset: () => this.zoomOut(),
     });
+    return this.zoom;
   }
 
   /**
-   * Converts a pixel rectangle from a drag-selection into axis domains and
-   * re-renders. Original domains are captured on the first zoom so the reset
-   * button can restore the unzoomed view.
+   * Calls `chart.events.selection` (`this` = chart). Returning false or
+   * calling `preventDefault()` cancels the zoom, as in Highcharts.
    */
-  private applyBoxZoom(sel: { xAxis: { min: number; max: number }[]; yAxis: { min: number; max: number }[] }, type: ZoomType): boolean {
-    const capture = !this.isBoxZoomed;
-
-    if (type === 'x' || type === 'xy') {
-      const xAxes = this.host.getXAxes();
-      xAxes.forEach((ax, i) => {
-        if (capture) this.origXDomains[i] = ax.scale.domain() as [number, number];
-        const a = ax.getValueForPixel(sel.xAxis[0].min);
-        const b = ax.getValueForPixel(sel.xAxis[0].max);
-        if (a == null || b == null || !Number.isFinite(+a) || !Number.isFinite(+b)) return;
-        ax.updateDomain({ min: Math.min(+a, +b), max: Math.max(+a, +b) });
-      });
-    }
-    if (type === 'y' || type === 'xy') {
-      const yAxes = this.host.getYAxes();
-      yAxes.forEach((ax, i) => {
-        if (capture) this.origYDomains[i] = ax.scale.domain() as [number, number];
-        const a = ax.getValueForPixel(sel.yAxis[0].min);
-        const b = ax.getValueForPixel(sel.yAxis[0].max);
-        if (a == null || b == null || !Number.isFinite(+a) || !Number.isFinite(+b)) return;
-        ax.updateDomain({ min: Math.min(+a, +b), max: Math.max(+a, +b) });
-      });
-    }
-
-    this.isBoxZoomed = true;
-    this.zoom?.setResetButtonVisible(true);
-    this.host.renderAfterZoom();
-    this.host.getEvents().emit('chart:afterZoom');
-    return true;
+  private fireSelection(e: SelectionEvent): boolean {
+    this.host.getEvents().emit('chart:selection', e);
+    const handler = this.host.getOptions().chart.events?.selection;
+    if (typeof handler !== 'function') return true;
+    return handler.call(this.host.getChart(), e) !== false;
   }
 
-  private resetBoxZoom(): void {
-    if (!this.isBoxZoomed) return;
-    this.host.getXAxes().forEach((ax, i) => {
-      const d = this.origXDomains[i];
-      if (d) ax.updateDomain({ min: d[0], max: d[1] });
-    });
-    this.host.getYAxes().forEach((ax, i) => {
-      const d = this.origYDomains[i];
-      if (d) ax.updateDomain({ min: d[0], max: d[1] });
-    });
-    this.isBoxZoomed = false;
-    this.origXDomains = [];
-    this.origYDomains = [];
-    this.zoom?.resetTransform();
+  /** Highcharts `chart.zoomOut()`: fires `selection` with `resetSelection`, then clears every axis range. */
+  zoomOut(): void {
+    let prevented = false;
+    const e: SelectionEvent = {
+      type: 'selection',
+      resetSelection: true,
+      xAxis: [],
+      yAxis: [],
+      preventDefault: () => { prevented = true; },
+    };
+    if (!this.fireSelection(e) || prevented) return;
+    for (const axis of [...this.host.getXAxes(), ...this.host.getYAxes()]) {
+      if (axis.hasUserExtremes()) axis.setExtremes(null, null, false, undefined, { trigger: 'zoom' });
+    }
     this.zoom?.setResetButtonVisible(false);
-    this.host.renderAfterZoom();
-    this.host.getEvents().emit('chart:afterZoom');
+    this.host.redrawExtremes();
+  }
+
+  /** Drilling swaps the data (and categories), so any zoom from the previous level no longer applies. */
+  private clearUserExtremes(): void {
+    for (const axis of [...this.host.getXAxes(), ...this.host.getYAxes()]) {
+      if (!axis.hasUserExtremes()) continue;
+      axis.userMin = axis.userMax = null;
+      axis.chart?.storeUserExtremes?.(axis);
+    }
+    this.zoom?.setResetButtonVisible(false);
+  }
+
+  showResetZoom(): void {
+    this.ensureZoom().setResetButtonVisible(true);
+  }
+
+  /** Keeps the reset button placed on the plot and hidden once nothing is zoomed. */
+  syncResetButton(): void {
+    if (!this.zoom) return;
+    this.zoom.positionResetButton();
+    const zoomed = [...this.host.getXAxes(), ...this.host.getYAxes()].some(a => a.hasUserExtremes());
+    if (!zoomed) this.zoom.setResetButtonVisible(false);
+  }
+
+  /**
+   * Highcharts `chart.events.click`: a click inside the plot area that no
+   * point handled. The event gains `xAxis`/`yAxis` arrays of
+   * `{ axis, value }` plus `chartX`/`chartY`. Listening on the container
+   * lets every svg-level point handler run first; a drag's trailing click is
+   * already swallowed by the zoom's capture listener.
+   */
+  private setupChartClick(): void {
+    const container = this.host.getContainer();
+    const onClick = (event: MouseEvent) => {
+      const handler = this.host.getOptions().chart.events?.click;
+      if (typeof handler !== 'function' || handledClicks.has(event)) return;
+      const svg = this.host.getRenderer().svg.node() as SVGSVGElement | null;
+      const plot = (this.host.getPlotGroup() as any).node?.() as SVGGElement | null;
+      const target = event.target as Node | null;
+      if (!svg || !plot || !target) return;
+      /** Empty plot space hits the chart background rect (or the bare svg); anything else must be inside the plot. */
+      const onBackground = target === svg || (target as Element).classList?.contains('katucharts-background');
+      if (!onBackground && !plot.contains(target)) return;
+
+      const ctm = plot.getScreenCTM();
+      if (!ctm) return;
+      const pt = svg.createSVGPoint();
+      pt.x = event.clientX;
+      pt.y = event.clientY;
+      const local = pt.matrixTransform(ctm.inverse());
+      const pa = this.host.getLayout().plotArea;
+      if (local.x < 0 || local.x > pa.width || local.y < 0 || local.y > pa.height) return;
+
+      const inverted = !!this.host.getOptions().chart.inverted;
+      const valueOn = (axis: AxisInstance) => {
+        const horizontal = !!axis.config.isX !== inverted;
+        return { axis, value: axis.toValue(horizontal ? local.x : local.y) };
+      };
+      const define = (key: string, value: unknown) =>
+        Object.defineProperty(event, key, { value, configurable: true, writable: true });
+      define('xAxis', this.host.getXAxes().map(valueOn));
+      define('yAxis', this.host.getYAxes().map(valueOn));
+      define('chartX', local.x + pa.x);
+      define('chartY', local.y + pa.y);
+      handler.call(this.host.getChart(), event);
+    };
+    container.addEventListener('click', onClick);
+    this.chartClickCleanup = () => container.removeEventListener('click', onClick);
   }
 
   private setupAccessibility(): void {

@@ -273,9 +273,7 @@ export class SunburstChart extends BaseSeries {
             return;
           }
 
-          self.context.events.emit('point:click', { point: d.data, index: i, series: self, event });
-          d.data.events?.click?.call(d.data, event);
-          self.config.events?.click?.call(self, event);
+          self.firePointClick(d.data, i, event);
         });
     }
   }

@@ -154,9 +154,7 @@ export class GaugeChart extends BaseSeries {
           this.data[0]?.events?.mouseOut?.call(this.data[0], event);
         })
         .on('click', (event: MouseEvent) => {
-          this.context.events.emit('point:click', { point: this.data[0], index: 0, series: this, event });
-          this.data[0]?.events?.click?.call(this.data[0], event);
-          this.config.events?.click?.call(this, event);
+          if (this.data[0]) this.firePointClick(this.data[0], 0, event);
         });
     }
 
@@ -523,9 +521,7 @@ export class SolidGaugeChart extends BaseSeries {
           d?.events?.mouseOut?.call(d, event);
         })
         .on('click', (event: MouseEvent) => {
-          this.context.events.emit('point:click', { point: d, index: idx, series: this, event });
-          d?.events?.click?.call(d, event);
-          this.config.events?.click?.call(this, event);
+          if (d) this.firePointClick(d, idx, event);
         });
     }
   }

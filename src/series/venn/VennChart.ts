@@ -320,6 +320,8 @@ export class VennChart extends BaseSeries {
       })
       .on('click', (event: MouseEvent, d: RegionDatum) => {
         const idx = regions.indexOf(d);
+        const point = { ...d.data, sets: d.sets, name: d.name, value: d.value } as any;
+        if (!this.firePointClick(point, idx, event)) return;
         if (allowSelect) {
           const wasSelected = this.selectedIndices.has(idx);
           if (wasSelected) {
@@ -329,19 +331,6 @@ export class VennChart extends BaseSeries {
             this.selectedIndices.add(idx);
             d.data?.events?.select?.call(d.data, event);
           }
-        }
-        this.context.events.emit('point:click', {
-          point: { name: d.name, y: d.value, value: d.value, sets: d.sets },
-          index: idx, series: this, event,
-        });
-        d.data?.events?.click?.call(d.data, event);
-        this.config.events?.click?.call(this, event);
-        const pointClick = (this.config as any).point?.events?.click;
-        if (pointClick) {
-          pointClick.call(
-            { ...d.data, sets: d.sets, name: d.name, value: d.value },
-            event
-          );
         }
       });
   }

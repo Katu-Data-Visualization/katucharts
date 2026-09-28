@@ -28,6 +28,31 @@ export interface AxisInstance {
   getPixelForValue(value: any): number;
   getValueForPixel(pixel: number): any;
   destroy(): void;
+  /** Owning chart (Highcharts `axis.chart`). */
+  chart?: any;
+  /** Range set by zoom, pan or `setExtremes`; null/undefined = follow the data. */
+  userMin?: number | null;
+  userMax?: number | null;
+  dataMin?: number;
+  dataMax?: number;
+  hasUserExtremes(): boolean;
+  /** Applies the user range exactly (no padding) after the data domain is set. */
+  applyUserExtremes(min: number, max: number): void;
+  setExtremes(min?: number | null, max?: number | null, redraw?: boolean, animation?: any, eventArgs?: Record<string, any>): void;
+  getExtremes(): AxisExtremes;
+  /** Numeric axis value for a plot pixel (category index on category axes). */
+  toValue(pixel: number): number;
+  /** Clears a pending `afterSetExtremes` and fires it. */
+  flushAfterSetExtremes(): void;
+}
+
+export interface AxisExtremes {
+  min: number;
+  max: number;
+  dataMin?: number;
+  dataMax?: number;
+  userMin?: number | null;
+  userMax?: number | null;
 }
 
 export function createAxis(config: InternalAxisConfig, plotArea: PlotArea): AxisInstance {
@@ -48,10 +73,83 @@ export function createAxis(config: InternalAxisConfig, plotArea: PlotArea): Axis
 class BaseAxis {
   config: InternalAxisConfig;
   protected plotArea: PlotArea;
+  chart?: any;
+  userMin?: number | null;
+  userMax?: number | null;
+  dataMin?: number;
+  dataMax?: number;
+  private pendingAfterSetExtremes: Record<string, any> | null = null;
 
   constructor(config: InternalAxisConfig, plotArea: PlotArea) {
     this.config = config;
     this.plotArea = plotArea;
+  }
+
+  hasUserExtremes(): boolean {
+    return this.userMin != null || this.userMax != null;
+  }
+
+  applyUserExtremes(min: number, max: number): void {
+    const scale = (this as any).scale;
+    if (!scale) return;
+    const lo = Math.min(min, max);
+    const hi = Math.max(min, max);
+    scale.domain([lo, hi === lo ? lo + 1 : hi]).range(this.getRange());
+  }
+
+  /**
+   * Highcharts `axis.setExtremes`: fires `events.setExtremes` (cancel with
+   * `return false` or `e.preventDefault()`), stores the range so it survives
+   * redraws, then redraws and fires `events.afterSetExtremes`. Passing
+   * null/undefined returns that end to the data range.
+   */
+  setExtremes(min?: number | null, max?: number | null, redraw = true, _animation?: any, eventArgs?: Record<string, any>): void {
+    let prevented = false;
+    const e: Record<string, any> = {
+      type: 'setExtremes',
+      target: this,
+      min: min ?? undefined,
+      max: max ?? undefined,
+      trigger: 'none',
+      ...eventArgs,
+      preventDefault: () => { prevented = true; },
+    };
+    const ret = this.config.events?.setExtremes?.call(this, e);
+    if ((ret as unknown) === false || prevented) return;
+
+    this.userMin = min ?? null;
+    this.userMax = max ?? null;
+    this.pendingAfterSetExtremes = { trigger: e.trigger, ...eventArgs };
+    this.chart?.storeUserExtremes?.(this);
+    if (redraw) this.chart?.redrawExtremes?.();
+  }
+
+  flushAfterSetExtremes(): void {
+    const pending = this.pendingAfterSetExtremes;
+    if (!pending) return;
+    this.pendingAfterSetExtremes = null;
+    this.config.events?.afterSetExtremes?.call(this, {
+      type: 'afterSetExtremes', target: this, ...pending, ...this.getExtremes(),
+    });
+  }
+
+  getExtremes(): AxisExtremes {
+    const d = ((this as any).scale?.domain?.() ?? []) as any[];
+    const num = (v: any) => (v instanceof Date ? v.getTime() : Number(v));
+    return {
+      min: num(d[0]),
+      max: num(d[d.length - 1]),
+      dataMin: this.dataMin,
+      dataMax: this.dataMax,
+      userMin: this.userMin,
+      userMax: this.userMax,
+    };
+  }
+
+  toValue(pixel: number): number {
+    const scale = (this as any).scale;
+    const v = scale?.invert ? scale.invert(pixel) : NaN;
+    return v instanceof Date ? v.getTime() : Number(v);
   }
 
   /** Readable axis text color when none is configured — adapts to the chart background. */
@@ -483,11 +581,17 @@ class BaseAxis {
     if (!this.config.plotBands?.length) return;
 
     for (const band of this.config.plotBands) {
-      const from = scale(band.from ?? 0);
-      const to = scale(band.to ?? 0);
+      const vertical = this.config.isX ? !this.config._inverted : !!this.config._inverted;
+      /** Clip the band to the plot, so a zoomed-in axis doesn't paint it over the margins. */
+      const length = vertical ? plotArea.width : plotArea.height;
+      const rawFrom = scale(band.from ?? 0);
+      const rawTo = scale(band.to ?? 0);
+      if (!isFinite(rawFrom) || !isFinite(rawTo)) continue;
+      if (Math.max(rawFrom, rawTo) < 0 || Math.min(rawFrom, rawTo) > length) continue;
+      const from = Math.min(Math.max(rawFrom, 0), length);
+      const to = Math.min(Math.max(rawTo, 0), length);
 
       let rx: number, ry: number, rw: number, rh: number;
-      const vertical = this.config.isX ? !this.config._inverted : !!this.config._inverted;
       if (vertical) {
         rx = Math.min(from, to); ry = 0;
         rw = Math.abs(to - from); rh = plotArea.height;
@@ -557,6 +661,9 @@ class BaseAxis {
       const pos = scale(pl.value ?? 0);
 
       const vertical = this.config.isX ? !this.config._inverted : !!this.config._inverted;
+      /** A line whose value is outside the (possibly zoomed) axis range is not drawn. */
+      const length = vertical ? plotArea.width : plotArea.height;
+      if (!isFinite(pos) || pos < -0.5 || pos > length + 0.5) continue;
       let lineEl: Selection<SVGLineElement, unknown, null, undefined>;
       if (vertical) {
         lineEl = group.append('line')
@@ -1137,6 +1244,19 @@ export class LogarithmicAxis extends BaseAxis implements AxisInstance {
       }
     }
 
+    /**
+     * A range narrower than about a decade (typically after zooming in) has
+     * at most one power of ten, so fall back to the 1–9 multiples d3 generates,
+     * thinned to about five labels.
+     */
+    if (ticks.length < 2) {
+      const multiples = this.scale.ticks();
+      if (multiples.length >= 2) {
+        const stride = Math.max(1, Math.ceil(multiples.length / 5));
+        return multiples.filter((_, i) => i % stride === 0);
+      }
+    }
+
     if (ticks.length === 0) {
       ticks.push(domain[0], domain[1]);
     } else if (ticks.length === 1) {
@@ -1180,6 +1300,10 @@ export class LogarithmicAxis extends BaseAxis implements AxisInstance {
   getValueForPixel(pixel: number): number {
     return this.scale.invert(pixel);
   }
+
+  applyUserExtremes(min: number, max: number): void {
+    super.applyUserExtremes(Math.max(min, 1e-10), Math.max(max, 1e-10));
+  }
 }
 
 export class DateTimeAxis extends BaseAxis implements AxisInstance {
@@ -1195,6 +1319,12 @@ export class DateTimeAxis extends BaseAxis implements AxisInstance {
     const min = this.config.min ?? data.min;
     const max = this.config.max ?? data.max;
     (this.scale as any).domain([new Date(min), new Date(max)]).range(this.getRange());
+  }
+
+  applyUserExtremes(min: number, max: number): void {
+    const lo = Math.min(min, max);
+    const hi = Math.max(min, max);
+    (this.scale as any).domain([new Date(lo), new Date(hi === lo ? lo + 1 : hi)]).range(this.getRange());
   }
 
   render(group: Selection<SVGGElement, unknown, null, undefined>, plotArea: PlotArea): void {
@@ -1301,6 +1431,74 @@ export class CategoryAxis extends BaseAxis implements AxisInstance {
     }
   }
 
+  getCategoryName(index: number): string | undefined {
+    return this.labels[index];
+  }
+
+  /**
+   * Visible category window as whole indices. Extremes on a category axis are
+   * category indices, as in Highcharts; with none set the window is every
+   * category.
+   */
+  private visibleWindow(): [number, number] {
+    const last = Math.max(this.labels.length - 1, 0);
+    const clamp = (v: number) => Math.min(Math.max(v, 0), last);
+    const lo = clamp(Math.round(this.userMin ?? 0));
+    const hi = Math.max(lo, clamp(Math.round(this.userMax ?? last)));
+    return [lo, hi];
+  }
+
+  private visibleIndices(): number[] {
+    const [lo, hi] = this.visibleWindow();
+    const out: number[] = [];
+    for (let i = lo; i <= hi; i++) out.push(i);
+    return out;
+  }
+
+  /**
+   * A zoomed category axis keeps every category in the band scale but
+   * stretches the range so only the visible window spans the plot; points
+   * outside it land off-plot and are clipped by the plot clip path.
+   */
+  protected getRange(): [number, number] {
+    const base = super.getRange();
+    const n = this.labels?.length ?? 0;
+    if (!this.hasUserExtremes() || n === 0) return base;
+    const [lo, hi] = this.visibleWindow();
+    const step = (base[1] - base[0]) / (hi - lo + 1);
+    const start = base[0] - lo * step;
+    return [start, start + n * step];
+  }
+
+  applyUserExtremes(_min: number, _max: number): void {
+    this.scale.range(this.getRange() as [number, number]);
+  }
+
+  getExtremes(): AxisExtremes {
+    const [lo, hi] = this.visibleWindow();
+    return {
+      min: lo, max: hi, dataMin: this.dataMin, dataMax: this.dataMax,
+      userMin: this.userMin, userMax: this.userMax,
+    };
+  }
+
+  /** Fractional category index at a pixel: whole numbers are band centres. */
+  toValue(pixel: number): number {
+    const r = this.scale.range();
+    const n = this.labels.length;
+    if (!n || r[1] === r[0]) return 0;
+    return ((pixel - r[0]) / (r[1] - r[0])) * n - 0.5;
+  }
+
+  protected renderGridLines(
+    group: Selection<SVGGElement, unknown, null, undefined>,
+    scale: any,
+    plotArea: PlotArea,
+    explicitTicks?: number[]
+  ): void {
+    super.renderGridLines(group, scale, plotArea, explicitTicks ?? (this.hasUserExtremes() ? this.visibleIndices() : undefined));
+  }
+
   render(group: Selection<SVGGElement, unknown, null, undefined>, plotArea: PlotArea): void {
     this.plotArea = plotArea;
     const range = this.getRange() as [number, number];
@@ -1323,6 +1521,7 @@ export class CategoryAxis extends BaseAxis implements AxisInstance {
 
   /** Render the category name for each index-keyed tick, on both static and animated redraws. */
   protected applyTickFormat(axisGen: D3Axis<any>): void {
+    if (this.hasUserExtremes()) axisGen.tickValues(this.visibleIndices());
     if (this.config.labels?.formatter) {
       const formatter = this.config.labels.formatter;
       axisGen.tickFormat((d: any) => formatter.call({ value: this.labels[d as number] ?? d, axis: this }));
@@ -1381,8 +1580,7 @@ export class CategoryAxis extends BaseAxis implements AxisInstance {
   }
 
   getValueForPixel(pixel: number): string {
-    const step = this.scale.step();
-    const index = Math.floor(pixel / step);
+    const index = Math.round(this.toValue(pixel));
     return this.labels[Math.min(Math.max(index, 0), this.labels.length - 1)];
   }
 }

@@ -285,6 +285,8 @@ export class PieChart extends BaseSeries {
         })
         .on('click', function(event: MouseEvent, d: any) {
           const i = pieData.indexOf(d);
+          const dataIdx = self.data.indexOf(d.data);
+          if (!self.firePointClick(d.data, dataIdx >= 0 ? dataIdx : i, event)) return;
 
           if (allowSelect) {
             const wasSelected = self.selectedIndices.has(i);
@@ -315,10 +317,6 @@ export class PieChart extends BaseSeries {
               });
             }
           }
-
-          self.context.events.emit('point:click', { point: d.data, index: i, series: self, event });
-          d.data.events?.click?.call(d.data, event);
-          self.config.events?.click?.call(self, event);
         });
     }
 
@@ -902,9 +900,7 @@ export class FunnelChart extends BaseSeries {
           this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });
           d.events?.mouseOut?.call(d, event);
         }).on('click', (event: MouseEvent) => {
-          this.context.events.emit('point:click', { point: d, index: i, series: this, event });
-          d.events?.click?.call(d, event);
-          this.config.events?.click?.call(this, event);
+          this.firePointClick(d, i, event);
         });
       }
     });

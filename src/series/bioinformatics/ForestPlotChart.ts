@@ -197,10 +197,7 @@ export class ForestPlotChart extends BaseSeries {
       this.config.point?.events?.mouseOut?.call(d, event);
     })
     .on('click', (event: MouseEvent) => {
-      this.context.events.emit('point:click', { point: d, index: i, series: this, event });
-      d.events?.click?.call(d, event);
-      this.config.point?.events?.click?.call(d, event);
-      this.config.events?.click?.call(this, event);
+      this.firePointClick(d, i, event);
     });
   }
 

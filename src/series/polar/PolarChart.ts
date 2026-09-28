@@ -217,10 +217,7 @@ export class PolarChart extends BaseSeries {
             d.events?.mouseOut?.call(d, event);
           })
           .on('click', (event: MouseEvent, d: PointOptions) => {
-            const i = data.indexOf(d);
-            this.context.events.emit('point:click', { point: d, index: i, series: this, event });
-            d.events?.click?.call(d, event);
-            this.config.events?.click?.call(this, event);
+            this.firePointClick(d, data.indexOf(d), event);
           });
       }
     }
@@ -348,10 +345,7 @@ export class PolarChart extends BaseSeries {
           d.events?.mouseOut?.call(d, event);
         })
         .on('click', (event: MouseEvent, d: PointOptions) => {
-          const i = data.indexOf(d);
-          this.context.events.emit('point:click', { point: d, index: i, series: this, event });
-          d.events?.click?.call(d, event);
-          this.config.events?.click?.call(this, event);
+          this.firePointClick(d, data.indexOf(d), event);
         });
     }
   }

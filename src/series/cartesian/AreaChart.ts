@@ -498,9 +498,8 @@ export class AreaChart extends BaseSeries {
           }
         });
         const d = validData[closestIdx];
-        this.context.events.emit('point:click', { point: d, index: closestIdx, series: this, event });
-        d.events?.click?.call(d, event);
-        this.config.events?.click?.call(this, event);
+        const dataIdx = this.data.indexOf(d);
+        this.firePointClick(d, dataIdx >= 0 ? dataIdx : closestIdx, event);
       });
   }
 
@@ -562,11 +561,10 @@ export class AreaChart extends BaseSeries {
           this.config.point?.events?.mouseOut?.call(d, event);
         })
         .on('click', (event: MouseEvent) => {
-          this.context.events.emit('point:click', { point: d, index: i, series: this, event });
-          d.events?.click?.call(d, event);
-          this.config.point?.events?.click?.call(d, event);
-          this.config.events?.click?.call(this, event);
-          this.handlePointSelect(marker, d, i, event);
+          const dataIdx = this.data.indexOf(d);
+          if (this.firePointClick(d, dataIdx >= 0 ? dataIdx : i, event)) {
+            this.handlePointSelect(marker, d, i, event);
+          }
         });
     });
   }

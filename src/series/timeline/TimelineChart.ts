@@ -388,10 +388,7 @@ export class TimelineChart extends BaseSeries {
         seriesPointEvents.mouseOut?.call(node.point, event);
       })
       .on('click', (event: MouseEvent) => {
-        this.context.events.emit('point:click', { point: node.point, index: node.index, series: this, event });
-        pointEvents.click?.call(node.point, event);
-        seriesPointEvents.click?.call(node.point, event);
-        this.config.events?.click?.call(this, event);
+        this.firePointClick(node.point, node.index, event);
       });
   }
 
@@ -486,7 +483,7 @@ export class GanttChart extends BaseSeries {
         this.context.events.emit('point:mouseout', { point: d, index: i, series: this, event });
       })
       .on('click', (event: MouseEvent) => {
-        this.context.events.emit('point:click', { point: d, index: i, series: this, event });
+        this.firePointClick(d, i, event);
       });
     });
   }

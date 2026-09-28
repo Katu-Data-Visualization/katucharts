@@ -62,7 +62,12 @@ export class AxisCoordinator {
         );
         const cats = (axis.config.categories && axis.config.categories.length > 0 ? axis.config.categories : null)
           || (relatedSeries.length > 0 ? relatedSeries[0].getCategories() : undefined);
-        if (cats && cats.length > 0) axis.updateDomain(cats);
+        if (cats && cats.length > 0) {
+          axis.updateDomain(cats);
+          axis.dataMin = 0;
+          axis.dataMax = cats.length - 1;
+          this.applyUserExtremes(axis);
+        }
         continue;
       }
 
@@ -89,6 +94,9 @@ export class AxisCoordinator {
           extraMinPadding: bubblePad,
           extraMaxPadding: bubblePad,
         });
+        axis.dataMin = xMin;
+        axis.dataMax = xMax;
+        this.applyUserExtremes(axis);
       }
     }
 
@@ -149,8 +157,21 @@ export class AxisCoordinator {
           extraMinPadding: bubblePad,
           extraMaxPadding: bubblePad,
         });
+        axis.dataMin = yMin;
+        axis.dataMax = yMax;
+        this.applyUserExtremes(axis);
       }
     }
+  }
+
+  /**
+   * A range set by zoom, pan or `setExtremes` replaces the padded data domain
+   * exactly. A missing end falls back to the data-derived domain.
+   */
+  private applyUserExtremes(axis: AxisInstance): void {
+    if (!axis.hasUserExtremes()) return;
+    const current = axis.getExtremes();
+    axis.applyUserExtremes(axis.userMin ?? current.min, axis.userMax ?? current.max);
   }
 
   private computeBubbleRadiusPadding(configs: any[], plotSize: number): number {
