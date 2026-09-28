@@ -51,8 +51,12 @@ export class ForestPlotChart extends BaseSeries {
       const d = data[i] as any;
       const effectX = xAxis.getPixelForValue(d.x ?? 0);
       const rowY = yAxis.getPixelForValue(d.y ?? i);
-      const ciLower = d.custom?.ciLower ?? d.x;
-      const ciUpper = d.custom?.ciUpper ?? d.x;
+      let ciLower = d.custom?.ciLower ?? d.x;
+      let ciUpper = d.custom?.ciUpper ?? d.x;
+      // Normalize CI bounds so lower <= upper
+      if (ciLower > ciUpper) {
+        [ciLower, ciUpper] = [ciUpper, ciLower];
+      }
       const ciLowerX = xAxis.getPixelForValue(ciLower);
       const ciUpperX = xAxis.getPixelForValue(ciUpper);
       const isSummary = d.custom?.isSummary ?? false;
@@ -70,7 +74,7 @@ export class ForestPlotChart extends BaseSeries {
           .attr('y1', rowY).attr('y2', rowY)
           .attr('stroke', pointColor).attr('stroke-width', lineWidth);
 
-        const markerSize = markerSizeByWeight
+        const markerSize = markerSizeByWeight && maxWeight > 0
           ? minMarkerSize + (maxMarkerSize - minMarkerSize) * (weight / maxWeight)
           : (maxMarkerSize + minMarkerSize) / 2;
 

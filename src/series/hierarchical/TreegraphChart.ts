@@ -211,7 +211,7 @@ export class TreegraphChart extends BaseSeries {
       const text = nodeGroup.append('text')
         .attr('x', orientation === 'horizontal' ? (d: any) => d.children ? -offsetX : offsetX : 0)
         .attr('y', labelOffsetY)
-        .attr('dy', orientation === 'horizontal' ? '0.32em' : nodeRadius + 12)
+        .attr('dy', '0.32em')
         .attr('text-anchor', orientation === 'horizontal' ? (d: any) => d.children ? 'end' : 'start' : 'middle')
         .attr('font-size', labelFontSize)
         .attr('fill', labelColor)
@@ -279,8 +279,8 @@ export class TreegraphChart extends BaseSeries {
     const rowsWithId = normalizeTreegraphRows(data);
     if (!rowsWithId.length) return null;
 
-    const hasSingleRoot = rowsWithId.filter(d => !d.parent).length <= 1;
-    if (!hasSingleRoot) {
+    const rootCount = rowsWithId.filter(d => !d.parent).length;
+    if (rootCount !== 1) {
       const syntheticRootId = '__katu_treegraph_root__';
       const normalized = rowsWithId.map(d => ({
         ...d,

@@ -171,7 +171,7 @@ export class Crosshair {
     if (labelCfg.formatter) {
       text = labelCfg.formatter.call({ value });
     } else if (labelCfg.format) {
-      text = labelCfg.format.replace('{value}', String(value));
+      text = labelCfg.format.replace(/\{value\}/g, String(value));
     } else {
       text = typeof value === 'number' ? value.toFixed(2) : String(value);
     }

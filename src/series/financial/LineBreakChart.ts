@@ -35,7 +35,7 @@ export class LineBreakChart extends BaseSeries {
   processData(): void {
     super.processData();
 
-    const lineBreakCount = (this.config as any).lineBreakCount ?? 3;
+    const lineBreakCount = Math.max(1, (this.config as any).lineBreakCount ?? 3);
     const closes = this.data
       .map(d => (d as any).close ?? d.y)
       .filter((v): v is number => v !== null && v !== undefined);

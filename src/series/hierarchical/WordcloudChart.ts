@@ -24,6 +24,7 @@ interface PlacedWord {
   word: WordDatum;
   rotation: number;
   fontSize: number;
+  originalIndex: number;
 }
 
 export class WordcloudChart extends BaseSeries {
@@ -82,14 +83,14 @@ export class WordcloudChart extends BaseSeries {
 
         const place = this.findSpiralSpot(cx, cy, w, h, rotation, placed, plotArea.width, plotArea.height);
         if (!place) return;
-        placed.push({ x: place.x, y: place.y, width: w, height: h, word, rotation, fontSize });
+        placed.push({ x: place.x, y: place.y, width: w, height: h, word, rotation, fontSize, originalIndex: i });
       });
     } finally {
       disposeMeasurer();
     }
 
-    placed.forEach((p, i) => {
-      const color = p.word.color || colors[i % Math.max(1, colors.length)] || textColor;
+    placed.forEach((p) => {
+      const color = p.word.color || colors[p.originalIndex % Math.max(1, colors.length)] || textColor;
       rootGroup.append('text')
         .attr('x', p.x)
         .attr('y', p.y)

@@ -31,7 +31,7 @@ export class VBPChart extends BaseSeries {
       const low = (d as any).low;
       const high = (d as any).high;
       const vol = (d as any).volume ?? 0;
-      if (low === undefined || high === undefined) continue;
+      if (low == null || high == null) continue;
 
       const yTop = yAxis.getPixelForValue(high);
       const yBottom = yAxis.getPixelForValue(low);

@@ -176,12 +176,22 @@ export class AreaRangeChart extends BaseSeries {
     const high = mk();
     const low = mk();
 
-    const byX = new Map<number | string, { x: number; hi: number; lo: number }>();
-    validData.forEach((d, i) => byX.set(d.x ?? i, { x: xVal(d, i), hi: highVal(d), lo: lowVal(d) }));
+    const byX = new Map<number | string, { x: number; hi: number; lo: number }[]>();
+    validData.forEach((d, i) => {
+      const entry = { x: xVal(d, i), hi: highVal(d), lo: lowVal(d) };
+      const key = d.x ?? i;
+      if (!byX.has(key)) byX.set(key, []);
+      byX.get(key)!.push(entry);
+    });
 
     const over = (p: any): void => {
-      const pos = byX.get(p?.point?.x);
-      if (!pos) { high.attr('opacity', 0); low.attr('opacity', 0); return; }
+      const positions = byX.get(p?.point?.x);
+      if (!positions || positions.length === 0) {
+        high.attr('opacity', 0);
+        low.attr('opacity', 0);
+        return;
+      }
+      const pos = positions[0];
       high.attr('cx', pos.x).attr('cy', pos.hi).attr('opacity', 1);
       low.attr('cx', pos.x).attr('cy', pos.lo).attr('opacity', 1);
     };

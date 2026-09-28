@@ -58,7 +58,7 @@ export class SVGRenderer {
   constructor(container: HTMLElement, width: number, height: number) {
     this.svg = select(container)
       .append('svg')
-      .attr('class', 'katucharts-root')
+      .attr('class', 'katucharts-root katucharts-container')
       .attr('xmlns', 'http://www.w3.org/2000/svg')
       .attr('width', width)
       .attr('height', height)

@@ -84,7 +84,7 @@ export class FlowmapChart extends BaseSeries {
 
       const S = projection(fromLL as XY);
       const T = projection(toLL as XY);
-      if (!S || !T || !isFinite(S[0]) || !isFinite(T[0])) return;
+      if (!S || !T || !isFinite(S[0]) || !isFinite(S[1]) || !isFinite(T[0]) || !isFinite(T[1])) return;
 
       const weight = p.weight ?? p.y ?? p.value ?? 1;
       const endWidth = Math.max(2, baseWidth * (weight / maxWeight));

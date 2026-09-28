@@ -199,7 +199,7 @@ export class PhyloTreeChart extends BaseSeries {
     showBranchLengths: boolean, colorByAttribute: string | undefined,
     animate: boolean, duration: number
   ): void {
-    const radius = Math.min(plotArea.width, plotArea.height) / 2 - 60;
+    const radius = Math.max(10, Math.min(plotArea.width, plotArea.height) / 2 - 60);
     const cx = plotArea.width / 2;
     const cy = plotArea.height / 2;
 
@@ -282,7 +282,7 @@ export class PhyloTreeChart extends BaseSeries {
 
   private scaleBranchLengths(root: any, maxWidth: number): void {
     const maxDistance = this.getMaxDistance(root);
-    if (maxDistance <= 0) return;
+    if (maxDistance <= 0 || maxWidth <= 0) return;
 
     const scale = maxWidth / maxDistance;
     root.each((node: any) => {

@@ -34,7 +34,7 @@ export class RenkoChart extends BaseSeries {
   processData(): void {
     super.processData();
 
-    const brickSize = (this.config as any).brickSize ?? 1;
+    let brickSize = Number((this.config as any).brickSize ?? 1);
     const closes = this.data
       .map(d => (d as any).close ?? d.y)
       .filter((v): v is number => v !== null && v !== undefined);
@@ -42,17 +42,31 @@ export class RenkoChart extends BaseSeries {
     this.bricks = [];
     if (closes.length < 2) return;
 
+    /**
+     * A non-positive or non-finite brick size makes `Math.abs(diff) / brickSize`
+     * infinite and the inner loop never terminates (memory exhaustion). Fall
+     * back to a sane size derived from the price range, and hard-cap the brick
+     * count so a pathologically tiny brickSize can't explode the DOM either.
+     */
+    if (!Number.isFinite(brickSize) || brickSize <= 0) {
+      const lo = Math.min(...closes);
+      const hi = Math.max(...closes);
+      const range = hi - lo;
+      brickSize = range > 0 ? range / 50 : 1;
+    }
+    const MAX_BRICKS = 100000;
+
     let lastPrice = Math.floor(closes[0] / brickSize) * brickSize;
     let brickIndex = 0;
 
-    for (let i = 1; i < closes.length; i++) {
+    for (let i = 1; i < closes.length && this.bricks.length < MAX_BRICKS; i++) {
       const price = closes[i];
       const diff = price - lastPrice;
-      const numBricks = Math.floor(Math.abs(diff) / brickSize);
+      const numBricks = Math.min(MAX_BRICKS, Math.floor(Math.abs(diff) / brickSize));
 
       if (numBricks >= 1) {
         const direction: 'up' | 'down' = diff > 0 ? 'up' : 'down';
-        for (let b = 0; b < numBricks; b++) {
+        for (let b = 0; b < numBricks && this.bricks.length < MAX_BRICKS; b++) {
           const bottom = direction === 'up'
             ? lastPrice + b * brickSize
             : lastPrice - (b + 1) * brickSize;

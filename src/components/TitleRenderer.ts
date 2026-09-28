@@ -85,7 +85,7 @@ export function renderTitles(ctx: TitleRenderContext): void {
 
     if (titleOpts.useHTML) {
       const div = document.createElement('div');
-      div.className = 'katucharts-title-html';
+      div.className = 'katucharts-title-html katucharts-title';
       div.innerHTML = titleOpts.text!;
       div.style.cssText = `position:absolute;top:${layout.titleArea.y + 5}px;left:0;width:100%;text-align:${titleOpts.align || 'center'};color:${titleOpts.style?.color as string || '#333333'};font-size:${fontSize};font-weight:${titleOpts.style?.fontWeight as string || 'bold'};pointer-events:none;box-sizing:border-box;padding:0 22px;`;
       container.appendChild(div);
@@ -93,7 +93,7 @@ export function renderTitles(ctx: TitleRenderContext): void {
       const x = titleX(ctx, titleOpts.align);
       const maxWidth = chartWidth + (titleOpts.widthAdjust ?? -44);
       const titleEl = titleGroup.append('text')
-        .attr('class', 'katucharts-chart-title')
+        .attr('class', 'katucharts-chart-title katucharts-title')
         .attr('x', x)
         .attr('y', layout.titleArea.y + parseFontSizePx(fontSize) * 1.1)
         .attr('text-anchor', textAnchor(titleOpts.align))
@@ -111,7 +111,7 @@ export function renderTitles(ctx: TitleRenderContext): void {
 
     if (subOpts.useHTML) {
       const div = document.createElement('div');
-      div.className = 'katucharts-subtitle-html';
+      div.className = 'katucharts-subtitle-html katucharts-subtitle';
       div.innerHTML = subOpts.text!;
       div.style.cssText = `position:absolute;top:${layout.subtitleArea.y + 5}px;left:0;width:100%;text-align:${subOpts.align || 'center'};color:${subOpts.style?.color as string || '#666666'};font-size:${fontSize};pointer-events:none;box-sizing:border-box;padding:0 22px;`;
       container.appendChild(div);
@@ -119,7 +119,7 @@ export function renderTitles(ctx: TitleRenderContext): void {
       const x = titleX(ctx, subOpts.align);
       const maxWidth = chartWidth + (subOpts.widthAdjust ?? -44);
       const subEl = titleGroup.append('text')
-        .attr('class', 'katucharts-chart-subtitle')
+        .attr('class', 'katucharts-chart-subtitle katucharts-subtitle')
         .attr('x', x)
         .attr('y', layout.subtitleArea.y + parseFontSizePx(fontSize) * 1.1)
         .attr('text-anchor', textAnchor(subOpts.align))
@@ -134,7 +134,7 @@ export function renderTitles(ctx: TitleRenderContext): void {
     const capOpts = options.caption;
     const fontSize = (capOpts.style?.fontSize as string) || '11px';
     const div = document.createElement('div');
-    div.className = 'katucharts-caption-html';
+    div.className = 'katucharts-caption-html katucharts-caption';
     div.innerHTML = capOpts.text!;
     div.style.cssText = `position:absolute;top:${layout.captionArea.y}px;left:0;width:100%;`
       + `text-align:${capOpts.align || 'left'};color:${(capOpts.style?.color as string) || '#666666'};`

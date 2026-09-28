@@ -10,7 +10,7 @@ export class SMAIndicator extends Indicator {
    * Points with insufficient history produce y: null.
    */
   calculate(data: OHLCVPoint[], params: Record<string, number>): IndicatorResult {
-    const period = params.period ?? 14;
+    const period = Math.max(params.period ?? 14, 1);
     const values = new Array(data.length);
 
     let windowSum = 0;

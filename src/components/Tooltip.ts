@@ -203,8 +203,22 @@ export class Tooltip {
 
     const dist = this.config.distance ?? 16;
     const plotOffset = this.plotArea;
-    const x = plotOffset.x + data.plotX + dist;
-    const y = plotOffset.y + data.plotY;
+    let x = plotOffset.x + data.plotX + dist;
+    let y = plotOffset.y + data.plotY;
+
+    const elWidth = el.offsetWidth || 120;
+    const elHeight = el.offsetHeight || 50;
+    const containerWidth = this.config.outside ? window.innerWidth : (this.container.offsetWidth || this.container.parentElement?.offsetWidth || 800);
+    const containerHeight = this.config.outside ? window.innerHeight : (this.container.offsetHeight || this.container.parentElement?.offsetHeight || 600);
+
+    if (x + elWidth > containerWidth) {
+      x = plotOffset.x + data.plotX - elWidth - dist;
+    }
+    if (y + elHeight > containerHeight) {
+      y = containerHeight - elHeight - 5;
+    }
+    if (y < 0) y = 5;
+    if (x < 0) x = 5;
 
     el.style.left = `${x}px`;
     el.style.top = `${y}px`;
@@ -492,6 +506,24 @@ export class Tooltip {
         parts.push(templateFormat(seriesPointFmt, context, true));
         continue;
       }
+
+      if (p.point.y === null || p.point.y === undefined) {
+        const nullFmt = seriesTooltip?.nullFormatter ?? this.config.nullFormatter;
+        const nullFmtStr = seriesTooltip?.nullFormat ?? this.config.nullFormat;
+        if (nullFmt) {
+          const result = nullFmt.call({
+            point: p.point,
+            series: p.series,
+          });
+          parts.push(result);
+          continue;
+        }
+        if (nullFmtStr) {
+          parts.push(nullFmtStr);
+          continue;
+        }
+      }
+
       const color = sanitizeColor(p.point.color || p.series.color || '#333');
       const name = escapeHtml(p.series.name || '');
       const formattedY = this.formatValue(p.point.y);
@@ -535,6 +567,7 @@ export class Tooltip {
     }
     if (y < 0) y = 5;
     if (x < 0) x = 5;
+    if (x + elWidth > containerWidth) x = Math.max(5, containerWidth - elWidth);
 
     this.element.style.left = `${x}px`;
     this.element.style.top = `${y}px`;
@@ -555,6 +588,7 @@ export class Tooltip {
       if (y + elHeight > window.innerHeight) y = window.innerHeight - elHeight - 5;
       if (y < 0) y = 5;
       if (x < 0) x = 5;
+      if (x + elWidth > window.innerWidth) x = Math.max(5, window.innerWidth - elWidth);
 
       this.element.style.left = `${x}px`;
       this.element.style.top = `${y}px`;
@@ -576,6 +610,7 @@ export class Tooltip {
     }
     if (y < 0) y = 5;
     if (x < 0) x = 5;
+    if (x + elWidth > containerRect.width) x = Math.max(5, containerRect.width - elWidth);
 
     this.element.style.left = `${x}px`;
     this.element.style.top = `${y}px`;

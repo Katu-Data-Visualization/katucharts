@@ -236,6 +236,7 @@ export class BoxPlotChart extends BaseSeries {
         sel.attr('stroke', pointColor).attr('fill', boxFill)
           .transition().duration(duration)
           .attr('x', cx - boxWidth / 2)
+          .attr('width', boxWidth)
           .attr('y', yAxis.getPixelForValue(q3))
           .attr('height', Math.abs(yAxis.getPixelForValue(q1) - yAxis.getPixelForValue(q3)));
       }

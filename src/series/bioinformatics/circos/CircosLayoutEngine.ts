@@ -57,7 +57,9 @@ export class CircosLayoutEngine {
 
     for (let i = 0; i < this.chromosomes.length; i++) {
       const chr = this.chromosomes[i];
-      const arcAngle = (chr.length / totalLength) * availableAngle;
+      const arcAngle = totalLength > 0
+        ? (chr.length / totalLength) * availableAngle
+        : availableAngle / this.chromosomes.length;
       const a: ChromosomeArc = {
         id: chr.id,
         startAngle: currentAngle,

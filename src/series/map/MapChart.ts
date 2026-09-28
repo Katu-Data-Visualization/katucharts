@@ -93,7 +93,7 @@ export class MapChart extends BaseSeries {
     }
 
     const colorAxisCfg = cfg.colorAxis || {};
-    const values = this.data.map(d => d.y ?? (d as any).value ?? 0).filter(v => v != null);
+    const values = this.data.map(d => d.y ?? (d as any).value).filter(v => v != null);
     const minVal = colorAxisCfg.min ?? (values.length ? Math.min(...values) : 0);
     const maxVal = colorAxisCfg.max ?? (values.length ? Math.max(...values) : 1);
 
@@ -185,11 +185,12 @@ export class MapChart extends BaseSeries {
    * the domain includes non-positive values (log is undefined there).
    */
   private makeAxisNorm(colorAxisCfg: any, minVal: number, maxVal: number): (v: number) => number {
+    const span = (maxVal - minVal) || 1;
     if (colorAxisCfg.type === 'logarithmic' && minVal > 0 && maxVal > 0) {
-      const norm = scaleLog().domain([minVal, maxVal]).clamp(true);
+      const norm = scaleLog().domain([minVal, minVal + span]).clamp(true);
       return (v: number) => norm(Math.max(v, minVal)) as number;
     }
-    const norm = scaleLinear().domain([minVal, maxVal]).clamp(true);
+    const norm = scaleLinear().domain([minVal, minVal + span]).clamp(true);
     return (v: number) => norm(v) as number;
   }
 

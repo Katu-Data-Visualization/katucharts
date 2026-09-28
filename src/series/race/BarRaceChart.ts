@@ -71,7 +71,9 @@ export class BarRaceChart extends BaseSeries {
       }
     }
 
-    const palette = (this.config as any).colors || this.context?.colors || DEFAULT_COLORS;
+    const cfgColors = (this.config as any).colors;
+    const ctxColors = this.context?.colors;
+    const palette = (cfgColors?.length ? cfgColors : ctxColors?.length ? ctxColors : DEFAULT_COLORS);
     let ci = 0;
     for (const name of allNames) {
       if (!this.colorMap.has(name)) {
@@ -207,10 +209,19 @@ export class BarRaceChart extends BaseSeries {
     const availableHeight = plotArea.height - topMargin - controlsHeight - 20;
 
     const frame = this.keyframes[index];
-    const sorted = [...frame.values].sort((a, b) => b.value - a.value);
+    /**
+     * Coerce each entry's value to a finite number (a missing/NaN value would
+     * poison the sort and the scale domain, blanking every bar), then guard the
+     * domain against a non-positive maximum so all-zero/negative frames still
+     * produce a valid — if empty-looking — scale instead of NaN widths.
+     */
+    const sorted = [...frame.values]
+      .map(e => ({ name: e.name, value: Number.isFinite(e.value) ? e.value : 0 }))
+      .sort((a, b) => b.value - a.value);
     const visible = sorted.slice(0, barsToShow);
 
-    const maxValue = visible.length > 0 ? visible[0].value : 1;
+    const rawMax = visible.length > 0 ? visible[0].value : 1;
+    const maxValue = rawMax > 0 ? rawMax : 1;
     this.valueScale = scaleLinear<number, number>()
       .domain([0, maxValue * 1.1])
       .range([0, plotArea.width - 80]);

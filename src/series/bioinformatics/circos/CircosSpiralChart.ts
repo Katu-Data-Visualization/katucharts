@@ -71,8 +71,9 @@ export class CircosSpiralChart extends BaseSeries {
     const rawValues = this.normalizeValues(spiralData.values);
     if (rawValues.length === 0) return;
 
-    const periodLength = spiralData.periodLength
+    let periodLength = spiralData.periodLength
       ?? (spiralData.period ? PERIOD_LENGTHS[spiralData.period] : rawValues.length);
+    if (periodLength <= 0) periodLength = rawValues.length;
     const numericValues = rawValues.map(v => v.value);
     const { min: minVal, max: maxVal } = safeMinMax(numericValues);
 
