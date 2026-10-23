@@ -106,7 +106,7 @@ export class Chart {
 
     const parser = new OptionsParser();
     this.options = parser.parse(options);
-    this.originalUserOptions = deepClone(options);
+    this.originalUserOptions = Chart.withNormalizedSeries(deepClone(options || {} as KatuChartsOptions));
 
     setUseUTC((this.options as any).time?.useUTC !== false);
 
@@ -702,7 +702,7 @@ export class Chart {
     const user: any = this.originalUserOptions || {};
     const plotOpts = user.plotOptions || {};
     const userNoClip = plotOpts.series?.clip === false
-      || (user.series || []).some((s: any) => s?.clip === false || plotOpts[s?.type || user.chart?.type || 'line']?.clip === false);
+      || OptionsParser.normalizeSeriesList(user.series).some((s: any) => s?.clip === false || plotOpts[s?.type || user.chart?.type || 'line']?.clip === false);
     const pa = this.layout.plotArea;
     if (zoomed && !userNoClip) {
       if (!this.zoomClipId) this.zoomClipId = this.renderer.createClipPath(0, 0, pa.width, pa.height);
@@ -1246,7 +1246,18 @@ export class Chart {
     }
   }
 
+  /**
+   * The user options are kept and re-merged on update/responsive passes, so
+   * their `series` must already be a clean array: a `{}` placeholder or a
+   * primitive would otherwise reach code that calls array methods on it.
+   */
+  private static withNormalizedSeries<T extends Partial<KatuChartsOptions>>(options: T): T {
+    if (!options || typeof options !== 'object' || !('series' in options)) return options;
+    return { ...options, series: OptionsParser.normalizeSeriesList(options.series) };
+  }
+
   update(options: Partial<KatuChartsOptions>, redraw = true): void {
+    options = Chart.withNormalizedSeries(options || {});
     if (!this.isResponsiveUpdate) {
       this.originalUserOptions = deepMerge(
         deepClone(this.originalUserOptions),

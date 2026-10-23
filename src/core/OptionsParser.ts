@@ -30,7 +30,25 @@ export function getGlobalOptions(): Partial<KatuChartsOptions> {
 }
 
 export class OptionsParser {
+  /**
+   * Turns whatever arrived as `series` into an array of series objects. A single
+   * series object is wrapped, as Highcharts does. Values that hold no series at
+   * all become an empty list instead of reaching code that expects an array:
+   * `null`, an empty `{}` placeholder (common while data is still loading), a
+   * primitive, and any `null` or non-object entries inside the array.
+   */
+  static normalizeSeriesList(series: unknown): SeriesOptions[] {
+    if (Array.isArray(series)) {
+      return series.filter(s => s !== null && typeof s === 'object' && !Array.isArray(s)) as SeriesOptions[];
+    }
+    if (series !== null && typeof series === 'object' && Object.keys(series).length > 0) {
+      return [series as SeriesOptions];
+    }
+    return [];
+  }
+
   parse(userOptions: KatuChartsOptions): InternalConfig {
+    if (!userOptions || typeof userOptions !== 'object') userOptions = {} as KatuChartsOptions;
     if (userOptions.chart?.palette && !userOptions.colors) {
       userOptions = { ...userOptions, colors: getPalette(userOptions.chart.palette) };
     }
@@ -81,6 +99,14 @@ export class OptionsParser {
     for (const axes of [result.xAxis, result.yAxis]) {
       if (Array.isArray(axes)) {
         for (const ax of axes) {
+          /**
+           * Categories must be an array. Anything else (an empty `{}` placeholder,
+           * a string, a number) is dropped so the axis falls back to its default
+           * type instead of indexing into a non-array later.
+           */
+          if (ax.categories != null && !Array.isArray(ax.categories)) {
+            delete ax.categories;
+          }
           if (ax.categories && ax.categories.length > 0) {
             ax.type = 'category';
           }
@@ -88,9 +114,7 @@ export class OptionsParser {
       }
     }
 
-    if (result.series && !Array.isArray(result.series)) {
-      result.series = [result.series as unknown as SeriesOptions];
-    }
+    result.series = OptionsParser.normalizeSeriesList(result.series);
     const chartType = result.chart?.type || 'line';
     const hasBarType = chartType === 'bar' || (Array.isArray(result.series) && result.series.some(s => s.type === 'bar'));
     if (result.chart) {
@@ -401,7 +425,16 @@ export class OptionsParser {
     index: number,
     series: SeriesOptions
   ): PointOptions {
-    if (d === null) {
+    /**
+     * Malformed values from an API (missing, NaN/Infinity, numbers sent as
+     * strings) become a numeric y or a null gap, so scales and paths never
+     * see NaN.
+     */
+    const raw = d as unknown;
+    if (typeof raw === 'string' && raw.trim() !== '' && Number.isFinite(Number(raw))) {
+      d = Number(raw);
+    }
+    if (d === null || d === undefined || (typeof d === 'number' && !Number.isFinite(d))) {
       return { x: (series.pointStart ?? 0) + index * (series.pointInterval ?? 1), y: null };
     }
 

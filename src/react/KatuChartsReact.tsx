@@ -79,10 +79,26 @@ const KatuChartsReactInner = forwardRef<HTMLDivElement, KatuChartsReactProps>(
       return chart;
     };
 
+    /**
+     * A chart that throws (e.g. on malformed data) is logged and left empty
+     * instead of propagating out of the effect, where React would unmount the
+     * whole tree. The next options change tries to build it again.
+     */
+    const tryCreateChart = (container: HTMLElement, chartOptions: KatuChartsReactOptions): void => {
+      try {
+        createChart(container, chartOptions);
+      } catch (err) {
+        console.error('KatuCharts: the chart could not be rendered with these options.', err);
+        chartRef.current = null;
+        prevOptionsRef.current = null;
+        container.replaceChildren();
+      }
+    };
+
     useEffect(() => {
       if (!containerRef.current) return;
 
-      createChart(containerRef.current, options);
+      tryCreateChart(containerRef.current, options);
 
       return () => {
         chartRef.current?.destroy();
@@ -99,13 +115,25 @@ const KatuChartsReactInner = forwardRef<HTMLDivElement, KatuChartsReactProps>(
 
       if (allowChartUpdate === false) return;
 
-      if (chartRef.current && prevOptionsRef.current && optionsChanged(prevOptionsRef.current, options)) {
+      if (!chartRef.current) {
+        if (containerRef.current) tryCreateChart(containerRef.current, options);
+        return;
+      }
+
+      if (prevOptionsRef.current && optionsChanged(prevOptionsRef.current, options)) {
         if (immutable && containerRef.current) {
           chartRef.current.destroy();
-          createChart(containerRef.current, options);
+          tryCreateChart(containerRef.current, options);
         } else {
-          chartRef.current.update(options, ...(updateArgs ?? []));
-          prevOptionsRef.current = options;
+          try {
+            chartRef.current.update(options, ...(updateArgs ?? []));
+            prevOptionsRef.current = options;
+          } catch (err) {
+            console.error('KatuCharts: the chart could not be updated with these options; rebuilding it.', err);
+            try { chartRef.current.destroy(); } catch { /* already broken; the rebuild replaces it */ }
+            chartRef.current = null;
+            if (containerRef.current) tryCreateChart(containerRef.current, options);
+          }
         }
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
