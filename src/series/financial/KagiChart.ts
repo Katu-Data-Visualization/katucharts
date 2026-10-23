@@ -12,6 +12,7 @@ import {
   EASE_ENTRY,
   EASE_HOVER,
 } from '../../core/animationConstants';
+import { arrayMin, arrayMax } from '../../utils/math';
 
 interface KagiSegment {
   x: number;
@@ -42,7 +43,7 @@ export class KagiChart extends BaseSeries {
     this.segments = [];
     if (closes.length < 2) return;
 
-    const priceRange = Math.max(...closes) - Math.min(...closes);
+    const priceRange = arrayMax(closes, -Infinity) - arrayMin(closes, Infinity);
     const reversalAmount = Math.max(
       (this.config as any).reversalAmount ?? priceRange * 0.04,
       1

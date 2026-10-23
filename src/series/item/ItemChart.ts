@@ -14,6 +14,9 @@ import {
   EASE_HOVER,
 } from '../../core/animationConstants';
 
+/** Most unit markers an item chart draws; larger totals are scaled down to this. */
+const MAX_ITEM_SEATS = 10000;
+
 interface Category {
   point: PointOptions;
   dataIndex: number;
@@ -124,8 +127,18 @@ export class ItemChart extends BaseSeries {
     const { plotArea } = this.context;
     const ignoreHidden = this.config.ignoreHiddenPoint !== false;
     const visible = this.categories().filter(c => !ignoreHidden || c.point.visible !== false);
-    const totalSeats = visible.reduce((s, c) => s + c.seats, 0);
+    let totalSeats = visible.reduce((s, c) => s + c.seats, 0);
     if (totalSeats === 0) return;
+    /**
+     * One SVG element per unit: past a few thousand they are sub-pixel and a
+     * very large count would freeze the page, so seats are shared out
+     * proportionally under a cap. Tooltips still read the point's real value.
+     */
+    if (totalSeats > MAX_ITEM_SEATS) {
+      const scaled = largestRemainder(visible.map(c => (c.seats / totalSeats) * MAX_ITEM_SEATS), MAX_ITEM_SEATS);
+      visible.forEach((c, i) => { c.seats = scaled[i]; });
+      totalSeats = MAX_ITEM_SEATS;
+    }
 
     const isCircular = this.config.startAngle !== undefined && this.config.endAngle !== undefined;
     const layout = isCircular

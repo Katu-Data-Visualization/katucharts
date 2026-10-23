@@ -12,6 +12,7 @@ import {
   EASE_ENTRY,
   EASE_HOVER,
 } from '../../core/animationConstants';
+import { arrayMin, arrayMax } from '../../utils/math';
 
 interface RenkoBrick {
   index: number;
@@ -49,8 +50,8 @@ export class RenkoChart extends BaseSeries {
      * count so a pathologically tiny brickSize can't explode the DOM either.
      */
     if (!Number.isFinite(brickSize) || brickSize <= 0) {
-      const lo = Math.min(...closes);
-      const hi = Math.max(...closes);
+      const lo = arrayMin(closes, Infinity);
+      const hi = arrayMax(closes, -Infinity);
       const range = hi - lo;
       brickSize = range > 0 ? range / 50 : 1;
     }

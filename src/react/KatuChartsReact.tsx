@@ -75,24 +75,28 @@ const KatuChartsReactInner = forwardRef<HTMLDivElement, KatuChartsReactProps>(
       const chart = factory.call(katuCharts, container, chartOptions);
       chartRef.current = chart;
       prevOptionsRef.current = chartOptions;
-      callback?.(chart);
       return chart;
     };
 
     /**
      * A chart that throws (e.g. on malformed data) is logged and left empty
      * instead of propagating out of the effect, where React would unmount the
-     * whole tree. The next options change tries to build it again.
+     * whole tree. The next options change tries to build it again. The user's
+     * callback runs outside that guard, so its own errors surface normally and
+     * never orphan a chart that was built successfully.
      */
     const tryCreateChart = (container: HTMLElement, chartOptions: KatuChartsReactOptions): void => {
+      let chart: KatuChartInstance;
       try {
-        createChart(container, chartOptions);
+        chart = createChart(container, chartOptions);
       } catch (err) {
         console.error('KatuCharts: the chart could not be rendered with these options.', err);
         chartRef.current = null;
         prevOptionsRef.current = null;
         container.replaceChildren();
+        return;
       }
+      callback?.(chart);
     };
 
     useEffect(() => {

@@ -66,6 +66,8 @@ export class PolarChart extends BaseSeries {
   }
 
   render(): void {
+    // Spokes are spaced 2π / point count, so an empty series has nothing to place.
+    if (this.data.length === 0) return;
     const subType = this.resolvePolarSubType();
     if (subType === 'column') {
       this.renderColumnPolar();

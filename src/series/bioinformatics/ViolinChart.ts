@@ -16,6 +16,7 @@ import {
   EASE_ENTRY,
   EASE_HOVER,
 } from '../../core/animationConstants';
+import { arrayMin, arrayMax } from '../../utils/math';
 
 function gaussianKernel(u: number): number {
   return (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * u * u);
@@ -23,8 +24,8 @@ function gaussianKernel(u: number): number {
 
 function computeKDE(values: number[], bandwidth: number, nPoints: number): { value: number; density: number }[] {
   if (values.length === 0) return [];
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  const min = arrayMin(values, Infinity);
+  const max = arrayMax(values, -Infinity);
   const range = max - min || 1;
   // Ensure at least 2 points to avoid division by zero in step calculation
   const adjustedNPoints = Math.max(nPoints, 2);

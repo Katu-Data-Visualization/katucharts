@@ -16,6 +16,7 @@ import {
   EASE_ENTRY,
   EASE_HOVER,
 } from '../../core/animationConstants';
+import { arrayMin, arrayMax } from '../../utils/math';
 
 export class BubbleChart extends BaseSeries {
   private sizeScale!: (v: number) => number;
@@ -134,8 +135,8 @@ export class BubbleChart extends BaseSeries {
 
   private buildSizeScale(data: PointOptions[]): void {
     const zValues = data.map(d => this.getZValue(d));
-    const zMin = this.config.zMin ?? Math.min(...zValues, 0);
-    const zMax = this.config.zMax ?? Math.max(...zValues, 1);
+    const zMin = this.config.zMin ?? Math.min(arrayMin(zValues, Infinity), 0);
+    const zMax = this.config.zMax ?? Math.max(arrayMax(zValues, -Infinity), 1);
 
     const minSize = this.parseSize(this.config.minSize, 8);
     const maxSize = this.parseSize(this.config.maxSize, 30);
@@ -233,8 +234,8 @@ export class BubbleChart extends BaseSeries {
 
     this.buildSizeScale(data);
     const zValues = data.map(d => this.getZValue(d));
-    const zMin = this.config.zMin ?? Math.min(...zValues);
-    const zMax = this.config.zMax ?? Math.max(...zValues);
+    const zMin = this.config.zMin ?? arrayMin(zValues, Infinity);
+    const zMax = this.config.zMax ?? arrayMax(zValues, -Infinity);
     if (!isFinite(zMin) || !isFinite(zMax) || zMax <= 0) return null;
 
     const candidates = [zMax, (zMin + zMax) / 2, zMin];

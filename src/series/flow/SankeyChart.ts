@@ -56,6 +56,9 @@ export class SankeyChart extends BaseSeries {
 
     const { nodes, links } = this.buildGraph();
     if (nodes.length === 0) return;
+    // A collapsed plot (tiny or hidden container) gives the layout no height to
+    // stack nodes in; d3-sankey would produce NaN positions.
+    if (!(plotArea.width > 0 && plotArea.height > 0)) return;
 
     const isNarrow = plotArea.width < NARROW_PLOT_WIDTH;
     const isVeryNarrow = plotArea.width < VERY_NARROW_PLOT_WIDTH;

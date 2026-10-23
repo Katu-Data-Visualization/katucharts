@@ -8,6 +8,7 @@
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig } from '../../types/options';
 import { ENTRY_DURATION, EASE_ENTRY } from '../../core/animationConstants';
+import { arrayMax } from '../../utils/math';
 
 export class VBPChart extends BaseSeries {
   constructor(config: InternalSeriesConfig) {
@@ -20,7 +21,7 @@ export class VBPChart extends BaseSeries {
     const data = this.data;
     if (data.length === 0) return;
 
-    const maxVol = Math.max(...data.map(d => (d as any).volume ?? 0)) || 1;
+    const maxVol = arrayMax(data.map(d => (d as any).volume ?? 0), -Infinity) || 1;
     const widthFraction = (this.config as any).zoneWidth ?? 0.3;
     const maxBarWidth = plotArea.width * widthFraction;
     const baseColor = this.config.color || 'rgba(120,150,200,0.45)';

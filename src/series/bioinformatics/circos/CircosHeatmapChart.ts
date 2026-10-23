@@ -21,6 +21,7 @@ import {
   EASE_ENTRY,
   EASE_HOVER,
 } from '../../../core/animationConstants';
+import { arrayMin, arrayMax } from '../../../utils/math';
 
 interface HeatmapRow {
   id: string;
@@ -71,8 +72,8 @@ export class CircosHeatmapChart extends BaseSeries {
     let domainMin = cfg.min;
     let domainMax = cfg.max;
     if (allValues.length > 0) {
-      domainMin ??= Math.min(...allValues);
-      domainMax ??= Math.max(...allValues);
+      domainMin ??= arrayMin(allValues, Infinity);
+      domainMax ??= arrayMax(allValues, -Infinity);
     } else {
       domainMin ??= 0;
       domainMax ??= 1;

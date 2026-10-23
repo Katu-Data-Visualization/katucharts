@@ -7,6 +7,7 @@ import 'd3-transition';
 import { BaseSeries } from '../BaseSeries';
 import type { InternalSeriesConfig, ColorAxisOptions, BorderRadiusOptions } from '../../types/options';
 import { templateFormat, stripHtmlTags } from '../../utils/format';
+import { stepValues, arrayMin, arrayMax } from '../../utils/math';
 import { HOVER_DURATION, EASE_HOVER } from '../../core/animationConstants';
 import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE, readableTextColor } from '../../utils/chartText';
 
@@ -14,6 +15,15 @@ function resolveBorderRadius(val: number | BorderRadiusOptions | undefined): num
   if (val === undefined) return 4;
   if (typeof val === 'number') return val;
   return val.radius ?? 4;
+}
+
+/**
+ * The number a cell is coloured by. An explicit `value` or `z` wins even when
+ * it is null (a cell with no data, drawn in nullColor); only when neither is
+ * given does `y` serve as the value, since otherwise `y` is the row.
+ */
+function cellValue(d: any): number | null | undefined {
+  return d.value !== undefined ? d.value : d.z !== undefined ? d.z : d.y;
 }
 
 export class HeatmapChart extends BaseSeries {
@@ -29,10 +39,10 @@ export class HeatmapChart extends BaseSeries {
 
     const colorAxisCfg: ColorAxisOptions = (this.config as any).colorAxis || {};
     const values = data
-      .map(d => (d as any).value ?? (d as any).z ?? d.y ?? 0)
-      .filter(v => v !== null && v !== undefined);
-    const minVal = colorAxisCfg.min ?? (values.length > 0 ? Math.min(...values) : 0);
-    const maxVal = colorAxisCfg.max ?? (values.length > 0 ? Math.max(...values) : 1);
+      .map(cellValue)
+      .filter((v): v is number => typeof v === 'number');
+    const minVal = colorAxisCfg.min ?? (values.length > 0 ? arrayMin(values, Infinity) : 0);
+    const maxVal = colorAxisCfg.max ?? (values.length > 0 ? arrayMax(values, -Infinity) : 1);
     const nullColor = this.config.nullColor ?? '#e4e4e4';
     const inactiveOpacity = this.config.states?.inactive?.opacity ?? 0.4;
 
@@ -49,14 +59,14 @@ export class HeatmapChart extends BaseSeries {
     const useCategorical = xCategories.length > 0 && yCategories.length > 0;
     const cellWidth = useCategorical
       ? plotArea.width / xCategories.length
-      : plotArea.width / Math.max(1, Math.ceil((Math.max(...data.map(d => d.x ?? 0)) + colsize) / colsize));
+      : plotArea.width / Math.max(1, Math.ceil((arrayMax(data.map(d => d.x ?? 0), -Infinity) + colsize) / colsize));
     const cellHeight = useCategorical
       ? plotArea.height / yCategories.length
-      : plotArea.height / Math.max(1, Math.ceil((Math.max(...data.map(d => d.y ?? 0)) + rowsize) / rowsize));
+      : plotArea.height / Math.max(1, Math.ceil((arrayMax(data.map(d => d.y ?? 0), -Infinity) + rowsize) / rowsize));
 
     const getCellColor = (d: any): string => {
       if (d.color) return d.color;
-      const val = d.value ?? d.z ?? d.y;
+      const val = cellValue(d);
       if (val === null || val === undefined) return nullColor;
       return colorScale(val);
     };
@@ -133,7 +143,7 @@ export class HeatmapChart extends BaseSeries {
             .attr('opacity', inactiveOpacity);
 
           const i = data.indexOf(d);
-          const val = (d as any).value ?? (d as any).z ?? d.y;
+          const val = cellValue(d);
           this.context.events.emit('point:mouseover', {
             point: { ...d, value: val }, index: i, series: this, event,
             plotX: getCellX(d) + cellWidth / 2,
@@ -187,7 +197,7 @@ export class HeatmapChart extends BaseSeries {
 
     const grid = new Map<string, number>();
     for (const d of data) {
-      const val = (d as any).value ?? (d as any).z ?? d.y;
+      const val = cellValue(d);
       const xIdx = xs.indexOf(d.x ?? 0);
       const yIdx = ys.indexOf((d as any).yCategory ?? d.y ?? 0);
       if (val !== null && val !== undefined) {
@@ -354,7 +364,7 @@ export class HeatmapChart extends BaseSeries {
       const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
       const nice = [1, 2, 2.5, 5, 10].find(n => n * mag >= rawStep)! * mag;
       const tickStart = Math.ceil(minVal / nice) * nice;
-      for (let v = tickStart; v <= maxVal + nice * 0.01; v += nice) {
+      for (const v of stepValues(tickStart, maxVal, nice, 1000, nice * 0.01)) {
         ticks.push(Math.round(v * 1e6) / 1e6);
       }
       /**
@@ -509,7 +519,7 @@ export class HeatmapChart extends BaseSeries {
       .attr('fill', (d: any) => readableTextColor(getCellColor(d), fontColorOverride))
       .style('pointer-events', 'none')
       .text((d: any) => {
-        const val = d.value ?? d.z ?? d.y;
+        const val = cellValue(d);
         if (val === null || val === undefined) {
           if (dlCfg.nullFormatter) return dlCfg.nullFormatter.call({ point: d, series: { name: this.config.name } });
           if (dlCfg.nullFormat) return dlCfg.nullFormat;

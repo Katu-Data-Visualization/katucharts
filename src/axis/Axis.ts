@@ -14,6 +14,7 @@ import 'd3-transition';
 import { timeFormat, utcFormat } from 'd3-time-format';
 import type { InternalAxisConfig, PlotArea, PlotBandOptions, PlotLineOptions } from '../types/options';
 import { siFormat, numberFormat, getUseUTC } from '../utils/format';
+import { stepValues } from '../utils/math';
 import { DEFAULT_CHART_TEXT_COLOR, DEFAULT_CHART_TEXT_SIZE, ROTATED_AXIS_LABEL_MAX_EXTENT, parseFontSizePx, readableTextColor } from '../utils/chartText';
 
 export type AnyScale = ScaleLinear<number, number> | ScaleLogarithmic<number, number>
@@ -598,7 +599,7 @@ class BaseAxis {
     const majorSet = new Set(majorTicks.map((t: any) => Number(t)));
 
     const vertical = this.config.isX ? !this.config._inverted : !!this.config._inverted;
-    for (let v = start; v <= end; v += minorInterval) {
+    for (const v of stepValues(start, end, minorInterval)) {
       if (majorSet.has(v)) continue;
       const pos = scale(v);
       if (vertical) {
@@ -899,11 +900,10 @@ class BaseAxis {
       axisGen.tickValues(this.config.tickPositions);
     } else if (this.config.tickInterval) {
       const domain = scale.domain();
-      const ticks: number[] = [];
-      for (let v = domain[0]; v <= domain[1]; v += this.config.tickInterval) {
-        ticks.push(v);
-      }
-      axisGen.tickValues(ticks);
+      // Time scales report their domain as Dates: step in milliseconds, hand back Dates.
+      const isTime = domain[0] instanceof Date;
+      const ticks = stepValues(+domain[0], +domain[1], this.config.tickInterval);
+      axisGen.tickValues(isTime ? ticks.map(t => new Date(t)) : ticks);
     } else if (scale.domain && typeof scale.ticks === 'function') {
       const inv = this.config._inverted;
       const axisLength = this.config.isX
@@ -1066,11 +1066,7 @@ export class LinearAxis extends BaseAxis implements AxisInstance {
       axisGen.tickValues(this.config.tickPositions);
     } else if (this.config.tickInterval) {
       const domain = this.scale.domain();
-      const ticks: number[] = [];
-      for (let v = domain[0]; v <= domain[1]; v += this.config.tickInterval) {
-        ticks.push(v);
-      }
-      axisGen.tickValues(ticks);
+      axisGen.tickValues(stepValues(domain[0], domain[1], this.config.tickInterval));
     } else if (this.config.tickAmount) {
       axisGen.ticks(this.config.tickAmount);
     } else {
@@ -1295,7 +1291,7 @@ export class LogarithmicAxis extends BaseAxis implements AxisInstance {
     const endExp = Math.ceil(hi);
     const ticks: number[] = [];
 
-    for (let exp = startExp; exp <= endExp; exp += expStep) {
+    for (const exp of stepValues(startExp, endExp, expStep)) {
       const val = Math.pow(10, exp);
       if (val >= domain[0] * 0.999 && val <= domain[1] * 1.001) {
         ticks.push(val);

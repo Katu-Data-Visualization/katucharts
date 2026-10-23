@@ -244,7 +244,8 @@ export class CandlestickChart extends BaseSeries {
     const { plotArea } = this.context;
     const pixelsPerPoint = plotArea.width / Math.max(1, data.length);
 
-    if (pixelsPerPoint >= groupSize) return data;
+    // A collapsed plot (zero or negative width in a tiny container) has nothing to group into.
+    if (!(pixelsPerPoint > 0) || pixelsPerPoint >= groupSize) return data;
 
     const pointsPerGroup = Math.ceil(groupSize / pixelsPerPoint);
     const grouped: any[] = [];

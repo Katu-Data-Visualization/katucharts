@@ -17,6 +17,7 @@ import {
   EASE_ENTRY,
   EASE_HOVER,
 } from '../../core/animationConstants';
+import { arrayMin, arrayMax } from '../../utils/math';
 
 interface DendrogramNode {
   children?: DendrogramNode[];
@@ -54,8 +55,8 @@ export class ClusteredHeatmapChart extends BaseSeries {
 
     const values = data.map(d => (d as any).value ?? d.z ?? d.y ?? 0)
       .filter(v => v !== null && v !== undefined);
-    const minVal = this.config.min ?? (values.length > 0 ? Math.min(...values) : 0);
-    const maxVal = this.config.max ?? (values.length > 0 ? Math.max(...values) : 1);
+    const minVal = this.config.min ?? (values.length > 0 ? arrayMin(values, Infinity) : 0);
+    const maxVal = this.config.max ?? (values.length > 0 ? arrayMax(values, -Infinity) : 1);
     const nullColor = this.config.nullColor ?? '#e4e4e4';
     const colorInterpolator = this.config.diverging
       ? interpolateRdBu

@@ -18,6 +18,9 @@ import {
   EASE_HOVER,
 } from '../../core/animationConstants';
 
+/** Above this many nodes, label overlap relaxation is skipped (it is O(n²) per tick). */
+const MAX_DECLUTTER_NODES = 300;
+
 export class NetworkGraphChart extends BaseSeries {
   private simulation: any = null;
 
@@ -155,13 +158,19 @@ export class NetworkGraphChart extends BaseSeries {
       return moved;
     };
     const labelDeclutter = (alpha: number) => { declutterPass(0.35 * alpha, false); };
+    /**
+     * Decluttering compares every pair of labels on every tick, so on large
+     * graphs (where captions can't all be read anyway) it would freeze the page
+     * for minutes; beyond MAX_DECLUTTER_NODES nodes it is skipped.
+     */
+    const declutterLabels = labelsVisible && nodes.length <= MAX_DECLUTTER_NODES;
 
     this.simulation = forceSimulation(nodes)
       .force('link', linkForce)
       .force('charge', chargeForce)
       .force('center', forceCenter(plotArea.width / 2, plotArea.height / 2))
       .force('collide', forceCollide().radius((d: any) => (d.marker?.radius ?? 10) + 4))
-      .force('declutter', labelsVisible ? labelDeclutter : null)
+      .force('declutter', declutterLabels ? labelDeclutter : null)
       .velocityDecay(1 - friction)
       .alphaDecay(1 - Math.pow(0.001, 1 / maxIterations))
       .stop();
@@ -184,7 +193,7 @@ export class NetworkGraphChart extends BaseSeries {
      * than re-stacking at the boundary); damped so long labels that cannot
      * fully separate settle instead of jittering.
      */
-    if (labelsVisible) {
+    if (declutterLabels) {
       for (let i = 0; i < 60 && declutterPass(0.6, true); i++) {
         nodes.forEach((n: any) => this.clampToPlot(n));
       }

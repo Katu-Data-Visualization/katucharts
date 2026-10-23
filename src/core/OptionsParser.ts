@@ -350,12 +350,20 @@ export class OptionsParser {
             'Use array format (numbers or [x,y] pairs) for better performance.'
           );
         }
-        if (typeof first === 'number' || (Array.isArray(first) && typeof first[0] === 'number')) {
-          result.data = this.normalizeDataBulk(result.data as (number | [number, number] | [number, number, number])[], result);
+        /**
+         * The bulk path only knows the default array layouts, so series that map
+         * array positions differently (`keys`, boxplot, flowmap) stay per-point.
+         */
+        const customLayout = (result.keys?.length ?? 0) > 0 || result.type === 'boxplot' || result.type === 'flowmap';
+        if (!customLayout && (typeof first === 'number' || (Array.isArray(first) && typeof first[0] === 'number'))) {
+          result.data = OptionsParser.dropPlaceholderPoints(
+            this.normalizeDataBulk(result.data as (number | [number, number] | [number, number, number])[], result), result);
           return this.applyDataSorting(result);
         }
       }
-      result.data = result.data.map((d, i) => this.normalizeDataPoint(d, i, result));
+      // Array.from (unlike map) also visits holes in a sparse array.
+      result.data = OptionsParser.dropPlaceholderPoints(
+        Array.from(result.data, (d, i) => this.normalizeDataPoint(d, i, result)), result);
     } else if (result.data != null) {
       result.data = [];
     }
@@ -420,22 +428,91 @@ export class OptionsParser {
     return null;
   }
 
+  /**
+   * Largest magnitude a value may have and still be plotted. Beyond this, the
+   * span between two values or an axis padding step overflows to Infinity and
+   * every coordinate becomes NaN, so such values are treated as missing.
+   */
+  private static readonly MAX_PLOTTABLE = 1e300;
+
+  /** Point fields that carry a plotted value (as opposed to names, ids, colors). */
+  private static readonly VALUE_KEYS = ['y', 'low', 'high', 'open', 'close', 'q1', 'median', 'q3', 'z', 'value', 'weight'] as const;
+
+  /**
+   * Points whose x was invented from their index because the input gave no
+   * usable one (null, junk, a non-plottable x). Kept out of the point objects
+   * so nothing extra leaks into tooltips or events.
+   */
+  private static readonly placeholderX = new WeakSet<PointOptions>();
+
+  private static placeholder(point: PointOptions): PointOptions {
+    OptionsParser.placeholderX.add(point);
+    return point;
+  }
+
+  /**
+   * In a series laid out by its own x values (dates, measurements), an invented
+   * index x would land near zero and squash the axis (a datetime axis would
+   * stretch back to 1970), so those placeholder points are dropped. Series
+   * positioned by index keep them as gaps, where the index x is right.
+   */
+  private static dropPlaceholderPoints(points: PointOptions[], series: SeriesOptions): PointOptions[] {
+    const start = series.pointStart ?? 0;
+    const interval = series.pointInterval ?? 1;
+    const explicitX = points.some((p, i) =>
+      !OptionsParser.placeholderX.has(p) && typeof p.x === 'number' && p.x !== start + i * interval);
+    return explicitX ? points.filter(p => !OptionsParser.placeholderX.has(p)) : points;
+  }
+
+  private static isPlottable(v: unknown): v is number {
+    return typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= OptionsParser.MAX_PLOTTABLE;
+  }
+
+  /**
+   * Value fields sent as numeric strings are read as numbers; other strings,
+   * booleans, NaN, Infinity and values too large to plot become null (a gap).
+   * An x that is not plottable falls back to the point's index position.
+   */
+  private static sanitizePoint(point: PointOptions, index: number, series: SeriesOptions): PointOptions {
+    for (const key of OptionsParser.VALUE_KEYS) {
+      let v = (point as any)[key];
+      if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) {
+        v = (point as any)[key] = Number(v);
+      }
+      const scalar = typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean';
+      if (scalar && !OptionsParser.isPlottable(v)) (point as any)[key] = null;
+    }
+    if (typeof point.x === 'number' && !OptionsParser.isPlottable(point.x)) {
+      point.x = (series.pointStart ?? 0) + index * (series.pointInterval ?? 1);
+      OptionsParser.placeholder(point);
+    }
+    return point;
+  }
+
   private normalizeDataPoint(
+    d: number | [number, number] | [number, number, number] | [string, number] | PointOptions | null,
+    index: number,
+    series: SeriesOptions
+  ): PointOptions {
+    return OptionsParser.sanitizePoint(this.shapeDataPoint(d, index, series), index, series);
+  }
+
+  private shapeDataPoint(
     d: number | [number, number] | [number, number, number] | [string, number] | PointOptions | null,
     index: number,
     series: SeriesOptions
   ): PointOptions {
     /**
      * Malformed values from an API (missing, NaN/Infinity, numbers sent as
-     * strings) become a numeric y or a null gap, so scales and paths never
-     * see NaN.
+     * strings, other strings or booleans) become a numeric y or a null gap at
+     * their index, so scales and paths never see NaN.
      */
     const raw = d as unknown;
     if (typeof raw === 'string' && raw.trim() !== '' && Number.isFinite(Number(raw))) {
       d = Number(raw);
     }
-    if (d === null || d === undefined || (typeof d === 'number' && !Number.isFinite(d))) {
-      return { x: (series.pointStart ?? 0) + index * (series.pointInterval ?? 1), y: null };
+    if (d === null || (typeof d !== 'object' && typeof d !== 'number') || (typeof d === 'number' && !OptionsParser.isPlottable(d))) {
+      return OptionsParser.placeholder({ x: (series.pointStart ?? 0) + index * (series.pointInterval ?? 1), y: null });
     }
 
     if (typeof d === 'number') {
@@ -527,45 +604,37 @@ export class OptionsParser {
     const result = new Array<PointOptions>(len);
     const start = series.pointStart ?? 0;
     const interval = series.pointInterval ?? 1;
-    const first = data[0];
 
-    if (typeof first === 'number') {
-      for (let i = 0; i < len; i++) {
-        result[i] = { x: start + i * interval, y: data[i] as number };
+    for (let i = 0; i < len; i++) {
+      const d = data[i] as unknown;
+      if (typeof d === 'number' && OptionsParser.isPlottable(d)) {
+        result[i] = { x: start + i * interval, y: d };
+        continue;
       }
-    } else {
-      const firstOhlcKeys = Array.isArray(first) ? this.defaultArrayKeys(series.type, first.length) : null;
-      if (firstOhlcKeys) {
-        for (let i = 0; i < len; i++) {
-          const d = data[i] as number[];
-          const ohlcKeys = this.defaultArrayKeys(series.type, d.length);
-          const point: PointOptions = {};
-          if (ohlcKeys) {
-            for (let k = 0; k < ohlcKeys.length && k < d.length; k++) {
-              (point as any)[ohlcKeys[k]] = d[k];
-            }
-            if (point.x === undefined) point.x = start + i * interval;
-            if ((point as any).close !== undefined && point.y === undefined) {
-              point.y = (point as any).close;
-            }
-          } else {
-            if (d.length >= 3) {
-              Object.assign(point, { x: d[0], y: d[1], z: d[2] });
-            } else {
-              Object.assign(point, { x: d[0], y: d[1] });
-            }
-          }
-          result[i] = point;
+      /**
+       * Rows that aren't plain numbers or all-numeric arrays (null, a gap like
+       * [t, null], junk, a sparse hole) take the full per-point path, so one odd
+       * row doesn't slow down or break the rest of a large dataset.
+       */
+      if (!Array.isArray(d) || !d.every(OptionsParser.isPlottable)) {
+        result[i] = this.normalizeDataPoint(d as any, i, series);
+        continue;
+      }
+      const ohlcKeys = this.defaultArrayKeys(series.type, d.length);
+      if (ohlcKeys) {
+        const point: PointOptions = {};
+        for (let k = 0; k < ohlcKeys.length && k < d.length; k++) {
+          (point as any)[ohlcKeys[k]] = d[k];
         }
+        if (point.x === undefined) point.x = start + i * interval;
+        if ((point as any).close !== undefined && point.y === undefined) {
+          point.y = (point as any).close;
+        }
+        result[i] = point;
+      } else if (d.length >= 3) {
+        result[i] = { x: d[0], y: d[1], z: d[2] };
       } else {
-        for (let i = 0; i < len; i++) {
-          const d = data[i] as number[];
-          if (d.length >= 3) {
-            result[i] = { x: d[0], y: d[1], z: d[2] };
-          } else {
-            result[i] = { x: d[0], y: d[1] };
-          }
-        }
+        result[i] = { x: d[0], y: d[1] };
       }
     }
 

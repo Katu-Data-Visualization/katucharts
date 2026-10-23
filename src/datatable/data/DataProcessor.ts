@@ -7,6 +7,7 @@ import type {
   SortState, GroupInfo, GroupingOptions, TreeDataOptions,
 } from '../../types/datatable-options';
 import { resolveCellValue } from '../columns/ColumnDef';
+import { arrayMin, arrayMax } from '../../utils/math';
 
 type DirtyStage = 'search' | 'filter' | 'group' | 'sort' | 'aggregate' | 'paginate' | 'window';
 
@@ -452,10 +453,10 @@ export class DataProcessor {
             aggResult = values.length;
             break;
           case 'min':
-            aggResult = numValues.length ? Math.min(...numValues) : null;
+            aggResult = numValues.length ? arrayMin(numValues, Infinity) : null;
             break;
           case 'max':
-            aggResult = numValues.length ? Math.max(...numValues) : null;
+            aggResult = numValues.length ? arrayMax(numValues, -Infinity) : null;
             break;
         }
       }

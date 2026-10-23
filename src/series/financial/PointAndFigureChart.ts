@@ -13,6 +13,9 @@ import {
   EASE_HOVER,
 } from '../../core/animationConstants';
 
+/** Above this many unit boxes across the price range, an unset boxSize is derived. */
+const MAX_AUTO_BOXES = 10000;
+
 interface PnFColumn {
   index: number;
   direction: 'X' | 'O';
@@ -23,6 +26,7 @@ interface PnFColumn {
 
 export class PointAndFigureChart extends BaseSeries {
   private columns: PnFColumn[] = [];
+  private boxSize = 1;
 
   constructor(config: InternalSeriesConfig) {
     super(config);
@@ -36,13 +40,13 @@ export class PointAndFigureChart extends BaseSeries {
   processData(): void {
     super.processData();
 
-    const boxSize = Math.max(1, (this.config as any).boxSize ?? 1);
-    const reversalBoxes = (this.config as any).reversalAmount ?? 3;
-    const reversalAmount = reversalBoxes * boxSize;
-
     const closes = this.data
       .map(d => (d as any).close ?? d.y)
       .filter((v): v is number => v !== null && v !== undefined);
+
+    const boxSize = this.boxSize = this.resolveBoxSize(closes);
+    const reversalBoxes = (this.config as any).reversalAmount ?? 3;
+    const reversalAmount = reversalBoxes * boxSize;
 
     this.columns = [];
     if (closes.length < 2) return;
@@ -100,6 +104,26 @@ export class PointAndFigureChart extends BaseSeries {
     finalizeColumn();
   }
 
+  /**
+   * A configured boxSize is used as given (at least 1). Without one, prices whose
+   * range spans more than MAX_AUTO_BOXES unit boxes get a nice step of about
+   * 1/100 of the range, since every box becomes an element and a unit box on large
+   * prices would build millions of them.
+   */
+  private resolveBoxSize(closes: number[]): number {
+    const configured = (this.config as any).boxSize;
+    if (configured != null) return Math.max(1, configured);
+    if (closes.length === 0) return 1;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const c of closes) { if (c < lo) lo = c; if (c > hi) hi = c; }
+    const range = hi - lo;
+    if (!(range > MAX_AUTO_BOXES)) return 1;
+    const raw = range / 100;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    return [1, 2, 5, 10].find(n => n * mag >= raw)! * mag;
+  }
+
   render(): void {
     const { xAxis, yAxis, plotArea } = this.context;
     const animate = this.context.animate;
@@ -107,7 +131,7 @@ export class PointAndFigureChart extends BaseSeries {
 
     if (columns.length === 0) return;
 
-    const boxSize = (this.config as any).boxSize ?? 1;
+    const boxSize = this.boxSize;
     const upColor = (this.config as any).upColor || '#2f7ed8';
     const downColor = (this.config as any).downColor || this.config.color || '#f45b5b';
     const inactiveOpacity = this.config.states?.inactive?.opacity ?? 0.4;
@@ -220,7 +244,7 @@ export class PointAndFigureChart extends BaseSeries {
       return { xMin: 0, xMax: 0, yMin: 0, yMax: 0 };
     }
 
-    const boxSize = (this.config as any).boxSize ?? 1;
+    const boxSize = this.boxSize;
     let yMin = Infinity;
     let yMax = -Infinity;
 

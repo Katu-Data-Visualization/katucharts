@@ -4,6 +4,7 @@ import { scaleLinear } from 'd3-scale';
 import { line } from 'd3-shape';
 import type { NavigatorOptions, PlotArea } from '../types/options';
 import { EventBus } from '../core/EventBus';
+import { arrayMin, arrayMax } from '../utils/math';
 
 export class Navigator {
   private group: Selection<SVGGElement, unknown, null, undefined>;
@@ -95,12 +96,12 @@ export class Navigator {
     if (seriesData.length === 0) return;
 
     const xExtent = [
-      Math.min(...seriesData.map(d => d.x)),
-      Math.max(...seriesData.map(d => d.x)),
+      arrayMin(seriesData.map(d => d.x), Infinity),
+      arrayMax(seriesData.map(d => d.x), -Infinity),
     ];
     const yExtent = [
-      Math.min(...seriesData.map(d => d.y)),
-      Math.max(...seriesData.map(d => d.y)),
+      arrayMin(seriesData.map(d => d.y), Infinity),
+      arrayMax(seriesData.map(d => d.y), -Infinity),
     ];
 
     const xScale = scaleLinear().domain(xExtent).range([0, this.width]);

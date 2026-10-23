@@ -827,6 +827,9 @@ export class FunnelChart extends BaseSeries {
 
   render(): void {
     const { plotArea } = this.context;
+    // A collapsed plot (tiny or hidden container) leaves no room for any band,
+    // and band widths are derived by dividing by the plot height.
+    if (!(plotArea.width > 0 && plotArea.height > 0)) return;
     const data = this.data.filter(d => d.y !== null && d.y !== undefined);
     // A pyramid is a funnel drawn bottom-up, so the smallest value forms the
     // apex and the largest the base. srcIndex preserves the caller's original

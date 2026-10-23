@@ -1252,7 +1252,8 @@ export class Chart {
    * primitive would otherwise reach code that calls array methods on it.
    */
   private static withNormalizedSeries<T extends Partial<KatuChartsOptions>>(options: T): T {
-    if (!options || typeof options !== 'object' || !('series' in options)) return options;
+    // An undefined `series` means "not given" (deepMerge skips it), not "no series".
+    if (!options || typeof options !== 'object' || options.series === undefined) return options;
     return { ...options, series: OptionsParser.normalizeSeriesList(options.series) };
   }
 

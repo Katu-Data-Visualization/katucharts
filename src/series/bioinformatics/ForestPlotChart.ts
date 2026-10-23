@@ -16,6 +16,7 @@ import {
   EASE_ENTRY,
   EASE_HOVER,
 } from '../../core/animationConstants';
+import { arrayMax } from '../../utils/math';
 
 export class ForestPlotChart extends BaseSeries {
   constructor(config: InternalSeriesConfig) {
@@ -43,7 +44,7 @@ export class ForestPlotChart extends BaseSeries {
     const animOpts = typeof this.config.animation === 'object' ? this.config.animation : {};
     const entryDur = animOpts.duration ?? ENTRY_DURATION;
 
-    const maxWeight = Math.max(...data.map(d => d.custom?.weight ?? 1));
+    const maxWeight = arrayMax(data.map(d => d.custom?.weight ?? 1), -Infinity);
 
     this.renderNullEffectLine(nullEffect, nullColor);
 

@@ -25,6 +25,7 @@ import {
   EASE_ENTRY,
   EASE_HOVER,
 } from '../../core/animationConstants';
+import { arrayMin, arrayMax } from '../../utils/math';
 
 const colorSchemeMap: Record<string, (t: number) => string> = {
   'blues': interpolateBlues,
@@ -94,8 +95,8 @@ export class MapChart extends BaseSeries {
 
     const colorAxisCfg = cfg.colorAxis || {};
     const values = this.data.map(d => d.y ?? (d as any).value).filter(v => v != null);
-    const minVal = colorAxisCfg.min ?? (values.length ? Math.min(...values) : 0);
-    const maxVal = colorAxisCfg.max ?? (values.length ? Math.max(...values) : 1);
+    const minVal = colorAxisCfg.min ?? (values.length ? arrayMin(values, Infinity) : 0);
+    const maxVal = colorAxisCfg.max ?? (values.length ? arrayMax(values, -Infinity) : 1);
 
     if (Array.isArray(colorAxisCfg.stops) && colorAxisCfg.stops.length >= 2) {
       const span = (maxVal - minVal) || 1;
