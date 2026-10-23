@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>KatuCharts stress test</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; }
+  #host { width: 600px; height: 360px; }
+  #log { white-space: pre-wrap; font: 12px monospace; }
+</style>
+</head>
+<body>
+<!--
+  Robustness sweep: every registered series type gets empty, malformed and edge-case
+  data, then goes through a chart's lifecycle (hover, click, legend, zoom, resize,
+  update, destroy). Any throw, uncaught error or NaN/undefined/Infinity written into
+  the SVG is recorded. Open with `npx vite` → /dev/stress.html; results are in
+  `window.__stress` (and summarized on the page). `?type=pie` limits the run.
+-->
+<div id="host"></div>
+<div id="log">running…</div>
+<script type="module">
+import KatuCharts from '/src/index.ts';
+import '/src/bio.ts';
+import '/src/finance.ts';
+import { ChartRegistry } from '/src/core/Registry.ts';
+
+const host = document.getElementById('host');
+const params = new URLSearchParams(location.search);
+const onlyType = params.get('type');
+
+const GOOD = {
+  default: [1, 3, 2, 5],
+  arearange: [[1, 3], [2, 4], [0, 2]],
+  areasplinerange: [[1, 3], [2, 4], [0, 2]],
+  columnrange: [[1, 3], [2, 4], [0, 2]],
+  bubble: [[1, 2, 3], [2, 3, 5], [3, 1, 2]],
+  boxplot: [[1, 2, 3, 4, 5], [2, 3, 4, 5, 6]],
+  ohlc: [[0, 1, 3, 0.5, 2], [1, 2, 4, 1, 3], [2, 3, 5, 2, 4]],
+  candlestick: [[0, 1, 3, 0.5, 2], [1, 2, 4, 1, 3], [2, 3, 5, 2, 4]],
+  heikinashi: [[0, 1, 3, 0.5, 2], [1, 2, 4, 1, 3], [2, 3, 5, 2, 4]],
+  hollowcandlestick: [[0, 1, 3, 0.5, 2], [1, 2, 4, 1, 3], [2, 3, 5, 2, 4]],
+  heatmap: [[0, 0, 1], [0, 1, 2], [1, 0, 3], [1, 1, 4]],
+  clusteredheatmap: [[0, 0, 1], [0, 1, 2], [1, 0, 3], [1, 1, 4]],
+  pie: [['A', 1], ['B', 2], ['C', 3]],
+  donut: [['A', 1], ['B', 2], ['C', 3]],
+  funnel: [['A', 3], ['B', 2], ['C', 1]],
+  pyramid: [['A', 3], ['B', 2], ['C', 1]],
+  item: [['A', 3], ['B', 2]],
+  sankey: [['A', 'B', 3], ['B', 'C', 2], ['A', 'C', 1]],
+  dependencywheel: [['A', 'B', 3], ['B', 'C', 2], ['C', 'A', 1]],
+  networkgraph: [['A', 'B'], ['B', 'C'], ['C', 'A']],
+  treemap: [{ id: 'a', name: 'A' }, { name: 'b', parent: 'a', value: 3 }, { name: 'c', parent: 'a', value: 2 }],
+  sunburst: [{ id: 'a', name: 'A' }, { name: 'b', parent: 'a', value: 3 }, { name: 'c', parent: 'a', value: 2 }],
+  treegraph: [{ id: 'a', name: 'A' }, { id: 'b', parent: 'a' }, { id: 'c', parent: 'a' }],
+  gauge: [60],
+  solidgauge: [60],
+  venn: [{ sets: ['A'], value: 3 }, { sets: ['B'], value: 2 }, { sets: ['A', 'B'], value: 1 }],
+  wordcloud: [{ name: 'alpha', weight: 3 }, { name: 'beta', weight: 1 }],
+  timeline: [{ name: 'a', label: 'first' }, { name: 'b', label: 'second' }],
+  gantt: [{ name: 't1', start: 0, end: 5 }, { name: 't2', start: 2, end: 7 }],
+  flowmap: [],
+  map: [],
+  mappoint: [],
+};
+const good = type => GOOD[type] ?? GOOD.default;
+
+const MALFORMED = {
+  'series={}': () => ({}),
+  'series=null': () => null,
+  'series="x"': () => 'x',
+  'series=[]': () => [],
+  'series=[null]': () => [null],
+  'series=[{}]': () => [{}],
+  'data=null': () => [{ data: null }],
+  'data={}': () => [{ data: {} }],
+  'data="abc"': () => [{ data: 'abc' }],
+  'data=[]': () => [{ data: [] }],
+  'data=[null,null]': () => [{ data: [null, null] }],
+  'data=junk': () => [{ data: [1, null, undefined, NaN, '3', 'abc', {}, [], Infinity, 4] }],
+  'data=[NaN,NaN]': () => [{ data: [NaN, NaN] }],
+  'data=single': () => [{ data: [5] }],
+  'data=zeros': () => [{ data: [0, 0, 0] }],
+  'data=negative': () => [{ data: [-1, -5, -2] }],
+  'data=numeric strings': () => [{ data: ['1', '2.5', '3'] }],
+  'data=huge': () => [{ data: [1e308, -1e308, 1] }],
+  'data=good': type => [{ name: 'S1', data: good(type) }],
+  'two series one empty': type => [{ name: 'S1', data: good(type) }, { name: 'S2', data: [] }],
+  'data=object strings': () => [{ data: [{ y: '3' }, { y: 'x' }, { y: null }, { y: 2 }] }],
+  'data=bulk numbers+junk': () => [{ data: Array.from({ length: 3000 }, (_, i) => (i % 97 === 0 ? null : i % 89 === 0 ? 'x' : Math.sin(i) * 10)) }],
+  'data=bulk pairs+junk': () => [{ data: Array.from({ length: 3000 }, (_, i) => (i % 97 === 0 ? null : [i, i % 89 === 0 ? NaN : Math.cos(i)])) }],
+  'categories={} + good': type => ({ __categories: {}, series: [{ data: good(type) }] }),
+  'categories dup + good': type => ({ __categories: ['A', 'A', 'B', 'B'], series: [{ data: good(type) }] }),
+};
+
+const BAD_SVG = /\s(?:d|transform|x|y|x1|x2|y1|y2|cx|cy|r|rx|ry|width|height|points|viewBox)="[^"]*\b(?:NaN|undefined|Infinity)\b[^"]*"/;
+const frame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+const results = [];
+let current = null;
+const record = (step, err) => {
+  if (!current) return;
+  current.errors.push(`${step}: ${err && err.message ? err.message : String(err)}`.slice(0, 240));
+};
+window.addEventListener('error', e => record(current?.step + ' (async)', e.error || e.message));
+window.addEventListener('unhandledrejection', e => record(current?.step + ' (promise)', e.reason));
+const origConsoleError = console.error;
+console.error = (...a) => { if (current) current.consoleErrors.push(a.map(String).join(' ').slice(0, 200)); origConsoleError(...a); };
+
+function svgProblems(where) {
+  const svg = host.querySelector('svg');
+  if (!svg) return;
+  const m = svg.outerHTML.match(BAD_SVG);
+  if (m) current.svgBad.push(`${where}: ${m[0].slice(0, 120)}`);
+}
+
+async function step(name, fn) {
+  current.step = name;
+  // Lets a runner name the case that hangs, since a blocked page can't be queried.
+  console.log(`STEP ${current.type} | ${current.case} | ${name}`);
+  try { await fn(); } catch (e) { record(name, e); }
+  await frame();
+}
+
+function fire(el, type, x, y) {
+  el.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, view: window }));
+}
+
+async function runCase(type, label, make) {
+  current = { type, case: label, errors: [], consoleErrors: [], svgBad: [], step: '' };
+  host.replaceChildren();
+  const made = make(type);
+  const wrapped = made && typeof made === 'object' && !Array.isArray(made) && '__categories' in made;
+  const options = {
+    chart: { type, animation: false },
+    title: { text: `${type} | ${label}` },
+    plotOptions: { series: { animation: false } },
+    xAxis: wrapped ? { categories: made.__categories } : undefined,
+    series: wrapped ? made.series : made,
+  };
+  let chart = null;
+  await step('create', () => { chart = KatuCharts.chart(host, options); });
+  svgProblems('create');
+  if (chart) {
+    const svg = host.querySelector('svg');
+    if (svg) {
+      const r = svg.getBoundingClientRect();
+      await step('hover', async () => {
+        for (const fx of [0.2, 0.5, 0.8]) for (const fy of [0.3, 0.5, 0.7]) {
+          const target = document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy) || svg;
+          fire(target, 'mousemove', r.left + r.width * fx, r.top + r.height * fy);
+          fire(target, 'mouseover', r.left + r.width * fx, r.top + r.height * fy);
+        }
+        fire(svg, 'mouseleave', r.left - 5, r.top - 5);
+      });
+      await step('click', () => {
+        const target = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) || svg;
+        fire(target, 'click', r.left + r.width / 2, r.top + r.height / 2);
+      });
+      await step('legend toggle', async () => {
+        for (const item of [...host.querySelectorAll('.katucharts-legend-item')].slice(0, 5)) { item.dispatchEvent(new MouseEvent('click', { bubbles: true })); await frame(); item.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
+      });
+    }
+    await step('zoom', () => { const ax = chart.getXAxes?.()[0]; if (ax?.setExtremes) { ax.setExtremes(0.5, 2); ax.setExtremes(null, null); } });
+    await step('resize', () => { chart.setSize(300, 200); chart.setSize(600, 360); });
+    svgProblems('resize');
+    await step('tiny resize', () => { chart.setSize(40, 30); svgProblems('tiny'); chart.setSize(600, 360); });
+    await step('update good', () => chart.update({ series: [{ name: 'S1', data: good(type) }] }));
+    svgProblems('update good');
+    await step('update {}', () => chart.update({ series: {} }));
+    await step('update back', () => chart.update({ series: make(type)?.series ?? make(type) }));
+    svgProblems('update back');
+    await step('export data', () => { chart.getCSV?.(); chart.getSVG?.(); });
+    await step('destroy', () => chart.destroy());
+  }
+  results.push(current);
+  current = null;
+}
+
+// Created while its container is hidden (display:none → 0×0, as in a closed modal), then shown.
+async function runHiddenCase(type) {
+  current = { type, case: 'hidden container then shown', errors: [], consoleErrors: [], svgBad: [], step: '' };
+  host.replaceChildren();
+  host.style.display = 'none';
+  let chart = null;
+  await step('create hidden', () => {
+    chart = KatuCharts.chart(host, { chart: { type, animation: false }, plotOptions: { series: { animation: false } }, series: [{ name: 'S1', data: good(type) }] });
+  });
+  host.style.display = '';
+  if (chart) {
+    await step('reflow', () => chart.reflow());
+    svgProblems('shown');
+    await step('destroy', () => chart.destroy());
+  }
+  results.push(current);
+  current = null;
+}
+
+const types = (onlyType ? [onlyType] : ChartRegistry.getRegisteredTypes?.() ?? []).slice().sort();
+for (const type of types) {
+  for (const [label, make] of Object.entries(MALFORMED)) {
+    await runCase(type, label, make);
+  }
+  await runHiddenCase(type);
+}
+// The SAIA sequence: placeholder state first, data arriving later via update().
+current = null;
+await runCase('column', 'SAIA placeholder then data', () => ({}));
+
+window.__stress = results;
+const failed = results.filter(r => r.errors.length || r.svgBad.length);
+document.getElementById('log').textContent =
+  `${results.length} cases, ${failed.length} with problems\n\n` +
+  failed.map(r => `${r.type} | ${r.case}\n  ${[...r.errors, ...r.svgBad].join('\n  ')}`).join('\n');
+window.__stressDone = true;
+</script>
+</body>
+</html>
